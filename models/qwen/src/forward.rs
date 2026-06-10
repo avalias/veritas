@@ -35,11 +35,6 @@ fn dot_w8_x16(w: &[u8], x: &[u8]) -> i64 {
     acc
 }
 
-/// Saturate i64 → i32 value (stored via low-32 bit pattern).
-fn sat32(x: i64) -> i32 {
-    x.clamp(i32::MIN as i64, i32::MAX as i64) as i32
-}
-
 pub struct Native<'a> {
     pub lay: &'a QwenLayout,
     pub im: &'a IntModel,
@@ -60,6 +55,10 @@ pub struct RunStats {
     pub dirty_pages: usize,
     pub tokens: Vec<u32>,
     pub boundary_roots: Vec<Hash>,
+    /// Memory-tree roots alone (no register file) — the Qwen C-14 oracle
+    /// comparison is on these until the compiler-pinned registers land in
+    /// the runtime.
+    pub boundary_mem_roots: Vec<Hash>,
 }
 
 impl<'a> Native<'a> {
@@ -78,9 +77,16 @@ impl<'a> Native<'a> {
     /// r ≈ 2^(14+k)/√ms_q and the folded γ accounts for it.
     fn rmsnorm_to_i16(&self, mem: &mut FlatMem, src: u64, dst: u64, site: &NormSite, n: u64) {
         debug_assert!(site.elem_pre);
-        let mut ss = 0i64;
+        // Stage sat16(rnd(x, pre)) in the committed xp array, then square the
+        // STAGED values — the exact MAC16 chain the VM program runs. (sat16
+        // never binds on calibrated runs: xp <= sqrt(ss) <= 2^13-ish.)
         for c in 0..n {
             let xp = rnd(mem.r32i(src + 4 * c), site.pre_shift);
+            mem.w16(self.lay.xp + 2 * c, sat16(xp) as u16);
+        }
+        let mut ss = 0i64;
+        for c in 0..n {
+            let xp = mem.r16i(self.lay.xp + 2 * c);
             ss = ss.wrapping_add(xp.wrapping_mul(xp));
         }
         let mean = trunc_div(ss, n as i64);
@@ -104,6 +110,7 @@ impl<'a> Native<'a> {
         }
         let mean = rnd(trunc_div(ss, dh as i64), site.pre_shift);
         let r = self.lut(&self.tables.rsqrt, mean);
+        mem.w32(self.lay.r32, r as u32);
         for d in 0..dh {
             let v = rnd(
                 mem.r16i(base + 2 * d)
@@ -127,8 +134,9 @@ impl<'a> Native<'a> {
             // MAC16+MAC16+SHIFT_RNDN(14)+CLAMP16, exactly (SPEC §6.4).
             let na = rnd(a.wrapping_mul(c).wrapping_add(b.wrapping_mul(ns)), 14);
             let nb = rnd(a.wrapping_mul(s).wrapping_add(b.wrapping_mul(c)), 14);
-            mem.w16(base + 2 * p2 as u64, sat16(na) as u16);
+            mem.w16(self.lay.t_na16, sat16(na) as u16); // VM staging cell
             mem.w16(base + 2 * (p2 + half) as u64, sat16(nb) as u16);
+            mem.w16(base + 2 * p2 as u64, sat16(na) as u16);
         }
     }
 
@@ -192,7 +200,8 @@ impl<'a> Native<'a> {
         // rescales anywhere — i32 spans Qwen3's full dynamic range).
         for c in 0..h {
             let e = mem.r8i(lay.emb + tok as u64 * h + c);
-            mem.w32(lay.x + 4 * c, sat32(rnd(e.wrapping_mul(self.im.m_emb[c as usize] as i64), SHIFT)) as u32);
+            // ST32 semantics: low-32 truncation (value bounded ~2^18 anyway).
+            mem.w32(lay.x + 4 * c, rnd(e.wrapping_mul(self.im.m_emb[c as usize] as i64), SHIFT) as u32);
         }
 
         for (l, lw) in self.im.layers.iter().enumerate().take(upto) {
@@ -244,7 +253,7 @@ impl<'a> Native<'a> {
             let ov = self.proj_b(mem, a.wo, &lw.mo, h, nh * dh, lay.attnx);
             for (c, v) in ov.iter().enumerate() {
                 let with_res = v.wrapping_add(mem.r32i(lay.x + 4 * c as u64));
-                mem.w32(lay.x + 4 * c as u64, sat32(with_res) as u32);
+                mem.w32(lay.x + 4 * c as u64, with_res as u32); // ST32 truncation
             }
             // FFN: silu(gate)·up → down, with residual.
             self.rmsnorm_to_i16(mem, lay.x, lay.xn, &lw.norm2, h);
@@ -253,21 +262,32 @@ impl<'a> Native<'a> {
             for r in 0..f as usize {
                 // silu(g) = g·σ(g) with σ from the EXP LUT — gate stays at
                 // its per-layer i16 scale; only σ's argument saturates at
-                // Q4.11's ±16, where σ is genuinely 0/1 anyway.
+                // Q4.11's ±16, where σ is genuinely 0/1 anyway. Every scratch
+                // write below is a committed VM cell (boundary equality).
                 let g = sat16(gv[r]) as i64;
                 let u = sat16(uv[r]) as i64;
+                mem.w16(lay.g16, g as u16);
+                mem.w16(lay.u16, u as u16);
+                mem.w32(lay.up32, u as u32);
                 let x411 = rnd(g.wrapping_mul(lw.m_sig as i64), SHIFT);
+                mem.w32(lay.t_x, x411 as u32);
+                // Sign byte: CLAMP8(x411·2^30) ∈ {0, 127, −128} — the VM's
+                // JEQ-on-0x80 sign dispatch.
+                mem.w8(lay.t_sign, vm::exec::sat8(x411.wrapping_mul(1 << 30)) as u8);
                 // σ via e^{-|g|} only (the exp LUT saturates for positive
                 // arguments): σ(g≥0) = 2^28/(2^14+em), σ(g<0) = em·2^14/(2^14+em).
                 let em = self.lut(&self.tables.exp, if x411 >= 0 { -x411 } else { x411 });
                 let sig = if x411 >= 0 {
+                    mem.w32(lay.t_den, (16384 + em) as u32);
                     trunc_div(1i64 << 28, 16384 + em)
                 } else {
+                    mem.w32(lay.t_ep, em as u32);
+                    mem.w32(lay.t_den, (16384 + em) as u32);
                     trunc_div(em << 14, 16384 + em)
                 };
+                mem.w32(lay.t_sig, sig as u32);
                 let hpre = rnd(g.wrapping_mul(sig), 14); // g·σ at s_g
                 mem.w32(lay.silu32, hpre as u32);
-                mem.w32(lay.up32, u as u32);
                 let prod = hpre.wrapping_mul(u);
                 let hq = rnd(prod.wrapping_mul(lw.m_h[r] as i64), SHIFT);
                 mem.w16(lay.h_ffn + 2 * r as u64, sat16(hq) as u16);
@@ -275,7 +295,7 @@ impl<'a> Native<'a> {
             let dv = self.proj_b(mem, a.w_down, &lw.m_down, h, f, lay.h_ffn);
             for (c, v) in dv.iter().enumerate() {
                 let with_res = v.wrapping_add(mem.r32i(lay.x + 4 * c as u64));
-                mem.w32(lay.x + 4 * c as u64, sat32(with_res) as u32);
+                mem.w32(lay.x + 4 * c as u64, with_res as u32); // ST32 truncation
             }
         }
 
@@ -290,10 +310,13 @@ impl<'a> Native<'a> {
         let mut logits = vec![0i64; vocab];
         self.head_logits(mem, &mut logits);
         // Deterministic argmax: strictly-greater, ascending ⇒ lowest id ties.
-        let mut win = (i64::MIN, 0u32);
+        // The VM compares the STORED (i32-truncated) logits; ascending scan,
+        // strictly greater. Calibrated logits are ~2^20, far from binding.
+        let mut win = ((i32::MIN as i64), 0u32);
         for (v, &s) in logits.iter().enumerate() {
-            if s > win.0 {
-                win = (s, v as u32);
+            let s32 = (s as i32) as i64;
+            if s32 > win.0 {
+                win = (s32, v as u32);
             }
         }
         // Committed-state writes of the streaming head: the cycled buffer
@@ -322,7 +345,8 @@ fn attn_head(n: &Native, mem: &FlatMem, l: usize, hd: u64, pos: usize, out: &mut
     for (j, slot) in att.iter_mut().enumerate() {
         let kb = a.kc + j as u64 * nkv * dh * 2 + kvh * dh * 2;
         let acc = dot16(qs, mem.slice(kb, (dh * 2) as usize));
-        *slot = rnd(acc.wrapping_mul(n.im.layers[l].m_logit as i64), SHIFT);
+        // ST32 truncation: the VM's att32 cells are i32.
+        *slot = (rnd(acc.wrapping_mul(n.im.layers[l].m_logit as i64), SHIFT) as i32) as i64;
         if *slot > mx {
             mx = *slot;
         }
@@ -375,7 +399,7 @@ fn replay_attn_scratch(n: &Native, mem: &mut FlatMem, l: usize, pos: usize) {
     for (j, slot) in att.iter_mut().enumerate() {
         let kb = a.kc + j as u64 * nkv * dh * 2 + kvh * dh * 2;
         let acc = dot16(&qs, mem.slice(kb, (dh * 2) as usize));
-        *slot = rnd(acc.wrapping_mul(n.im.layers[l].m_logit as i64), SHIFT);
+        *slot = (rnd(acc.wrapping_mul(n.im.layers[l].m_logit as i64), SHIFT) as i32) as i64;
         if *slot > mx {
             mx = *slot;
         }
@@ -402,10 +426,12 @@ fn replay_attn_scratch(n: &Native, mem: &mut FlatMem, l: usize, pos: usize) {
 fn replay_head_scratch(n: &Native, mem: &mut FlatMem, max_logit: i64) {
     let h = n.im.cfg.hidden_size as u64;
     let vocab = n.im.cfg.vocab_size;
-    let last_chunk_start = (vocab - 1) / 256 * 256;
+    // The cycled page's survivors are the LAST writer of each slot — i.e.
+    // the final 256 rows (the tail chunk covers offsets 0..tail, the chunk
+    // before it the rest).
     let x = mem.slice(n.lay.xn, 2 * h as usize).to_vec();
     let blocks = h as usize / 64;
-    for v in last_chunk_start..vocab {
+    for v in vocab - 256..vocab {
         let wrow = mem.slice(n.lay.head_w + v as u64 * h, h as usize).to_vec();
         let mut acc = 0i64;
         for b in 0..blocks {
@@ -416,6 +442,7 @@ fn replay_head_scratch(n: &Native, mem: &mut FlatMem, max_logit: i64) {
         mem.w32(n.lay.logit_buf + 4 * (v % 256) as u64, s as u32);
     }
     mem.w32(n.lay.saved_max, max_logit as u32);
+    mem.w32(n.lay.v_cell, vocab as u32);
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +480,7 @@ pub fn run_committed(
             .map(|pg| (*pg, page_leaf_hash(mem.slice(*pg * PAGE_SIZE as u64, PAGE_SIZE))))
             .collect();
         tree.update_leaf_hashes_bulk(&updates);
+        stats.boundary_mem_roots.push(tree.root());
         // Provisional register file (see module docs).
         let regs = Registers {
             pc: 0,

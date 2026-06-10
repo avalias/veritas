@@ -7,6 +7,8 @@ version.workspace = true
 [dependencies]
 vm = { path = "../vm" }
 toy-model = { path = "../models/toy" }
+qwen = { path = "../models/qwen" }
+kernels = { path = "../kernels" }
 
 [lints]
 workspace = true

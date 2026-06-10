@@ -32,8 +32,10 @@ pub struct LayerAddrs {
     pub g2: u64,
     pub gq: u64,
     pub gk: u64,
-    /// Per-layer multiplier cells: logit scalar, ffn-h per-channel array.
+    /// Per-layer multiplier cells: logit scalar, sigmoid-arg scalar,
+    /// ffn-h per-channel array.
     pub m_logit_c: u64,
+    pub m_sig_c: u64,
     pub m_h_arr: u64,
     /// K cache [MAX_SEQ][kv_heads·head_dim] i16 — rows are DOT16 lines.
     pub kc: u64,
@@ -56,10 +58,13 @@ pub struct QwenLayout {
     pub c_neg1: u64,   // i32 −1
     pub c_m_logit: u64,
     pub c_m_h: u64,
+    pub c_2p30: u64,   // i32 1<<30 (sign-extraction multiplier)
+    pub c_zero: u64,   // i32 0 (canonical boundary-register tail)
     pub m_emb_arr: u64, // [hidden] per-channel embedding multipliers
     pub c_i32min: u64, // saved_max reset value
     // scratch
     pub x: u64,        // [h] i32 residual carrier (one global scale)
+    pub xp: u64,       // [h] i16 pre-scaled norm staging (sum-of-squares input)
     pub xn: u64,       // [h] i16 post-norm (matmul inputs need outlier headroom)
     pub q: u64,        // [nh·dh] i16
     pub attnx: u64,    // [nh·dh] i8 ctx concat
@@ -72,6 +77,15 @@ pub struct QwenLayout {
     pub tok: u64,
     pub silu32: u64,   // i32 cell: silu(gate) Q4.11
     pub up32: u64,     // i32 cell: up Q4.11
+    pub g16: u64,      // i16 cell: sat16(gate)
+    pub u16: u64,      // i16 cell: sat16(up)
+    pub t_na16: u64,   // i16 cell: rope rotated-pair staging
+    pub t_x: u64,      // i32 cell: sigmoid argument x411
+    pub t_ep: u64,     // i32 cell: exp(x) (negative-gate path)
+    pub t_den: u64,    // i32 cell: sigmoid denominator
+    pub t_sig: u64,    // i32 cell: sigma(x) Q14
+    pub t_sign: u64,   // i32 cell: sign byte via CLAMP8 (high 3 bytes stay 0)
+    pub v_cell: u64,   // i32 cell: absolute vocab-row counter (streaming head)
     pub h_ffn: u64,    // [ffn] i8
     pub logit_buf: u64, // ONE page cycled by the chunked head (ARGMAX_OFF)
     pub saved_max: u64,
@@ -124,12 +138,15 @@ impl QwenLayout {
         let c_neg1 = take(4, 4);
         let c_m_logit = take(4, 4);
         let c_m_h = take(4, 4);
+        let c_2p30 = take(4, 4);
+        let c_zero = take(4, 4);
         let m_emb_arr = take(h * 4, 64);
         let c_i32min = take(4, 4);
         let x = take(h * 4, 64);
-        let xn = take(h * 2, 64);
-        let q = take(nh * dh * 2, 64);
-        let attnx = take(nh * dh * 2, 64);
+        let xp = take(h * 2, 64);
+        let xn = take(h * 2, 128); // DOT8X16 B lines are 128-aligned
+        let q = take(nh * dh * 2, 128);
+        let attnx = take(nh * dh * 2, 128);
         let att32 = take(seq * 4, 64);
         let e32 = take(seq * 4, 64);
         let probs = take(seq * 2, 64);
@@ -139,7 +156,16 @@ impl QwenLayout {
         let tok = take(4, 4);
         let silu32 = take(4, 4);
         let up32 = take(4, 4);
-        let h_ffn = take(f * 2, 64);
+        let g16 = take(2, 2);
+        let u16 = take(2, 2);
+        let t_na16 = take(2, 2);
+        let t_x = take(4, 4);
+        let t_ep = take(4, 4);
+        let t_den = take(4, 4);
+        let t_sig = take(4, 4);
+        let t_sign = take(4, 4);
+        let v_cell = take(4, 4);
+        let h_ffn = take(f * 2, 128);
         let logit_buf = take(pg, pg);
         let saved_max = take(4, 4);
         let input = take(pg, pg);
@@ -169,6 +195,7 @@ impl QwenLayout {
                 gq: take(dh * 4, 64),
                 gk: take(dh * 4, 64),
                 m_logit_c: take(4, 4),
+                m_sig_c: take(4, 4),
                 m_h_arr: take(f * 4, 64),
                 kc: take(seq * nkv * dh * 2, pg),
                 vc: take(seq * nkv * dh * 2, pg),
@@ -183,9 +210,11 @@ impl QwenLayout {
         let end = at;
         assert!(end <= (1u64 << MEM_DEPTH) * pg, "layout exceeds 1 GiB: {end}");
         Self {
-            c_one_i8, c_h, c_dh, c_2p14, c_neg1, c_m_logit, c_m_h, m_emb_arr, c_i32min,
-            x, xn, q, attnx, att32, e32, probs, r32, sum, neg_max, tok,
-            silu32, up32, h_ffn, logit_buf, saved_max, input, output,
+            c_one_i8, c_h, c_dh, c_2p14, c_neg1, c_m_logit, c_m_h, c_2p30, c_zero,
+            m_emb_arr, c_i32min,
+            x, xp, xn, q, attnx, att32, e32, probs, r32, sum, neg_max, tok,
+            silu32, up32, g16, u16, t_na16, t_x, t_ep, t_den, t_sig, t_sign, v_cell,
+            h_ffn, logit_buf, saved_max, input, output,
             emb, head_w, m_head, gf, layers, rope_cos, rope_sin, rope_nsin,
             lut_exp, lut_rsqrt, lut_silu, end,
         }

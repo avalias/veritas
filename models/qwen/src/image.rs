@@ -65,6 +65,7 @@ pub fn genesis_image(
     put_i32(&mut img, lay.c_dh, &[im.cfg.head_dim as i32]);
     put_i32(&mut img, lay.c_2p14, &[16384]);
     put_i32(&mut img, lay.c_neg1, &[-1]);
+    put_i32(&mut img, lay.c_2p30, &[1 << 30]);
     // c_m_logit / c_m_h are superseded by per-layer cells; left zero.
     put_i32(&mut img, lay.m_emb_arr, &im.m_emb);
     put_i32(&mut img, lay.c_i32min, &[i32::MIN]);
@@ -94,6 +95,7 @@ pub fn genesis_image(
         put_i32(&mut img, a.gq, &lw.qnorm.gamma_m);
         put_i32(&mut img, a.gk, &lw.knorm.gamma_m);
         put_i32(&mut img, a.m_logit_c, &[lw.m_logit]);
+        put_i32(&mut img, a.m_sig_c, &[lw.m_sig]);
         put_i32(&mut img, a.m_h_arr, &lw.m_h);
     }
     // Tables.
