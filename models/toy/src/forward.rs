@@ -34,47 +34,47 @@ impl FlatMem {
         Self { bytes: image, dirty: vec![false; pages] }
     }
 
-    fn mark(&mut self, addr: u64) {
+    pub fn mark(&mut self, addr: u64) {
         self.dirty[(addr as usize) / PAGE_SIZE] = true;
     }
 
-    fn w8(&mut self, addr: u64, v: u8) {
+    pub fn w8(&mut self, addr: u64, v: u8) {
         self.bytes[addr as usize] = v;
         self.mark(addr);
     }
 
-    fn w16(&mut self, addr: u64, v: u16) {
+    pub fn w16(&mut self, addr: u64, v: u16) {
         self.bytes[addr as usize..addr as usize + 2].copy_from_slice(&v.to_le_bytes());
         self.mark(addr);
     }
 
-    fn w32(&mut self, addr: u64, v: u32) {
+    pub fn w32(&mut self, addr: u64, v: u32) {
         self.bytes[addr as usize..addr as usize + 4].copy_from_slice(&v.to_le_bytes());
         self.mark(addr);
     }
 
-    fn r8i(&self, addr: u64) -> i64 {
+    pub fn r8i(&self, addr: u64) -> i64 {
         self.bytes[addr as usize] as i8 as i64
     }
 
-    fn r16i(&self, addr: u64) -> i64 {
+    pub fn r16i(&self, addr: u64) -> i64 {
         i16::from_le_bytes(self.bytes[addr as usize..addr as usize + 2].try_into().unwrap()) as i64
     }
 
-    fn r32(&self, addr: u64) -> u32 {
+    pub fn r32(&self, addr: u64) -> u32 {
         u32::from_le_bytes(self.bytes[addr as usize..addr as usize + 4].try_into().unwrap())
     }
 
-    fn r32i(&self, addr: u64) -> i64 {
+    pub fn r32i(&self, addr: u64) -> i64 {
         self.r32(addr) as i32 as i64
     }
 
-    fn slice(&self, addr: u64, len: usize) -> &[u8] {
+    pub fn slice(&self, addr: u64, len: usize) -> &[u8] {
         &self.bytes[addr as usize..addr as usize + len]
     }
 
     /// Drain the dirty set (ascending page order).
-    fn take_dirty(&mut self) -> Vec<u64> {
+    pub fn take_dirty(&mut self) -> Vec<u64> {
         let mut out = Vec::new();
         for (i, d) in self.dirty.iter_mut().enumerate() {
             if *d {
@@ -88,7 +88,7 @@ impl FlatMem {
 
 /// i8 dot product, any evaluation order (associative): i32 accumulation is
 /// exact here (≤ 64·127·127 < 2^20) and vectorizes well.
-fn dot8(a: &[u8], b: &[u8]) -> i64 {
+pub fn dot8(a: &[u8], b: &[u8]) -> i64 {
     let mut acc = 0i32;
     for (x, y) in a.iter().zip(b) {
         acc += (*x as i8 as i32) * (*y as i8 as i32);
@@ -97,7 +97,7 @@ fn dot8(a: &[u8], b: &[u8]) -> i64 {
 }
 
 /// i16 dot product over LE byte slices (products fit i32, sum needs i64).
-fn dot16(a: &[u8], b: &[u8]) -> i64 {
+pub fn dot16(a: &[u8], b: &[u8]) -> i64 {
     let mut acc = 0i64;
     for (x, y) in a.chunks_exact(2).zip(b.chunks_exact(2)) {
         let xv = i16::from_le_bytes([x[0], x[1]]) as i32;

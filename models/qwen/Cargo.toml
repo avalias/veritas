@@ -8,6 +8,8 @@ version.workspace = true
 vm = { path = "../../vm" }
 toy-model = { path = "../toy" } # reuses the integer LUT generators
 serde_json.workspace = true
+# Vendored-file tokenizer wrapper (brief 3.2 allows wrapping); offline only.
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 
 [lints]
 workspace = true

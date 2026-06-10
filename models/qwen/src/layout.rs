@@ -32,10 +32,18 @@ pub struct LayerAddrs {
     pub g2: u64,
     pub gq: u64,
     pub gk: u64,
+    /// Per-layer scalar multiplier cells: logit, ffn-h product.
+    pub m_logit_c: u64,
+    pub m_h_c: u64,
     /// K cache [MAX_SEQ][kv_heads·head_dim] i16 — rows are DOT16 lines.
     pub kc: u64,
-    /// V cache, Vᵀ layout [kv_heads·head_dim][MAX_SEQ] i8 — rows DOT8-able.
-    pub vt: u64,
+    /// V cache, row-major [MAX_SEQ][kv_heads·head_dim] i8: appends touch
+    /// ONE page (the transpose layout dirtied ~96 pages per layer per
+    /// token — measured 2.7 MB/position, the dominant commitment cost).
+    /// The VM pays per-element MACs for prob·V instead of DOT8 lines; the
+    /// honest path owns the priority (FW-7 notes an AXPY line-op fixing
+    /// both).
+    pub vc: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -48,10 +56,11 @@ pub struct QwenLayout {
     pub c_neg1: u64,   // i32 −1
     pub c_m_logit: u64,
     pub c_m_h: u64,
+    pub c_m_emb: u64,  // embedding-row → residual-scale multiplier
     pub c_i32min: u64, // saved_max reset value
     // scratch
-    pub x: u64,        // [h] i8 residual
-    pub xn: u64,       // [h] i8 post-norm
+    pub x: u64,        // [h] i32 residual carrier (one global scale)
+    pub xn: u64,       // [h] i16 post-norm (matmul inputs need outlier headroom)
     pub q: u64,        // [nh·dh] i16
     pub attnx: u64,    // [nh·dh] i8 ctx concat
     pub att32: u64,    // [MAX_SEQ] i32
@@ -111,11 +120,12 @@ impl QwenLayout {
         let c_neg1 = take(4, 4);
         let c_m_logit = take(4, 4);
         let c_m_h = take(4, 4);
+        let c_m_emb = take(4, 4);
         let c_i32min = take(4, 4);
-        let x = take(h, 64);
-        let xn = take(h, 64);
+        let x = take(h * 4, 64);
+        let xn = take(h * 2, 64);
         let q = take(nh * dh * 2, 64);
-        let attnx = take(nh * dh, 64);
+        let attnx = take(nh * dh * 2, 64);
         let att32 = take(seq * 4, 64);
         let e32 = take(seq * 4, 64);
         let probs = take(seq, 64);
@@ -125,7 +135,7 @@ impl QwenLayout {
         let tok = take(4, 4);
         let silu32 = take(4, 4);
         let up32 = take(4, 4);
-        let h_ffn = take(f, 64);
+        let h_ffn = take(f * 2, 64);
         let logit_buf = take(pg, pg);
         let saved_max = take(4, 4);
         let input = take(pg, pg);
@@ -152,8 +162,10 @@ impl QwenLayout {
                 g2: take(h * 4, 64),
                 gq: take(dh * 4, 64),
                 gk: take(dh * 4, 64),
+                m_logit_c: take(4, 4),
+                m_h_c: take(4, 4),
                 kc: take(seq * nkv * dh * 2, pg),
-                vt: take(nkv * dh * seq, pg),
+                vc: take(seq * nkv * dh, pg),
             })
             .collect();
         let rope_cos = take(seq * dh, 64); // dh/2 pairs × i16
@@ -165,7 +177,7 @@ impl QwenLayout {
         let end = at;
         assert!(end <= (1u64 << MEM_DEPTH) * pg, "layout exceeds 1 GiB: {end}");
         Self {
-            c_one_i8, c_h, c_dh, c_2p14, c_neg1, c_m_logit, c_m_h, c_i32min,
+            c_one_i8, c_h, c_dh, c_2p14, c_neg1, c_m_logit, c_m_h, c_m_emb, c_i32min,
             x, xn, q, attnx, att32, e32, probs, r32, sum, neg_max, tok,
             silu32, up32, h_ffn, logit_buf, saved_max, input, output,
             emb, gf, layers, rope_cos, rope_sin, rope_nsin,
