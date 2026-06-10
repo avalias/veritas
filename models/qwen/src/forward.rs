@@ -45,6 +45,10 @@ pub struct Native<'a> {
     pub im: &'a IntModel,
     pub tables: &'a Tables,
     pub threads: usize,
+    /// Persistent worker pool (kernels crate): NEON GEMV + no per-call
+    /// thread spawns. Bit-exactness vs the scalar reference is enforced by
+    /// kernels' own equality tests.
+    pub pool: kernels::Pool,
 }
 
 /// Per-run measurements for the §1.4 report.
@@ -129,26 +133,23 @@ impl<'a> Native<'a> {
     }
 
     /// Row-parallel projection: rows of `w` (rows×cols i8) · x (i16),
-    /// requant by per-channel m, returning the pre-saturation values.
+    /// requant by per-channel m — NEON + persistent pool.
     fn proj(&self, mem: &FlatMem, w: u64, m: &[i32], rows: u64, cols: u64, x16: u64) -> Vec<i64> {
         let x = mem.slice(x16, 2 * cols as usize);
         let wbytes = mem.slice(w, (rows * cols) as usize);
         let mut out = vec![0i64; rows as usize];
-        let nt = self.threads.max(1);
-        let chunk = (rows as usize).div_ceil(nt);
-        std::thread::scope(|sc| {
-            for (t, slot) in out.chunks_mut(chunk).enumerate() {
-                let (wb, xs) = (wbytes, x);
-                sc.spawn(move || {
-                    for (i, o) in slot.iter_mut().enumerate() {
-                        let r = t * chunk + i;
-                        let acc = dot_w8_x16(&wb[r * cols as usize..(r + 1) * cols as usize], xs);
-                        *o = rnd(acc.wrapping_mul(m[r] as i64), SHIFT);
-                    }
-                });
-            }
-        });
+        kernels::gemv_bytes(&self.pool, wbytes, x, rows as usize, cols as usize, m, SHIFT, &mut out);
         out
+    }
+
+    /// EVAL hook: full integer logits (committed semantics: rnd(dot,11))
+    /// recomputed from the current xn. Threaded; read-only.
+    pub fn head_logits(&self, mem: &FlatMem, out: &mut [i64]) {
+        let h = self.im.cfg.hidden_size as usize;
+        let vocab = self.im.cfg.vocab_size;
+        let x = mem.slice(self.lay.xn, 2 * h);
+        let emb = mem.slice(self.lay.emb, vocab * h);
+        kernels::gemv_logits_bytes(&self.pool, emb, x, vocab, h, out);
     }
 
     /// One position. `decide` ⇒ run the LM head and return the argmax token.
@@ -179,7 +180,7 @@ impl<'a> Native<'a> {
         // rescales anywhere — i32 spans Qwen3's full dynamic range).
         for c in 0..h {
             let e = mem.r8i(lay.emb + tok as u64 * h + c);
-            mem.w32(lay.x + 4 * c, sat32(rnd(e.wrapping_mul(self.im.m_emb as i64), SHIFT)) as u32);
+            mem.w32(lay.x + 4 * c, sat32(rnd(e.wrapping_mul(self.im.m_emb[c as usize] as i64), SHIFT)) as u32);
         }
 
         for (l, lw) in self.im.layers.iter().enumerate().take(upto) {
@@ -211,23 +212,13 @@ impl<'a> Native<'a> {
                 self.qknorm_i16(mem, base, &lw.knorm, dh);
                 self.rope(mem, base, pos, dh);
             }
-            // Attention per q-head (GQA), heads parallelized via a shared
-            // work queue (Mutex owns the chunk iterator, declared before
-            // the scope so spawned borrows outlive it).
+            // Attention per q-head (GQA) on the persistent pool; heads
+            // write disjoint dh-sized chunks of ctx.
             let mut ctx = vec![0i64; (nh * dh) as usize];
             {
                 let memr: &FlatMem = mem;
-                let nt = self.threads.max(1);
-                let chunks: Vec<&mut [i64]> = ctx.chunks_mut(dh as usize).collect();
-                let work = std::sync::Mutex::new(chunks.into_iter().enumerate());
-                std::thread::scope(|sc| {
-                    for _ in 0..nt {
-                        sc.spawn(|| loop {
-                            let next = work.lock().unwrap().next();
-                            let Some((hd, out)) = next else { break };
-                            attn_head(self, memr, l, hd as u64, pos, out);
-                        });
-                    }
+                kernels::run_disjoint_i64(&self.pool, &mut ctx, dh as usize, &|hd, out| {
+                    attn_head(self, memr, l, hd as u64, pos, out)
                 });
             }
             // Stores + probs/att32 scratch writes happen single-threaded
@@ -266,7 +257,7 @@ impl<'a> Native<'a> {
                 mem.w32(lay.silu32, hpre as u32);
                 mem.w32(lay.up32, u as u32);
                 let prod = hpre.wrapping_mul(u);
-                let hq = rnd(prod.wrapping_mul(lw.m_h as i64), SHIFT);
+                let hq = rnd(prod.wrapping_mul(lw.m_h[r] as i64), SHIFT);
                 mem.w16(lay.h_ffn + 2 * r as u64, sat16(hq) as u16);
             }
             let dv = self.proj(mem, a.w_down, &lw.m_down, h, f, lay.h_ffn);
@@ -283,33 +274,14 @@ impl<'a> Native<'a> {
         // ONE page (ARGMAX_OFF pattern) — nothing vocab-sized is committed.
         self.rmsnorm_to_i16(mem, lay.x, lay.xn, &self.im.norm_f, h);
         mem.w32(lay.saved_max, i32::MIN as u32);
-        let x = mem.slice(lay.xn, 2 * h as usize);
-        let emb = mem.slice(lay.emb, (self.im.cfg.vocab_size as u64 * h) as usize);
         let vocab = self.im.cfg.vocab_size;
-        let nt = self.threads.max(1);
-        let chunk = vocab.div_ceil(nt);
-        let mut bests = vec![(i64::MIN, 0u32); nt];
-        std::thread::scope(|sc| {
-            for (t, best) in bests.iter_mut().enumerate() {
-                let (eb, xs) = (emb, x);
-                sc.spawn(move || {
-                    let lo = t * chunk;
-                    let hi = (lo + chunk).min(vocab);
-                    for v in lo..hi {
-                        // >>11 keeps logits in i32 cells; order-preserving.
-                        let s = rnd(dot_w8_x16(&eb[v * h as usize..(v + 1) * h as usize], xs), 11);
-                        if s > best.0 {
-                            *best = (s, v as u32);
-                        }
-                    }
-                });
-            }
-        });
-        // Deterministic reduce: lowest id wins ties (ascending chunks).
+        let mut logits = vec![0i64; vocab];
+        self.head_logits(mem, &mut logits);
+        // Deterministic argmax: strictly-greater, ascending ⇒ lowest id ties.
         let mut win = (i64::MIN, 0u32);
-        for b in bests {
-            if b.0 > win.0 {
-                win = b;
+        for (v, &s) in logits.iter().enumerate() {
+            if s > win.0 {
+                win = (s, v as u32);
             }
         }
         // Committed-state writes of the streaming head: the cycled buffer

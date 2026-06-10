@@ -329,6 +329,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernels"
+version = "0.1.0"
+dependencies = [
+ "vm",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -471,6 +478,7 @@ dependencies = [
 name = "qwen"
 version = "0.1.0"
 dependencies = [
+ "kernels",
  "serde_json",
  "tokenizers",
  "toy-model",

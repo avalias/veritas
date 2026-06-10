@@ -10,7 +10,7 @@ pub const MEM_DEPTH: u8 = 20;
 
 /// Demo context budget (prompt + generation). Attention scratch and rope
 /// tables are sized to it; a multiple of 64 so prob lines stay DOT-able.
-pub const MAX_SEQ: usize = 96;
+pub const MAX_SEQ: usize = 512;
 
 #[derive(Clone, Debug)]
 pub struct LayerAddrs {
@@ -32,9 +32,9 @@ pub struct LayerAddrs {
     pub g2: u64,
     pub gq: u64,
     pub gk: u64,
-    /// Per-layer scalar multiplier cells: logit, ffn-h product.
+    /// Per-layer multiplier cells: logit scalar, ffn-h per-channel array.
     pub m_logit_c: u64,
-    pub m_h_c: u64,
+    pub m_h_arr: u64,
     /// K cache [MAX_SEQ][kv_heads·head_dim] i16 — rows are DOT16 lines.
     pub kc: u64,
     /// V cache, row-major [MAX_SEQ][kv_heads·head_dim] i8: appends touch
@@ -56,7 +56,7 @@ pub struct QwenLayout {
     pub c_neg1: u64,   // i32 −1
     pub c_m_logit: u64,
     pub c_m_h: u64,
-    pub c_m_emb: u64,  // embedding-row → residual-scale multiplier
+    pub m_emb_arr: u64, // [hidden] per-channel embedding multipliers
     pub c_i32min: u64, // saved_max reset value
     // scratch
     pub x: u64,        // [h] i32 residual carrier (one global scale)
@@ -120,7 +120,7 @@ impl QwenLayout {
         let c_neg1 = take(4, 4);
         let c_m_logit = take(4, 4);
         let c_m_h = take(4, 4);
-        let c_m_emb = take(4, 4);
+        let m_emb_arr = take(h * 4, 64);
         let c_i32min = take(4, 4);
         let x = take(h * 4, 64);
         let xn = take(h * 2, 64);
@@ -163,7 +163,7 @@ impl QwenLayout {
                 gq: take(dh * 4, 64),
                 gk: take(dh * 4, 64),
                 m_logit_c: take(4, 4),
-                m_h_c: take(4, 4),
+                m_h_arr: take(f * 4, 64),
                 kc: take(seq * nkv * dh * 2, pg),
                 vc: take(seq * nkv * dh, pg),
             })
@@ -177,7 +177,7 @@ impl QwenLayout {
         let end = at;
         assert!(end <= (1u64 << MEM_DEPTH) * pg, "layout exceeds 1 GiB: {end}");
         Self {
-            c_one_i8, c_h, c_dh, c_2p14, c_neg1, c_m_logit, c_m_h, c_m_emb, c_i32min,
+            c_one_i8, c_h, c_dh, c_2p14, c_neg1, c_m_logit, c_m_h, m_emb_arr, c_i32min,
             x, xn, q, attnx, att32, e32, probs, r32, sum, neg_max, tok,
             silu32, up32, h_ffn, logit_buf, saved_max, input, output,
             emb, gf, layers, rope_cos, rope_sin, rope_nsin,

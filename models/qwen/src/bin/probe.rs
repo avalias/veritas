@@ -50,7 +50,7 @@ fn main() {
     let im = quantize(&fm, &calib);
     let lay = QwenLayout::new(&cfg);
     let image = genesis_image(&lay, &im, &tables, &prompt);
-    let native = Native { lay: &lay, im: &im, tables: &tables, threads: 8 };
+    let native = Native { lay: &lay, im: &im, tables: &tables, threads: 8, pool: kernels::Pool::new(8) };
     let mut mem = FlatMem::new(image);
 
     // Scales (same formulas as quantize).
@@ -89,7 +89,7 @@ fn main() {
         use vm::exec::{rnd, sat16};
         for c in 0..h as u64 {
             let e = mem2.r8i(lay.emb + t0 as u64 * h as u64 + c);
-            let v = rnd(e.wrapping_mul(im.m_emb as i64), 20)
+            let v = rnd(e.wrapping_mul(im.m_emb[c as usize] as i64), 20)
                 .clamp(i32::MIN as i64, i32::MAX as i64);
             mem2.w32(lay.x + 4 * c, v as i32 as u32);
         }
@@ -246,15 +246,16 @@ fn main() {
     let g = vsat16(gq[spike]) as i64;
     let u = vsat16(uq[spike]) as i64;
     let x411 = vrnd(g.wrapping_mul(il2.m_sig as i64), 20);
+    let m_h_spike = il2.m_h[spike];
     let em = native.tables_exp_at(if x411 >= 0 { -x411 } else { x411 });
     let sig = if x411 >= 0 { vdiv(1i64 << 28, 16384 + em) } else { vdiv(em << 14, 16384 + em) };
     let hpre = vrnd(g.wrapping_mul(sig), 14);
     let prod = hpre.wrapping_mul(u);
-    let hq = vrnd(prod.wrapping_mul(il2.m_h as i64), 20);
+    let hq = vrnd(prod.wrapping_mul(m_h_spike as i64), 20);
     println!(
         "int   L2 spike chain: g_q {} ({:.2} real)  u_q {} ({:.2} real)  x411 {}  em {}  sig {}  hpre {}  m_sig {}  m_h {}  m_gate[55] {}  m_up[55] {}  → h_q {}",
         g, g as f32 * s_gate[l2], u, u as f32 * s_up[l2], x411, em, sig, hpre,
-        il2.m_sig, il2.m_h, il2.m_gate[spike], il2.m_up[spike], hq
+        il2.m_sig, m_h_spike, il2.m_gate[spike], il2.m_up[spike], hq
     );
     let _ = s_v;
 }

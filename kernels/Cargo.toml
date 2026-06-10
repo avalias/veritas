@@ -1,0 +1,13 @@
+[package]
+name = "kernels"
+description = "Performance kernels: persistent pool + NEON integer GEMV. The ONLY crate allowed unsafe; correctness = bit-equality with scalar reference (integer math is exact, so equality is testable)."
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+vm = { path = "../vm" }
+
+# Deliberately NOT inheriting workspace lints: this crate needs `unsafe`
+# (NEON intrinsics, scoped-pool lifetime erasure). Floats stay banned.
+[lints.clippy]
+float_arithmetic = "deny"

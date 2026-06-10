@@ -74,7 +74,7 @@ fn main() {
     let image = genesis_image(&lay, &im, &tables, &prompt);
 
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    let native = Native { lay: &lay, im: &im, tables: &tables, threads };
+    let native = Native { lay: &lay, im: &im, tables: &tables, threads, pool: kernels::Pool::new(threads) };
 
     println!("· pure native decode ({threads} threads)…");
     let (toks_pure, us_pure) = run_pure(&native, image.clone(), &prompt, n_gen);
