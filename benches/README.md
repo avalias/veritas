@@ -37,6 +37,29 @@ level; this alone cut commitment cost ~1.7×).
    6.9× ratio is a scale artifact: a 1 MiB model's compute (312 µs) is
    microscopic next to its state turnover. Real models invert the ratio:
 
+## MEASURED: Qwen3-0.6B (real weights, this machine, 10 CPU threads)
+
+| metric | value |
+|---|---|
+| integer decode (`qwen_demo`) | **14–19 tok/s** (naive autovectorized kernels) |
+| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s |
+| llama.cpp Q8_0, `-ngl 0` (Accelerate/AMX BLAS) | 109 tok/s |
+| commitment, sequential | 1.5 ms/token = **2.3–2.8% of compute** (~105 dirty pages/token after the row-major V fix; was 7.8 MB/token before) |
+| commitment, **pipelined** (hasher thread) | **0.00% wall-clock** (794 ms vs 846 ms pure; roots bit-identical, asserted) |
+| genesis tree (per-judge, one-off) | ~1.4 s |
+| quality | coherent English judgments; int/float token agreement 0 (W8A8-static; SmoothQuant-class equalization is the known next step) |
+
+Two separable claims, now measured:
+1. **Determinism + commitment cost ≈ 0** on the integer path — math is
+   bit-exact at any kernel speed (associativity), and hashing hides
+   entirely behind compute when pipelined. This holds on GPU for the same
+   reasons (integer kernels + on-device keccak / pipelining).
+2. **Kernel parity with llama.cpp is unfinished**: ~6× gap, fully
+   accounted for by naive scalar dot loops + per-projection thread spawns
+   vs years of NEON/AMX tuning. Known path: persistent thread pool, NEON
+   `sdot`/`smlal` kernels, fused projection batches. The protocol is
+   indifferent to this — any bit-exact kernel is admissible (§9.1).
+
 ## Extrapolation to real models (estimates, to be measured in Phase 3)
 
 | setting | compute/token | dirty bytes/token | hash cost (1 thread) | overhead |
