@@ -75,6 +75,35 @@ Two separable claims, now measured:
   deterministic by construction) and ARMv8.2-SHA3 / multi-thread hashing
   applies; checkpoint-every-k-tokens is a further linear knob.
 
+## GPU (Apple M4, wgpu/Metal) — measured
+
+| metric | value |
+|---|---|
+| **bit-exactness** | **151,936 LM-head logits BIT-IDENTICAL GPU vs CPU** (committed 64-lane-partial semantics in WGSL i32; i64 reduction host-side) |
+| head GEMV, weights resident | 7.55 ms/call (naive scalar-unpack shader, 9.7 MB partial readback) |
+| same op, CPU pool+NEON | 2.0 ms |
+
+The determinism claim on GPU is now demonstrated on real hardware, not
+argued from associativity alone. Apple's GPU vs its own AMX-class CPU is
+not where integer GEMV wins; the GPU case is discrete dp4a-class hardware
+(NVIDIA int8: 100+ TOPS). Known shader work if/when needed: packed
+dot4I8, on-GPU i64-emulated row reduction (readback 9.7 MB → 1.2 MB),
+workgroup tiling. The zero-overhead commitment story is hardware-agnostic
+(pipelined hashing measured 0.00% on CPU; same structure applies).
+
+## Quality campaign (integer vs llama.cpp Q8_0 bar: PPL 34.99 ± 5.11)
+
+| configuration | int PPL | top-1 vs float |
+|---|---|---|
+| per-layer scales + i32 carrier (pre-SmoothQuant) | 2,420 | 15.8% |
+| + SmoothQuant (α=0.5, norm-folded, tied-emb handled) | (running) | |
+| + probs Q0.14 + V-cache i16 | (next) | |
+
+Method: 512-token chunks, second half scored (llama-perplexity's exact
+convention), calibration on the file tail (no leakage). The "coherent
+text" of early decodes hid a catastrophic distribution gap — hence
+measurement-first iteration.
+
 ## Levers, in priority order
 
 1. ~~Bulk interior-node updates~~ — done (`update_leaf_hashes_bulk`).

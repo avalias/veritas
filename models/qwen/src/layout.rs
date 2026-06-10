@@ -37,7 +37,7 @@ pub struct LayerAddrs {
     pub m_h_arr: u64,
     /// K cache [MAX_SEQ][kv_heads·head_dim] i16 — rows are DOT16 lines.
     pub kc: u64,
-    /// V cache, row-major [MAX_SEQ][kv_heads·head_dim] i8: appends touch
+    /// V cache, row-major [MAX_SEQ][kv_heads·head_dim] i16: appends touch
     /// ONE page (the transpose layout dirtied ~96 pages per layer per
     /// token — measured 2.7 MB/position, the dominant commitment cost).
     /// The VM pays per-element MACs for prob·V instead of DOT8 lines; the
@@ -65,7 +65,7 @@ pub struct QwenLayout {
     pub attnx: u64,    // [nh·dh] i8 ctx concat
     pub att32: u64,    // [MAX_SEQ] i32
     pub e32: u64,      // [MAX_SEQ] i32
-    pub probs: u64,    // [MAX_SEQ] i8 Q0.7
+    pub probs: u64,    // [MAX_SEQ] i16 Q0.14
     pub r32: u64,
     pub sum: u64,
     pub neg_max: u64,
@@ -128,7 +128,7 @@ impl QwenLayout {
         let attnx = take(nh * dh * 2, 64);
         let att32 = take(seq * 4, 64);
         let e32 = take(seq * 4, 64);
-        let probs = take(seq, 64);
+        let probs = take(seq * 2, 64);
         let r32 = take(4, 4);
         let sum = take(4, 4);
         let neg_max = take(4, 4);
@@ -165,7 +165,7 @@ impl QwenLayout {
                 m_logit_c: take(4, 4),
                 m_h_arr: take(f * 4, 64),
                 kc: take(seq * nkv * dh * 2, pg),
-                vc: take(seq * nkv * dh, pg),
+                vc: take(seq * nkv * dh * 2, pg),
             })
             .collect();
         let rope_cos = take(seq * dh, 64); // dh/2 pairs × i16

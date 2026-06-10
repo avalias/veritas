@@ -197,9 +197,9 @@ impl<'a> Native<'a> {
                 mem.w16(krow + 2 * r as u64, sat16(*v) as u16);
             }
             let vv = self.proj(mem, a.wv, &lw.mv, nkv * dh, h, lay.xn);
-            let vrow = a.vc + pos as u64 * nkv * dh;
+            let vrow = a.vc + pos as u64 * nkv * dh * 2;
             for (r, v) in vv.iter().enumerate() {
-                mem.w8(vrow + r as u64, sat8(*v) as u8);
+                mem.w16(vrow + 2 * r as u64, sat16(*v) as u16);
             }
             // QK-norm + rotary.
             for hd in 0..nh {
@@ -321,24 +321,25 @@ fn attn_head(n: &Native, mem: &FlatMem, l: usize, hd: u64, pos: usize, out: &mut
         exps[j] = n.lut(&n.tables.exp, att[j].wrapping_sub(mx));
         sum = sum.wrapping_add(exps[j]);
     }
-    let mut probs = [0u8; MAX_SEQ];
+    let mut probs = [0i64; MAX_SEQ];
     for j in 0..=pos {
-        let p = rnd(trunc_div(exps[j].wrapping_mul(16384), sum), 7);
-        probs[j] = sat8(p) as u8;
+        // Q0.14 i16 probabilities (was Q0.7 — 7 extra bits of softmax
+        // resolution feed straight into hidden-state fidelity).
+        probs[j] = sat16(trunc_div(exps[j].wrapping_mul(16384), sum)) as i64;
     }
-    // ctx = Σ_j p_j · V[j] over row-major V (gather along j).
+    // ctx = Σ_j p_j(Q14) · V[j](i16) over row-major V (gather along j).
     for slot in out.iter_mut() {
         *slot = 0;
     }
-    for (j, &p) in probs.iter().enumerate().take(pos + 1) {
-        let pj = p as i8 as i64;
-        let vrow = mem.slice(a.vc + j as u64 * nkv * dh + kvh * dh, dh as usize);
+    for (j, &pj) in probs.iter().enumerate().take(pos + 1) {
+        let vrow = mem.slice(a.vc + (j as u64 * nkv * dh + kvh * dh) * 2, 2 * dh as usize);
         for (d, slot) in out.iter_mut().enumerate() {
-            *slot = slot.wrapping_add(pj.wrapping_mul(vrow[d] as i8 as i64));
+            let vv = i16::from_le_bytes([vrow[2 * d], vrow[2 * d + 1]]) as i64;
+            *slot = slot.wrapping_add(pj.wrapping_mul(vv));
         }
     }
     for slot in out.iter_mut() {
-        *slot = rnd(*slot, 7);
+        *slot = rnd(*slot, 14);
     }
 }
 
@@ -378,8 +379,8 @@ fn replay_attn_scratch(n: &Native, mem: &mut FlatMem, l: usize, pos: usize) {
     mem.w32(n.lay.sum, sum as u32);
     for j in 0..=pos {
         let e = mem.r32i(n.lay.e32 + 4 * j as u64);
-        let p = rnd(trunc_div(e.wrapping_mul(16384), sum), 7);
-        mem.w8(n.lay.probs + j as u64, sat8(p) as u8);
+        let p = sat16(trunc_div(e.wrapping_mul(16384), sum));
+        mem.w16(n.lay.probs + 2 * j as u64, p as u16);
     }
 }
 

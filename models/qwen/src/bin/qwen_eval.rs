@@ -31,6 +31,8 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let mode = args.next().unwrap_or_else(|| "int".into());
     let n_chunks: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(2);
+    // Third arg "agree" enables the (slow) float twin for top-1 agreement.
+    let with_agree = args.next().as_deref() == Some("agree");
 
     let cfg = QwenConfig::load(&format!("{DIR}/config.json"));
     let tokenizer =
@@ -103,26 +105,22 @@ fn main() {
                     let lr: Vec<f64> = int_logits.iter().map(|&v| v as f64 * k).collect();
                     nll -= logprob_of(&lr, chunk[p + 1] as usize);
                     scored += 1;
-                    // agreement vs float twin at this position
-                    let fl = float_forward_logits(
-                        &fm, &mut fs, MAX_SEQ, &tables.cos, &tables.sin, chunk[p], &mut dummy,
-                    );
-                    let fa = fl
-                        .iter()
-                        .enumerate()
-                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-                        .unwrap()
-                        .0;
-                    let ia = int_logits
-                        .iter()
-                        .enumerate()
-                        .max_by_key(|(_, &v)| v)
-                        .unwrap()
-                        .0;
-                    if fa == ia {
-                        agree += 1;
+                    if with_agree {
+                        let fl = float_forward_logits(
+                            &fm, &mut fs, MAX_SEQ, &tables.cos, &tables.sin, chunk[p], &mut dummy,
+                        );
+                        let fa = fl
+                            .iter()
+                            .enumerate()
+                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                            .unwrap()
+                            .0;
+                        let ia = int_logits.iter().enumerate().max_by_key(|(_, &v)| v).unwrap().0;
+                        if fa == ia {
+                            agree += 1;
+                        }
                     }
-                } else {
+                } else if with_agree {
                     // keep float twin's KV in sync on unscored prefix
                     let _ = float_forward_logits(
                         &fm, &mut fs, MAX_SEQ, &tables.cos, &tables.sin, chunk[p], &mut dummy,
@@ -133,12 +131,14 @@ fn main() {
             }
         }
         println!();
-        println!(
-            "top-1 agreement int vs float: {}/{} = {:.1}%",
-            agree,
-            scored,
-            100.0 * agree as f64 / scored as f64
-        );
+        if with_agree {
+            println!(
+                "top-1 agreement int vs float: {}/{} = {:.1}%",
+                agree,
+                scored,
+                100.0 * agree as f64 / scored as f64
+            );
+        }
     }
     let ppl = (nll / scored as f64).exp();
     println!("== {mode} PPL over {scored} scored tokens: {ppl:.4} ==");

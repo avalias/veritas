@@ -549,7 +549,7 @@ pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
     let s_qk_pre: Vec<f32> = calib.qk_pre.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
     let s_gate: Vec<f32> = calib.gate.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
     let s_up: Vec<f32> = calib.up.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
-    let s_v: Vec<f32> = calib.v.iter().map(|&v| v.max(1e-6) / 127.0).collect();
+    let s_v: Vec<f32> = calib.v.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
     let s_h: Vec<f32> = calib.ffn_h.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
     let s_xnf = calib.xnf.max(1e-6) / 32767.0;
 
