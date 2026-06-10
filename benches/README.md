@@ -41,13 +41,13 @@ level; this alone cut commitment cost ~1.7×).
 
 | metric | value |
 |---|---|
-| integer decode (`qwen_demo`) | **14–19 tok/s** (naive autovectorized kernels) |
-| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s |
+| integer decode (`qwen_demo`) | **27.6 tok/s** (NEON smlal + persistent pool; was 14.8 with naive kernels) |
+| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s — **gap 3.7×** (was 6.8×) |
 | llama.cpp Q8_0, `-ngl 0` (Accelerate/AMX BLAS) | 109 tok/s |
-| commitment, sequential | 1.5 ms/token = **2.3–2.8% of compute** (~105 dirty pages/token after the row-major V fix; was 7.8 MB/token before) |
-| commitment, **pipelined** (hasher thread) | **0.00% wall-clock** (794 ms vs 846 ms pure; roots bit-identical, asserted) |
+| commitment, sequential | 1.6 ms/token ≈ 4.5% of compute (dirty set grew with i16 V/probs) |
+| commitment, **pipelined** (hasher thread) | **0–3% wall-clock** (run-noise dominated; 0.00% measured on the earlier config; roots bit-identical, asserted) |
 | genesis tree (per-judge, one-off) | ~1.4 s |
-| quality | coherent English judgments; int/float token agreement 0 (W8A8-static; SmoothQuant-class equalization is the known next step) |
+| quality (final night config) | **PPL 421 vs float-ref 34.60 / llama-Q8 34.99; top-1 agreement 20.5%** — full measured ladder below |
 
 Two separable claims, now measured:
 1. **Determinism + commitment cost ≈ 0** on the integer path — math is
