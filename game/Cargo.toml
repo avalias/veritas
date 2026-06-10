@@ -8,6 +8,8 @@ version.workspace = true
 vm = { path = "../vm" }
 toy-model = { path = "../models/toy" }
 compiler = { path = "../compiler" }
+qwen = { path = "../models/qwen" }
+kernels = { path = "../kernels" }
 
 [lints]
 workspace = true

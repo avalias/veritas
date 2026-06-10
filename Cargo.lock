@@ -476,6 +476,8 @@ name = "game"
 version = "0.1.0"
 dependencies = [
  "compiler",
+ "kernels",
+ "qwen",
  "toy-model",
  "vm",
 ]

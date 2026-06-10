@@ -693,6 +693,13 @@ Each round halves the interval: ⌈log₂ N⌉ rounds ≈ 17–20 for the toy, �
 single-level for ~5×10⁹ steps. Phase 3 still goes two-level (§8.6) — the
 win there is trace-materialization cost, not round count.
 
+*Measured at Qwen scale (qwen_dispute bin):* per-step root vectors are
+impossible at 29.5M steps; parties answer bisection queries with a cursor
+machine pinned at the agreed `lo` (monotone non-decreasing) plus a
+clone-and-advance for each midpoint — O(N) total stepping per party for
+the whole dispute, ~26 clone+advance queries, single-digit minutes
+wall-clock on one core. No precomputed trace is needed at all.
+
 When `hi − lo == 1`: **either party** MAY submit `verify_step` (§8.4) before
 the deadline; the *outcome is decided by the comparison*, not by who
 submitted. If nobody submits a valid proof, whoever's deadline expires
