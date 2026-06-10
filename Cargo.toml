@@ -4,7 +4,7 @@
 
 [workspace]
 resolver = "2"
-members = ["vm", "models/toy", "compiler", "game", "client", "benches"]
+members = ["vm", "models/toy", "compiler", "game", "client", "benches", "models/qwen"]
 
 [workspace.package]
 edition = "2021"

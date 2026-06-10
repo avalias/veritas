@@ -1,0 +1,13 @@
+[package]
+name = "qwen"
+description = "Qwen3 integer port: config/tensors/quantizer/rotary tables/native runtime (Phase 3)"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+vm = { path = "../../vm" }
+toy-model = { path = "../toy" } # reuses the integer LUT generators
+serde_json.workspace = true
+
+[lints]
+workspace = true

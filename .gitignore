@@ -3,4 +3,6 @@
 # from a fresh clone).
 /target
 dispute/build/
+# 1.5 GB weights stay out of git — pinned by hash in models/qwen/artifacts/
+models/qwen/artifacts/model.safetensors
 .DS_Store
