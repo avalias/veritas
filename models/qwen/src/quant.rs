@@ -73,6 +73,7 @@ fn m_table_bw(sw_rb: &[f32], s_blocks: &[f32], s_out: f32) -> (Vec<i32>, u8) {
 }
 
 /// Per-output-channel symmetric int8 quantization of a [rows][cols] matrix.
+#[allow(dead_code)] // kept: the non-blocked reference path
 fn quant_per_channel(w: &[f32], rows: usize, cols: usize) -> (Vec<i8>, Vec<f32>) {
     let mut q = vec![0i8; rows * cols];
     let mut scales = vec![0f32; rows];
@@ -607,6 +608,7 @@ fn per_channel(blocks: &[f32], n: usize) -> Vec<f32> {
 /// Per-(row, block) multipliers with a per-matrix normalized shift: the
 /// largest M lands near 2^23 (so 48-block i64 accumulation stays exact),
 /// and the matching shift is returned for the final round-half-even.
+#[allow(dead_code)] // kept: per-row-uniform variant of m_table_bw
 fn m_table(sw: &[f32], s_blocks: &[f32], s_out: f32) -> (Vec<i32>, u8) {
     let mut fmax = 1e-30f32;
     for &r in sw {

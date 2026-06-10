@@ -134,6 +134,7 @@ impl<'a> Native<'a> {
 
     /// Row-parallel projection: rows of `w` (rows×cols i8) · x (i16),
     /// requant by per-channel m — NEON + persistent pool.
+    #[allow(dead_code)] // non-blocked reference path
     fn proj(&self, mem: &FlatMem, w: u64, m: &[i32], rows: u64, cols: u64, x16: u64) -> Vec<i64> {
         let x = mem.slice(x16, 2 * cols as usize);
         let wbytes = mem.slice(w, (rows * cols) as usize);

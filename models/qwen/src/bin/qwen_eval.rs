@@ -8,6 +8,7 @@
 //! scored chunks) — no leakage into scored text. Floats here are eval-only
 //! measurement (softmax/log over integer logits), not committed semantics.
 #![allow(clippy::float_arithmetic)]
+#![allow(clippy::needless_range_loop)] // eval favors index clarity
 
 use qwen::config::QwenConfig;
 use qwen::forward::Native;
