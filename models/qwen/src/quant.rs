@@ -4,6 +4,7 @@
 //! it produces is integer artifacts whose bytes become committed state.
 //! The runtime never executes a float instruction.
 #![allow(clippy::float_arithmetic)] // loud, deliberate, quarantined
+#![allow(clippy::needless_range_loop)] // float reference favors index clarity
 
 use crate::config::QwenConfig;
 use crate::tensors::SafeTensors;

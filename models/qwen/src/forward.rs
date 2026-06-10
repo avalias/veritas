@@ -321,6 +321,7 @@ impl<'a> Native<'a> {
 }
 
 /// One attention head, READ-ONLY (parallel-safe); ctx written by caller.
+#[allow(clippy::needless_range_loop)]
 fn attn_head(n: &Native, mem: &FlatMem, l: usize, hd: u64, pos: usize, out: &mut [i64]) {
     let cfg = &n.im.cfg;
     let (dh, nkv, nh) = (
@@ -348,7 +349,7 @@ fn attn_head(n: &Native, mem: &FlatMem, l: usize, hd: u64, pos: usize, out: &mut
         exps[j] = n.lut(&n.tables.exp, att[j].wrapping_sub(mx));
         sum = sum.wrapping_add(exps[j]);
     }
-    let mut probs = vec![0u8; MAX_SEQ];
+    let mut probs = [0u8; MAX_SEQ];
     for j in 0..=pos {
         let p = rnd(trunc_div(exps[j].wrapping_mul(16384), sum), 7);
         probs[j] = sat8(p) as u8;
@@ -372,6 +373,7 @@ fn attn_head(n: &Native, mem: &FlatMem, l: usize, hd: u64, pos: usize, out: &mut
 /// Replay the LAST head's attention scratch into committed memory (att32,
 /// e32, probs, sum, neg_max) — the VM's scratch is whatever the final head
 /// left behind; parallel heads must not race those writes.
+#[allow(clippy::needless_range_loop)]
 fn replay_attn_scratch(n: &Native, mem: &mut FlatMem, l: usize, pos: usize) {
     let cfg = &n.im.cfg;
     let (dh, nkv, nh) = (

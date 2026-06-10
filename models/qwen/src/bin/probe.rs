@@ -72,7 +72,7 @@ fn main() {
     native.position(&mut mem, 0, prompt[0], false);
 
     // FLOAT side, instrumented, comparing after each stage.
-    let mut x: Vec<f32> = fm.emb[t0 * h..(t0 + 1) * h].to_vec();
+    let x: Vec<f32> = fm.emb[t0 * h..(t0 + 1) * h].to_vec();
     // int x after embedding is NOT recoverable post-run (overwritten by
     // layer residuals) — compare end-of-position only, plus per-layer
     // recomputation below for layer 0 internals.
@@ -278,7 +278,7 @@ fn native_norm(n: &Native, mem: &mut FlatMem, src: u64, dst: u64, site: &qwen::q
     }
 }
 
-fn native_proj(n: &Native, mem: &FlatMem, w: u64, m: &[i32], rows: u64, cols: u64, x16: u64) -> Vec<i64> {
+fn native_proj(_n: &Native, mem: &FlatMem, w: u64, m: &[i32], rows: u64, cols: u64, x16: u64) -> Vec<i64> {
     use vm::exec::rnd;
     let x = mem.slice(x16, 2 * cols as usize);
     let wb = mem.slice(w, (rows * cols) as usize);
@@ -363,7 +363,6 @@ fn float_position_capture(
     tables: &Tables,
     token: u32,
 ) -> Vec<Vec<f32>> {
-    use qwen::image::Tables as _;
     let mut calib = Calib::new(fm.cfg.num_hidden_layers);
     // run instrumented float by reusing float_forward? It doesn't capture.
     // Cheap trick: float layers are deterministic; replicate with capture

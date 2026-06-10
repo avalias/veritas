@@ -32,7 +32,8 @@ impl QwenConfig {
         // eps comes as a float literal in JSON; we only support the exact
         // value 1e-6 (asserted) and carry its reciprocal as an integer.
         let eps = v["rms_norm_eps"].as_f64().expect("rms_norm_eps");
-        assert!((eps - 1e-6).abs() < 1e-12, "only eps = 1e-6 supported, got {eps}");
+        // Bit-equality (no float arithmetic in this crate's integer side).
+        assert!(eps.to_bits() == 1e-6f64.to_bits(), "only eps = 1e-6 supported, got {eps}");
         Self {
             hidden_size: u("hidden_size"),
             num_hidden_layers: u("num_hidden_layers"),
