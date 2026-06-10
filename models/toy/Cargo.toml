@@ -1,0 +1,11 @@
+[package]
+name = "toy-model"
+description = "Phase 1 toy transformer: integer LUTs, fixed random INT8 weights, memory layout, genesis image"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+vm = { path = "../../vm" }
+
+[lints]
+workspace = true

@@ -1,0 +1,42 @@
+# Invariant 1 (SPEC §9.1): byte-identical traces across architectures.
+# The pinned golden digests must reproduce on x86_64-linux AND aarch64-macos.
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14] # x86_64 and arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy (denies float arithmetic in execution paths)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: tests (incl. cross-platform golden digests)
+        run: cargo test --workspace
+
+  # Rust↔Move equivalence: the generated vectors + exhaustive MAC8 must
+  # hold the on-chain interpreter to the reference semantics.
+  move-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install sui CLI
+        run: |
+          url=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases/latest \
+            | grep browser_download_url | grep ubuntu-x86_64 | cut -d'"' -f4)
+          curl -sL "$url" -o sui.tgz
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf sui.tgz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: sui move test
+        working-directory: dispute
+        run: sui move test

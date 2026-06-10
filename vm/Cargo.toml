@@ -1,0 +1,11 @@
+[package]
+name = "vm"
+description = "Deterministic tensor VM: state commitment, ISA, reference interpreter (SPEC.md §3–§7)"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+sha3.workspace = true
+
+[lints]
+workspace = true

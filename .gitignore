@@ -1,0 +1,6 @@
+# Cargo.lock and Move.lock are deliberately committed: pinned dependencies
+# are part of the determinism story (golden trace hashes must reproduce
+# from a fresh clone).
+/target
+dispute/build/
+.DS_Store

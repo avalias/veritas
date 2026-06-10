@@ -1,0 +1,37 @@
+# Workspace for the fraud-provable LLM inference system (see SPEC.md).
+# Members arrive per phase: vm (Phase 0), compiler/game/models (Phase 1),
+# client (Phase 2), benches (Phase 3).
+
+[workspace]
+resolver = "2"
+members = ["vm", "models/toy", "compiler", "game", "client", "benches"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+[workspace.dependencies]
+sha3 = "0.10" # SHA3-256: the commitment hash H (SPEC §2.2)
+serde_json = "1" # localnet client only — parsing sui CLI --json output
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# Invariant 1 (SPEC §9.1): no float arithmetic anywhere in execution paths.
+# The only float code ever allowed in this repo is offline LUT/scale
+# generation (SPEC §6.3), which will live in a crate that opts out loudly.
+float_arithmetic = "deny"
+
+# Tests run with overflow checks so any arithmetic overflow NOT explicitly
+# specified as wrapping (SPEC §2.1) panics instead of silently wrapping.
+# opt-level 2 because the fraud-game fuzz runs hundreds of full traced toy
+# inferences (SHA3-heavy); checks stay ON — that's the point of the profile.
+[profile.dev]
+# opt-level 1 keeps `cargo run --bin demo` interactive (it traces two full
+# toy inferences); overflow checks stay on in every profile we use.
+opt-level = 1
+overflow-checks = true
+[profile.test]
+opt-level = 2
+overflow-checks = true

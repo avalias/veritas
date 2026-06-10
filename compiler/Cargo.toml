@@ -1,0 +1,12 @@
+[package]
+name = "compiler"
+description = "Lowers model forward passes to the tensor-VM ISA (SPEC §6.4 recipes)"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+vm = { path = "../vm" }
+toy-model = { path = "../models/toy" }
+
+[lints]
+workspace = true

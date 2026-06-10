@@ -1,0 +1,14 @@
+[package]
+name = "benches"
+description = "Honest-path overhead measurements (SPEC §1.4 targets)"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+vm = { path = "../vm" }
+toy-model = { path = "../models/toy" }
+game = { path = "../game" }
+sha3.workspace = true
+
+[lints]
+workspace = true

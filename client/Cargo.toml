@@ -1,0 +1,14 @@
+[package]
+name = "client"
+description = "Localnet driver (Phase 2) + Rust→Move equivalence vector generator"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+vm = { path = "../vm" }
+game = { path = "../game" }
+toy-model = { path = "../models/toy" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "game"
+description = "Fraud game: traces, fault injection, Resolver/Challenger, MockChain (SPEC §8)"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+vm = { path = "../vm" }
+toy-model = { path = "../models/toy" }
+compiler = { path = "../compiler" }
+
+[lints]
+workspace = true
