@@ -220,6 +220,7 @@ pub fn gemv_w8_x16_blocked(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn gemv_blocked_bytes(
     pool: &Pool,
     w: &[u8],
