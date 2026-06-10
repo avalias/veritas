@@ -82,6 +82,7 @@ pub enum StepError {
     AlreadyTerminal,
 }
 
+#[derive(Clone)]
 pub struct Machine {
     pub regs: Registers,
     pub mem: CommittedMemory,

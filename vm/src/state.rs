@@ -58,6 +58,7 @@ impl Registers {
 /// Every write keeps the tree exact (O(log n) re-hash, SPEC §3.4) — this is
 /// the per-step-capable representation. Checkpoint mode (dirty-page hashing)
 /// arrives with the trace machinery in Phase 1+.
+#[derive(Clone)]
 pub struct CommittedMemory {
     d: u8,
     pages: Vec<[u8; PAGE_SIZE]>,

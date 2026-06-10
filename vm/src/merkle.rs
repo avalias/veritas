@@ -14,6 +14,7 @@ use crate::hash::{node_hash, page_leaf_hash, Hash};
 ///
 /// Memory cost is ~2× the leaf-hash array. Fine through depth ~20 (64 MB of
 /// nodes); a sparse zero-subtree representation is a Phase 3 optimization.
+#[derive(Clone)]
 pub struct MerkleTree {
     depth: u8,
     levels: Vec<Vec<Hash>>,
