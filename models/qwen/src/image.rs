@@ -70,6 +70,8 @@ pub fn genesis_image(
     put_i32(&mut img, lay.c_i32min, &[i32::MIN]);
     // Weights.
     put_i8(&mut img, lay.emb, &im.emb);
+    put_i8(&mut img, lay.head_w, &im.head_w);
+    put_i32(&mut img, lay.m_head, &im.m_head.0);
     put_i32(&mut img, lay.gf, &im.norm_f.gamma_m);
     for (l, lw) in im.layers.iter().enumerate() {
         let a = &lay.layers[l];
@@ -80,13 +82,13 @@ pub fn genesis_image(
         put_i8(&mut img, a.w_gate, &lw.w_gate);
         put_i8(&mut img, a.w_up, &lw.w_up);
         put_i8(&mut img, a.w_down, &lw.w_down);
-        put_i32(&mut img, a.mq, &lw.mq);
-        put_i32(&mut img, a.mk, &lw.mk);
-        put_i32(&mut img, a.mv, &lw.mv);
-        put_i32(&mut img, a.mo, &lw.mo);
-        put_i32(&mut img, a.m_gate, &lw.m_gate);
-        put_i32(&mut img, a.m_up, &lw.m_up);
-        put_i32(&mut img, a.m_down, &lw.m_down);
+        put_i32(&mut img, a.mq, &lw.mq.0);
+        put_i32(&mut img, a.mk, &lw.mk.0);
+        put_i32(&mut img, a.mv, &lw.mv.0);
+        put_i32(&mut img, a.mo, &lw.mo.0);
+        put_i32(&mut img, a.m_gate, &lw.m_gate.0);
+        put_i32(&mut img, a.m_up, &lw.m_up.0);
+        put_i32(&mut img, a.m_down, &lw.m_down.0);
         put_i32(&mut img, a.g1, &lw.norm1.gamma_m);
         put_i32(&mut img, a.g2, &lw.norm2.gamma_m);
         put_i32(&mut img, a.gq, &lw.qnorm.gamma_m);

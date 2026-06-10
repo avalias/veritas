@@ -185,6 +185,54 @@ pub fn gemv_logits_bytes(pool: &Pool, w: &[u8], x: &[u8], rows: usize, cols: usi
     gemv_logits(pool, bytes_as_i8(w), bytes_as_i16(x), rows, cols, out)
 }
 
+/// BLOCKED projection: activations carry per-64-channel-block scales and
+/// each (row, block) has its own multiplier — out[r] =
+/// rnd(Σ_b partial_rb·M[r][b], shift), accumulated EXACTLY in i64
+/// (partial ≤ 2^29, M ≤ 2^24, 16 blocks ⇒ ≤ 2^57 — no intermediate
+/// rounding, half-even applied once).
+#[allow(clippy::too_many_arguments)]
+pub fn gemv_w8_x16_blocked(
+    pool: &Pool,
+    w: &[i8],
+    x: &[i16],
+    rows: usize,
+    cols: usize,
+    m_blocks: &[i32], // row-major [rows][cols/64]
+    shift: u8,
+    out: &mut [i64],
+) {
+    debug_assert_eq!(out.len(), rows);
+    let blocks = cols / 64;
+    debug_assert_eq!(m_blocks.len(), rows * blocks);
+    let out_addr = SendPtr(out.as_mut_ptr());
+    pool.run(rows, 16, &move |start, end| {
+        let out_ptr = out_addr;
+        for r in start..end {
+            let wrow = &w[r * cols..(r + 1) * cols];
+            let mrow = &m_blocks[r * blocks..(r + 1) * blocks];
+            let mut acc = 0i64;
+            for b in 0..blocks {
+                let p = dot_w8_x16(&wrow[b * 64..(b + 1) * 64], &x[b * 64..(b + 1) * 64]);
+                acc = acc.wrapping_add(p.wrapping_mul(mrow[b] as i64));
+            }
+            unsafe { *out_ptr.0.add(r) = rnd(acc, shift) };
+        }
+    });
+}
+
+pub fn gemv_blocked_bytes(
+    pool: &Pool,
+    w: &[u8],
+    x: &[u8],
+    rows: usize,
+    cols: usize,
+    m_blocks: &[i32],
+    shift: u8,
+    out: &mut [i64],
+) {
+    gemv_w8_x16_blocked(pool, bytes_as_i8(w), bytes_as_i16(x), rows, cols, m_blocks, shift, out)
+}
+
 /// Row-parallel projection: out[r] = rnd(dot(w_row_r, x) · m[r], shift).
 #[allow(clippy::too_many_arguments)]
 pub fn gemv_w8_x16(
@@ -272,6 +320,30 @@ mod tests {
         let w = vec![i8::MIN; 4096];
         let x = vec![i16::MIN; 4096];
         assert_eq!(dot_w8_x16(&w, &x), dot_w8_x16_scalar(&w, &x));
+    }
+
+    #[test]
+    fn blocked_gemv_exact() {
+        let pool = Pool::new(8);
+        let mut s = 11u64;
+        let (rows, cols) = (97, 1024);
+        let blocks = cols / 64;
+        let w: Vec<i8> = (0..rows * cols).map(|_| xorshift(&mut s) as i8).collect();
+        let x: Vec<i16> = (0..cols).map(|_| xorshift(&mut s) as i16).collect();
+        let m: Vec<i32> = (0..rows * blocks).map(|_| (xorshift(&mut s) % (1 << 24)) as i32 + 1).collect();
+        let mut out = vec![0i64; rows];
+        gemv_w8_x16_blocked(&pool, &w, &x, rows, cols, &m, 20, &mut out);
+        for r in 0..rows {
+            let mut acc = 0i64;
+            for b in 0..blocks {
+                let p = dot_w8_x16_scalar(
+                    &w[r * cols + b * 64..r * cols + (b + 1) * 64],
+                    &x[b * 64..(b + 1) * 64],
+                );
+                acc = acc.wrapping_add(p.wrapping_mul(m[r * blocks + b] as i64));
+            }
+            assert_eq!(out[r], rnd(acc, 20), "row {r}");
+        }
     }
 
     #[test]

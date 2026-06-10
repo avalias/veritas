@@ -79,7 +79,11 @@ pub struct QwenLayout {
     pub input: u64,
     pub output: u64,
     // weights
-    pub emb: u64, // [vocab][h] i8, per-tensor scale; tied LM head
+    pub emb: u64, // [vocab][h] i8, per-tensor scale (embedding role)
+    /// LM head role of the tied matrix: per-row i8 + per-row multipliers
+    /// (storage duplicated for logit precision; same float source).
+    pub head_w: u64,
+    pub m_head: u64,
     pub gf: u64,
     pub layers: Vec<LayerAddrs>,
     // tables
@@ -141,6 +145,8 @@ impl QwenLayout {
         let input = take(pg, pg);
         let output = take(pg, pg);
         let emb = take(cfg.vocab_size as u64 * h, pg);
+        let head_w = take(cfg.vocab_size as u64 * h, pg);
+        let m_head = take(cfg.vocab_size as u64 * (h / 64) * 4, pg);
         let gf = take(h * 4, 64);
         let layers = (0..cfg.num_hidden_layers)
             .map(|_| LayerAddrs {
@@ -151,13 +157,13 @@ impl QwenLayout {
                 w_gate: take(f * h, pg),
                 w_up: take(f * h, pg),
                 w_down: take(h * f, pg),
-                mq: take(nh * dh * 4, 64),
-                mk: take(nkv * dh * 4, 64),
-                mv: take(nkv * dh * 4, 64),
-                mo: take(h * 4, 64),
-                m_gate: take(f * 4, 64),
-                m_up: take(f * 4, 64),
-                m_down: take(h * 4, 64),
+                mq: take(nh * dh * (h / 64) * 4, 64),
+                mk: take(nkv * dh * (h / 64) * 4, 64),
+                mv: take(nkv * dh * (h / 64) * 4, 64),
+                mo: take(h * (nh * dh / 64) * 4, 64),
+                m_gate: take(f * (h / 64) * 4, 64),
+                m_up: take(f * (h / 64) * 4, 64),
+                m_down: take(h * (f / 64) * 4, 64),
                 g1: take(h * 4, 64),
                 g2: take(h * 4, 64),
                 gq: take(dh * 4, 64),
@@ -180,7 +186,7 @@ impl QwenLayout {
             c_one_i8, c_h, c_dh, c_2p14, c_neg1, c_m_logit, c_m_h, m_emb_arr, c_i32min,
             x, xn, q, attnx, att32, e32, probs, r32, sum, neg_max, tok,
             silu32, up32, h_ffn, logit_buf, saved_max, input, output,
-            emb, gf, layers, rope_cos, rope_sin, rope_nsin,
+            emb, head_w, m_head, gf, layers, rope_cos, rope_sin, rope_nsin,
             lut_exp, lut_rsqrt, lut_silu, end,
         }
     }

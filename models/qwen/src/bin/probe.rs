@@ -255,7 +255,7 @@ fn main() {
     println!(
         "int   L2 spike chain: g_q {} ({:.2} real)  u_q {} ({:.2} real)  x411 {}  em {}  sig {}  hpre {}  m_sig {}  m_h {}  m_gate[55] {}  m_up[55] {}  → h_q {}",
         g, g as f32 * s_gate[l2], u, u as f32 * s_up[l2], x411, em, sig, hpre,
-        il2.m_sig, m_h_spike, il2.m_gate[spike], il2.m_up[spike], hq
+        il2.m_sig, m_h_spike, il2.m_gate.0[spike * 16], il2.m_up.0[spike * 16], hq
     );
     let _ = s_v;
 }
@@ -279,24 +279,26 @@ fn native_norm(n: &Native, mem: &mut FlatMem, src: u64, dst: u64, site: &qwen::q
     }
 }
 
-fn native_proj(_n: &Native, mem: &FlatMem, w: u64, m: &[i32], rows: u64, cols: u64, x16: u64) -> Vec<i64> {
+fn native_proj(_n: &Native, mem: &FlatMem, w: u64, m: &(Vec<i32>, u8), rows: u64, cols: u64, x16: u64) -> Vec<i64> {
     use vm::exec::rnd;
     let x = mem.slice(x16, 2 * cols as usize);
     let wb = mem.slice(w, (rows * cols) as usize);
+    let blocks = cols as usize / 64;
     (0..rows as usize)
         .map(|r| {
             let mut acc = 0i64;
-            for (wc, xc) in wb[r * cols as usize..(r + 1) * cols as usize]
+            for (bidx, (wc, xc)) in wb[r * cols as usize..(r + 1) * cols as usize]
                 .chunks(64)
                 .zip(x.chunks(128))
+                .enumerate()
             {
                 let mut part = 0i32;
                 for (a, b) in wc.iter().zip(xc.chunks_exact(2)) {
                     part += (*a as i8 as i32) * (i16::from_le_bytes([b[0], b[1]]) as i32);
                 }
-                acc += part as i64;
+                acc = acc.wrapping_add((part as i64).wrapping_mul(m.0[r * blocks + bidx] as i64));
             }
-            rnd(acc.wrapping_mul(m[r] as i64), 20)
+            rnd(acc, m.1)
         })
         .collect()
 }

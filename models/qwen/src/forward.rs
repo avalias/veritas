@@ -142,14 +142,25 @@ impl<'a> Native<'a> {
         out
     }
 
+    /// Blocked projection: per-block activation scales, per-(row,block)
+    /// multipliers, exact i64 accumulation (kernels::gemv_blocked).
+    fn proj_b(&self, mem: &FlatMem, w: u64, m: &(Vec<i32>, u8), rows: u64, cols: u64, x16: u64) -> Vec<i64> {
+        let x = mem.slice(x16, 2 * cols as usize);
+        let wbytes = mem.slice(w, (rows * cols) as usize);
+        let mut out = vec![0i64; rows as usize];
+        kernels::gemv_blocked_bytes(&self.pool, wbytes, x, rows as usize, cols as usize, &m.0, m.1, &mut out);
+        out
+    }
+
     /// EVAL hook: full integer logits (committed semantics: rnd(dot,11))
     /// recomputed from the current xn. Threaded; read-only.
     pub fn head_logits(&self, mem: &FlatMem, out: &mut [i64]) {
         let h = self.im.cfg.hidden_size;
         let vocab = self.im.cfg.vocab_size;
         let x = mem.slice(self.lay.xn, 2 * h);
-        let emb = mem.slice(self.lay.emb, vocab * h);
-        kernels::gemv_logits_bytes(&self.pool, emb, x, vocab, h, out);
+        let w = mem.slice(self.lay.head_w, vocab * h);
+        // Per-(row,block) multipliers restore one common logit scale.
+        kernels::gemv_blocked_bytes(&self.pool, w, x, vocab, h, &self.im.m_head.0, self.im.m_head.1, out);
     }
 
     /// One position. `decide` ⇒ run the LM head and return the argmax token.
@@ -187,16 +198,16 @@ impl<'a> Native<'a> {
             let a = &lay.layers[l];
             self.rmsnorm_to_i16(mem, lay.x, lay.xn, &lw.norm1, h);
             // QKV projections (row-parallel), stores single-threaded.
-            let qv = self.proj(mem, a.wq, &lw.mq, nh * dh, h, lay.xn);
+            let qv = self.proj_b(mem, a.wq, &lw.mq, nh * dh, h, lay.xn);
             for (r, v) in qv.iter().enumerate() {
                 mem.w16(lay.q + 2 * r as u64, sat16(*v) as u16);
             }
-            let kv = self.proj(mem, a.wk, &lw.mk, nkv * dh, h, lay.xn);
+            let kv = self.proj_b(mem, a.wk, &lw.mk, nkv * dh, h, lay.xn);
             let krow = a.kc + pos as u64 * nkv * dh * 2;
             for (r, v) in kv.iter().enumerate() {
                 mem.w16(krow + 2 * r as u64, sat16(*v) as u16);
             }
-            let vv = self.proj(mem, a.wv, &lw.mv, nkv * dh, h, lay.xn);
+            let vv = self.proj_b(mem, a.wv, &lw.mv, nkv * dh, h, lay.xn);
             let vrow = a.vc + pos as u64 * nkv * dh * 2;
             for (r, v) in vv.iter().enumerate() {
                 mem.w16(vrow + 2 * r as u64, sat16(*v) as u16);
@@ -229,15 +240,15 @@ impl<'a> Native<'a> {
                 mem.w16(lay.attnx + 2 * i as u64, sat16(*v) as u16);
             }
             // O-projection + residual (i32 carrier, no saturation risk).
-            let ov = self.proj(mem, a.wo, &lw.mo, h, nh * dh, lay.attnx);
+            let ov = self.proj_b(mem, a.wo, &lw.mo, h, nh * dh, lay.attnx);
             for (c, v) in ov.iter().enumerate() {
                 let with_res = v.wrapping_add(mem.r32i(lay.x + 4 * c as u64));
                 mem.w32(lay.x + 4 * c as u64, sat32(with_res) as u32);
             }
             // FFN: silu(gate)·up → down, with residual.
             self.rmsnorm_to_i16(mem, lay.x, lay.xn, &lw.norm2, h);
-            let gv = self.proj(mem, a.w_gate, &lw.m_gate, f, h, lay.xn);
-            let uv = self.proj(mem, a.w_up, &lw.m_up, f, h, lay.xn);
+            let gv = self.proj_b(mem, a.w_gate, &lw.m_gate, f, h, lay.xn);
+            let uv = self.proj_b(mem, a.w_up, &lw.m_up, f, h, lay.xn);
             for r in 0..f as usize {
                 // silu(g) = g·σ(g) with σ from the EXP LUT — gate stays at
                 // its per-layer i16 scale; only σ's argument saturates at
@@ -260,7 +271,7 @@ impl<'a> Native<'a> {
                 let hq = rnd(prod.wrapping_mul(lw.m_h[r] as i64), SHIFT);
                 mem.w16(lay.h_ffn + 2 * r as u64, sat16(hq) as u16);
             }
-            let dv = self.proj(mem, a.w_down, &lw.m_down, h, f, lay.h_ffn);
+            let dv = self.proj_b(mem, a.w_down, &lw.m_down, h, f, lay.h_ffn);
             for (c, v) in dv.iter().enumerate() {
                 let with_res = v.wrapping_add(mem.r32i(lay.x + 4 * c as u64));
                 mem.w32(lay.x + 4 * c as u64, sat32(with_res) as u32);
@@ -392,11 +403,15 @@ fn replay_head_scratch(n: &Native, mem: &mut FlatMem, max_logit: i64) {
     let vocab = n.im.cfg.vocab_size;
     let last_chunk_start = (vocab - 1) / 256 * 256;
     let x = mem.slice(n.lay.xn, 2 * h as usize).to_vec();
+    let blocks = h as usize / 64;
     for v in last_chunk_start..vocab {
-        let s = rnd(
-            dot_w8_x16(mem.slice(n.lay.emb + v as u64 * h, h as usize), &x),
-            11,
-        );
+        let wrow = mem.slice(n.lay.head_w + v as u64 * h, h as usize).to_vec();
+        let mut acc = 0i64;
+        for b in 0..blocks {
+            let p = dot_w8_x16(&wrow[b * 64..(b + 1) * 64], &x[b * 128..(b + 1) * 128]);
+            acc = acc.wrapping_add(p.wrapping_mul(n.im.m_head.0[v * blocks + b] as i64));
+        }
+        let s = rnd(acc, n.im.m_head.1);
         mem.w32(n.lay.logit_buf + 4 * (v % 256) as u64, s as u32);
     }
     mem.w32(n.lay.saved_max, max_logit as u32);

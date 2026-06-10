@@ -20,6 +20,7 @@ use toy_model::forward::FlatMem;
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/artifacts");
 const EVAL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../benches/eval_text.txt");
+const CALIB: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../benches/calib_text.txt");
 
 fn logprob_of(logits_real: &[f64], target: usize) -> f64 {
     let mx = logits_real.iter().cloned().fold(f64::MIN, f64::max);
@@ -47,18 +48,64 @@ fn main() {
     drop(st);
     let tables = Tables::generate(cfg.rope_theta, cfg.head_dim);
 
-    // Calibrate on the remainder tail (outside scored chunks).
-    let tail = &tokens[n_chunks * MAX_SEQ..];
-    let calib_toks: &[u32] = if tail.len() >= 16 { tail } else { &tokens[..MAX_SEQ] };
-    println!("calibrating on {} tail tokens…", calib_toks.len().min(MAX_SEQ));
+    // Calibrate on a DEDICATED corpus (disjoint from eval text): richer
+    // max statistics than the eval-file tail; two fresh-state passes of
+    // MAX_SEQ tokens each.
+    let calib_text = std::fs::read_to_string(CALIB).expect("calib text");
+    let calib_toks: Vec<u32> =
+        tokenizer.encode(calib_text.as_str(), false).expect("enc").get_ids().to_vec();
+    println!("calibrating on {} dedicated tokens…", calib_toks.len());
     let mut calib = Calib::new(cfg.num_hidden_layers);
-    {
+    for pass in 0..2usize {
+        let start = pass * MAX_SEQ;
+        if start + 8 > calib_toks.len() {
+            break;
+        }
         let mut fs = FloatState::new(&cfg, MAX_SEQ);
-        for &t in calib_toks.iter().take(MAX_SEQ) {
+        for &t in calib_toks[start..].iter().take(MAX_SEQ) {
             let _ = float_forward_logits(&fm, &mut fs, MAX_SEQ, &tables.cos, &tables.sin, t, &mut calib);
         }
     }
 
+    if mode == "diag" {
+        // Single-position logit diagnosis: float vs int·K at position P.
+        let im = quantize(&fm, &calib);
+        let lay = QwenLayout::new(&cfg);
+        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let native = Native { lay: &lay, im: &im, tables: &tables, threads, pool: kernels::Pool::new(threads) };
+        let k = im.s_logit_eval as f64;
+        let pp = 48usize; // prefix length
+        let chunk = &tokens[0..pp + 1];
+        let image = genesis_image(&lay, &im, &tables, &chunk[..1]);
+        let mut mem = FlatMem::new(image);
+        let mut fs = FloatState::new(&cfg, MAX_SEQ);
+        let mut dummy = Calib::new(cfg.num_hidden_layers);
+        let mut fl = vec![];
+        for p in 0..=pp {
+            native.position(&mut mem, p, chunk[p], true);
+            fl = float_forward_logits(&fm, &mut fs, MAX_SEQ, &tables.cos, &tables.sin, chunk[p], &mut dummy);
+        }
+        let mut il = vec![0i64; cfg.vocab_size];
+        native.head_logits(&mem, &mut il);
+        let ir: Vec<f64> = il.iter().map(|&v| v as f64 * k).collect();
+        let mut fi: Vec<(usize, f32)> = fl.iter().cloned().enumerate().collect();
+        fi.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        println!("float top5: {:?}", &fi[..5]);
+        let mut ii: Vec<(usize, f64)> = ir.iter().cloned().enumerate().collect();
+        ii.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        println!("int·K top5: {:?}", &ii[..5]);
+        let mean_f: f64 = fl.iter().map(|&v| v as f64).sum::<f64>() / fl.len() as f64;
+        let mean_i: f64 = ir.iter().sum::<f64>() / ir.len() as f64;
+        let mut dsum = 0f64;
+        let mut dmax = 0f64;
+        for (a, b) in fl.iter().zip(&ir) {
+            let d = (*a as f64 - b).abs();
+            dsum += d;
+            if d > dmax { dmax = d; }
+        }
+        println!("mean float {mean_f:.3} | mean int·K {mean_i:.3} | mean|Δ| {:.3} | max|Δ| {dmax:.3} | K {k:.3e}", dsum / fl.len() as f64);
+        return;
+    }
     let half = MAX_SEQ / 2;
     let mut nll = 0f64;
     let mut scored = 0usize;
@@ -88,8 +135,8 @@ fn main() {
         let lay = QwenLayout::new(&cfg);
         let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
         let native = Native { lay: &lay, im: &im, tables: &tables, threads, pool: kernels::Pool::new(threads) };
-        // Real-scale factor: real_logit = int_logit · s_emb · s_xnf · 2^11.
-        let k = im.s_emb_eval as f64 * im.s_xnf_eval as f64 * 2048.0;
+        // Real-scale factor: one common logit quantum from the per-row head.
+        let k = im.s_logit_eval as f64;
         let mut int_logits = vec![0i64; cfg.vocab_size];
         // Float twin runs alongside for top-1 agreement (slow but bounded).
         for c in 0..n_chunks {

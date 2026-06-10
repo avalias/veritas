@@ -26,6 +26,52 @@ fn mpair(real_multiplier: f32) -> i32 {
     (m as i32).max(1)
 }
 
+/// Per-(row, 64-col-block) symmetric int8 quantization — llama Q8_0's
+/// block structure. Scales fold into the per-(row,block) M tables at zero
+/// runtime cost.
+fn quant_per_rowblock(w: &[f32], rows: usize, cols: usize) -> (Vec<i8>, Vec<f32>) {
+    let blocks = cols / 64;
+    let mut q = vec![0i8; rows * cols];
+    let mut scales = vec![0f32; rows * blocks];
+    for r in 0..rows {
+        for b in 0..blocks {
+            let off = r * cols + b * 64;
+            let blk = &w[off..off + 64];
+            let amax = blk.iter().fold(0f32, |a, &v| a.max(v.abs())).max(1e-8);
+            let s = amax / 127.0;
+            scales[r * blocks + b] = s;
+            for c in 0..64 {
+                q[off + c] = (blk[c] / s).round().clamp(-127.0, 127.0) as i8;
+            }
+        }
+    }
+    (q, scales)
+}
+
+/// Per-(row,block) M from BLOCKED weight scales (rows×blocks) and blocked
+/// activation scales — same normalized-shift discipline as m_table.
+fn m_table_bw(sw_rb: &[f32], s_blocks: &[f32], s_out: f32) -> (Vec<i32>, u8) {
+    let blocks = s_blocks.len();
+    let mut fmax = 1e-30f32;
+    for (i, &swv) in sw_rb.iter().enumerate() {
+        fmax = fmax.max(swv * s_blocks[i % blocks] / s_out);
+    }
+    let mut shift = 0u8;
+    while shift < 62 && (fmax * ((1u64 << (shift + 1)) as f32)) < ((1u64 << 23) as f32) {
+        shift += 1;
+    }
+    let out: Vec<i32> = sw_rb
+        .iter()
+        .enumerate()
+        .map(|(i, &swv)| {
+            let m = (swv * s_blocks[i % blocks] / s_out * ((1u64 << shift) as f32)).round();
+            assert!(m < ((1u64 << 25) as f32), "blocked multiplier overflow");
+            (m as i32).max(1)
+        })
+        .collect();
+    (out, shift)
+}
+
 /// Per-output-channel symmetric int8 quantization of a [rows][cols] matrix.
 fn quant_per_channel(w: &[f32], rows: usize, cols: usize) -> (Vec<i8>, Vec<f32>) {
     let mut q = vec![0i8; rows * cols];
@@ -429,14 +475,15 @@ fn norm_site(gamma: &[f32], real_per_r_unit: f32, pre_shift: u8, elem_pre: bool)
 /// calibrated mean-square so ss/h lands inside the rsqrt LUT domain
 /// (≤ 2^14, with 4 bits of safety). r = lut[ms>>?] ≈ 2^(14+k)/√ms_q, so
 /// the folded factor is γ/(2^(14+k)·s_xn).
-fn carrier_norm_site(gamma: &[f32], ms_real: f32, s_res: f32, s_xn: f32) -> NormSite {
+fn carrier_norm_site(gamma: &[f32], ms_real: f32, s_res: f32, s_xn_ch: &[f32]) -> NormSite {
     let ms_q = (ms_real.max(1e-12) / (s_res * s_res)) as f64; // in quanta²
     let mut k = 0u8;
     while (ms_q / 4f64.powi(k as i32)) > 1024.0 * 16.0 && k < 31 {
         k += 1; // each k halves elements ⇒ quarters the mean-square
     }
-    let factor = 1.0 / ((1u64 << (14 + k as u32)) as f32 * s_xn);
-    let factors: Vec<f32> = gamma.iter().map(|&g| g * factor).collect();
+    let base = 1.0 / (1u64 << (14 + k as u32)) as f32;
+    let factors: Vec<f32> =
+        gamma.iter().zip(s_xn_ch).map(|(&g, &sj)| g * base / sj).collect();
     let (gamma_m, shift) = fold_factors(&factors);
     NormSite { gamma_m, shift, pre_shift: k, elem_pre: true }
 }
@@ -449,14 +496,14 @@ pub struct IntLayer {
     pub w_gate: Vec<i8>,
     pub w_up: Vec<i8>,
     pub w_down: Vec<i8>,
-    /// Per-channel requant multipliers (global SHIFT), one per output row.
-    pub mq: Vec<i32>,
-    pub mk: Vec<i32>,
-    pub mv: Vec<i32>,
-    pub mo: Vec<i32>,
-    pub m_gate: Vec<i32>,
-    pub m_up: Vec<i32>,
-    pub m_down: Vec<i32>,
+    /// Per-(row,block) requant multipliers + their per-matrix shifts.
+    pub mq: (Vec<i32>, u8),
+    pub mk: (Vec<i32>, u8),
+    pub mv: (Vec<i32>, u8),
+    pub mo: (Vec<i32>, u8),
+    pub m_gate: (Vec<i32>, u8),
+    pub m_up: (Vec<i32>, u8),
+    pub m_down: (Vec<i32>, u8),
     pub norm1: NormSite,
     pub norm2: NormSite,
     pub qnorm: NormSite,
@@ -471,10 +518,15 @@ pub struct IntLayer {
 
 pub struct IntModel {
     pub cfg: QwenConfig,
-    /// EVAL-ONLY metadata (never used by the integer runtime): real-scale
-    /// factors to undo the logit quantization for perplexity measurement.
+    /// EVAL-ONLY metadata: the common logit quantum (real units/quantum).
+    pub s_logit_eval: f32,
     pub s_emb_eval: f32,
     pub s_xnf_eval: f32,
+    /// LM head, PER-ROW quantized (per-tensor murdered logit precision:
+    /// typical weights got ~8 levels against the matrix absmax). m_head
+    /// restores a COMMON logit scale per row — ordering stays valid.
+    pub head_w: Vec<i8>,
+    pub m_head: (Vec<i32>, u8),
     pub emb: Vec<i8>, // per-TENSOR scale (tied head needs a common scale)
     /// Embedding-row → residual-scale requant, PER CHANNEL (undoes the
     /// head-side SmoothQuant column scaling on the tied matrix).
@@ -530,6 +582,53 @@ fn div_vec(a: &[f32], s: &[f32]) -> Vec<f32> {
 
 const ALPHA: f32 = 0.5;
 
+/// Calibration headroom: maxima are measured on a finite calibration set;
+/// eval-time activations exceeding them would SATURATE (the probe showed
+/// top-logit compression — the clipping fingerprint). One extra ~bit of
+/// range kills the clipping for a small resolution cost.
+const HEADROOM: f32 = 1.25;
+
+/// Per-64-channel-block activation scales from smoothed per-channel maxima.
+fn block_scales(act_sm_ch: &[f32]) -> Vec<f32> {
+    act_sm_ch
+        .chunks(64)
+        .map(|blk| {
+            let mx = blk.iter().fold(1e-6f32, |a, &b| a.max(b));
+            mx * HEADROOM / 32767.0
+        })
+        .collect()
+}
+
+/// Per-channel view of block scales (channel j → its block's scale).
+fn per_channel(blocks: &[f32], n: usize) -> Vec<f32> {
+    (0..n).map(|j| blocks[j / 64]).collect()
+}
+
+/// Per-(row, block) multipliers with a per-matrix normalized shift: the
+/// largest M lands near 2^23 (so 48-block i64 accumulation stays exact),
+/// and the matching shift is returned for the final round-half-even.
+fn m_table(sw: &[f32], s_blocks: &[f32], s_out: f32) -> (Vec<i32>, u8) {
+    let mut fmax = 1e-30f32;
+    for &r in sw {
+        for &b in s_blocks {
+            fmax = fmax.max(r * b / s_out);
+        }
+    }
+    let mut shift = 0u8;
+    while shift < 62 && (fmax * ((1u64 << (shift + 1)) as f32)) < ((1u64 << 23) as f32) {
+        shift += 1;
+    }
+    let mut out = Vec::with_capacity(sw.len() * s_blocks.len());
+    for &r in sw {
+        for &b in s_blocks {
+            let m = (r * b / s_out * ((1u64 << shift) as f32)).round();
+            assert!(m < ((1u64 << 25) as f32), "blocked multiplier overflow");
+            out.push((m as i32).max(1));
+        }
+    }
+    (out, shift)
+}
+
 pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
     let cfg = &m.cfg;
     let (h, dh, f) = (cfg.hidden_size, cfg.head_dim, cfg.intermediate_size);
@@ -540,15 +639,15 @@ pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
     // headroom). Qwen3's full 0.05→6400 dynamic range fits with ~16 bits
     // of resolution for embedding-sized values — no rescales, no clipping.
     let res_max = calib.res.iter().fold(1e-6f32, |a, &b| a.max(b));
-    let s_res_g = res_max / (1u64 << 29) as f32;
+    let s_res_g = res_max / (1u64 << 29) as f32; // i32: 4x headroom built in
     let s_res: Vec<f32> = calib.res.iter().map(|_| s_res_g).collect();
     // per-tensor xn scales superseded by smoothed per-layer values below
 
-    let s_qk: Vec<f32> = calib.qk.iter().map(|&v| v.max(1e-6) / 16384.0).collect();
-    let s_qk_pre: Vec<f32> = calib.qk_pre.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
-    let s_gate: Vec<f32> = calib.gate.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
-    let s_up: Vec<f32> = calib.up.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
-    let s_v: Vec<f32> = calib.v.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
+    let s_qk: Vec<f32> = calib.qk.iter().map(|&v| v.max(1e-6) * HEADROOM / 16384.0).collect();
+    let s_qk_pre: Vec<f32> = calib.qk_pre.iter().map(|&v| v.max(1e-6) * HEADROOM / 32767.0).collect();
+    let s_gate: Vec<f32> = calib.gate.iter().map(|&v| v.max(1e-6) * HEADROOM / 32767.0).collect();
+    let s_up: Vec<f32> = calib.up.iter().map(|&v| v.max(1e-6) * HEADROOM / 32767.0).collect();
+    let s_v: Vec<f32> = calib.v.iter().map(|&v| v.max(1e-6) * HEADROOM / 32767.0).collect();
 
 
 
@@ -569,33 +668,36 @@ pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
                 ALPHA,
             );
             let sh = smooth_vec(&calib.h_ch[l], &[&lw.w_down], &[(h, f)], ALPHA);
-            let (wq, sq) = quant_per_channel(&scale_cols(&lw.wq, nh * dh, h, &s1), nh * dh, h);
-            let (wk, sk) = quant_per_channel(&scale_cols(&lw.wk, nkv * dh, h, &s1), nkv * dh, h);
-            let (wv, sv) = quant_per_channel(&scale_cols(&lw.wv, nkv * dh, h, &s1), nkv * dh, h);
-            let (wo, so) = quant_per_channel(&lw.wo, h, nh * dh);
-            let (wg, sg) = quant_per_channel(&scale_cols(&lw.w_gate, f, h, &s2), f, h);
-            let (wu, su) = quant_per_channel(&scale_cols(&lw.w_up, f, h, &s2), f, h);
-            let (wd, sd) = quant_per_channel(&scale_cols(&lw.w_down, h, f, &sh), h, f);
-            // Smoothed activation maxima compose analytically (max-based).
-            let xn1_s = div_vec(&calib.xn1_ch[l], &s1).iter().fold(1e-6f32, |a, &b| a.max(b));
-            let xn2_s = div_vec(&calib.xn2_ch[l], &s2).iter().fold(1e-6f32, |a, &b| a.max(b));
-            let h_s = div_vec(&calib.h_ch[l], &sh).iter().fold(1e-6f32, |a, &b| a.max(b));
-            let s_xn1_l = xn1_s / 32767.0;
-            let s_xn2_l = xn2_s / 32767.0;
-            let s_h_t = h_s / 32767.0;
-            let ms = |scales: &[f32], s_in: f32, s_out: f32| -> Vec<i32> {
-                scales.iter().map(|&sw| mpair(sw * s_in / s_out)).collect()
-            };
+            let (wq, sq) = quant_per_rowblock(&scale_cols(&lw.wq, nh * dh, h, &s1), nh * dh, h);
+            let (wk, sk) = quant_per_rowblock(&scale_cols(&lw.wk, nkv * dh, h, &s1), nkv * dh, h);
+            let (wv, sv) = quant_per_rowblock(&scale_cols(&lw.wv, nkv * dh, h, &s1), nkv * dh, h);
+            let (wo, so) = quant_per_rowblock(&lw.wo, h, nh * dh);
+            let (wg, sg) = quant_per_rowblock(&scale_cols(&lw.w_gate, f, h, &s2), f, h);
+            let (wu, su) = quant_per_rowblock(&scale_cols(&lw.w_up, f, h, &s2), f, h);
+            let (wd, sd) = quant_per_rowblock(&scale_cols(&lw.w_down, h, f, &sh), h, f);
+            // Per-BLOCK activation scales from smoothed per-channel maxima
+            // (composes analytically — max-based calibration).
+            let xn1_b = block_scales(&div_vec(&calib.xn1_ch[l], &s1));
+            let xn2_b = block_scales(&div_vec(&calib.xn2_ch[l], &s2));
+            let h_b = block_scales(&div_vec(&calib.h_ch[l], &sh));
+            let xn1_ch_s = per_channel(&xn1_b, h);
+            let xn2_ch_s = per_channel(&xn2_b, h);
+            let h_ch_s = per_channel(&h_b, f);
             IntLayer {
                 // Pre-norm targets! Post-norm scale would saturate the
-                // raw projections 10-100x before qk-norm runs.
-                mq: ms(&sq, s_xn1_l, s_qk_pre[l]),
-                mk: ms(&sk, s_xn1_l, s_qk_pre[l]),
-                mv: ms(&sv, s_xn1_l, s_v[l]),
-                mo: ms(&so, s_v[l], s_res[l]),
-                m_gate: ms(&sg, s_xn2_l, s_gate[l]), // i16, per-layer scale
-                m_up: ms(&su, s_xn2_l, s_up[l]),     // i16, per-layer scale
-                m_down: ms(&sd, s_h_t, s_res[l + 1]),
+                // raw projections 10-100x before qk-norm runs. All inputs
+                // carry per-block scales → per-(row,block) M tables.
+                mq: m_table_bw(&sq, &xn1_b, s_qk_pre[l]),
+                mk: m_table_bw(&sk, &xn1_b, s_qk_pre[l]),
+                mv: m_table_bw(&sv, &xn1_b, s_v[l]),
+                mo: {
+                    // attnx input is per-tensor (s_v): constant block scales.
+                    let attnx_b = vec![s_v[l]; (nh * dh) / 64];
+                    m_table_bw(&so, &attnx_b, s_res[l])
+                },
+                m_gate: m_table_bw(&sg, &xn2_b, s_gate[l]),
+                m_up: m_table_bw(&su, &xn2_b, s_up[l]),
+                m_down: m_table_bw(&sd, &h_b, s_res[l + 1]),
                 wq,
                 wk,
                 wv,
@@ -605,11 +707,11 @@ pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
                 w_down: wd,
                 norm1: {
                     let g: Vec<f32> = lw.ln1.iter().zip(&s1).map(|(g, s)| g / s).collect();
-                    carrier_norm_site(&g, calib.ms1[l], s_res_g, s_xn1_l)
+                    carrier_norm_site(&g, calib.ms1[l], s_res_g, &xn1_ch_s)
                 },
                 norm2: {
                     let g: Vec<f32> = lw.ln2.iter().zip(&s2).map(|(g, s)| g / s).collect();
-                    carrier_norm_site(&g, calib.ms2[l], s_res_g, s_xn2_l)
+                    carrier_norm_site(&g, calib.ms2[l], s_res_g, &xn2_ch_s)
                 },
                 qnorm: norm_site(&lw.q_norm, 1.0 / ((1u64 << 22) as f32 * s_qk[l]), 16, false),
                 knorm: norm_site(&lw.k_norm, 1.0 / ((1u64 << 22) as f32 * s_qk[l]), 16, false),
@@ -617,7 +719,8 @@ pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
                 m_sig: mpair(s_gate[l] * 2048.0), // g(s_g) → Q4.11 for σ
                 m_h: sh
                     .iter()
-                    .map(|shj| mpair(s_gate[l] * s_up[l] / (s_h_t * shj)))
+                    .zip(&h_ch_s)
+                    .map(|(shj, hsj)| mpair(s_gate[l] * s_up[l] / (hsj * shj)))
                     .collect(),
             }
         })
@@ -625,18 +728,30 @@ pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
     // Head/embedding (tied): smooth the final-norm output into the emb
     // columns; the embedding READ path undoes it per channel via m_emb.
     let sf = smooth_vec(&calib.xnf_ch, &[&m.emb], &[(cfg.vocab_size, h)], ALPHA);
-    let (emb, s_embs) = quant_per_tensor(&scale_cols(&m.emb, cfg.vocab_size, h, &sf));
-    let xnf_s = div_vec(&calib.xnf_ch, &sf).iter().fold(1e-6f32, |a, &b| a.max(b));
-    let s_xnf_t = xnf_s / 32767.0;
+    let smoothed_emb = scale_cols(&m.emb, cfg.vocab_size, h, &sf);
+    let (emb, s_embs) = quant_per_tensor(&smoothed_emb);
+    // Head role: PER-ROW quantization + per-row multipliers restoring one
+    // common logit scale s_L (chosen so max multiplier ≈ 16·2^SHIFT).
+    let (head_w, s_rows) = quant_per_rowblock(&smoothed_emb, cfg.vocab_size, h);
+    let xnf_b = block_scales(&div_vec(&calib.xnf_ch, &sf));
+    let xnf_ch_s = per_channel(&xnf_b, h);
+    let s_xnf_t = xnf_b.iter().fold(1e-12f32, |a, &b| a.max(b)); // eval info
+    let s_row_max = s_rows.iter().fold(1e-12f32, |a, &b| a.max(b));
+    let s_b_max = xnf_b.iter().fold(1e-12f32, |a, &b| a.max(b));
+    let s_logit = s_row_max * s_b_max / 16.0;
+    let m_head = m_table_bw(&s_rows, &xnf_b, s_logit);
     let gf: Vec<f32> = m.ln_f.iter().zip(&sf).map(|(g, s)| g / s).collect();
     IntModel {
         cfg: cfg.clone(),
+        s_logit_eval: s_logit,
         s_emb_eval: s_embs,
         s_xnf_eval: s_xnf_t,
+        head_w,
+        m_head,
         emb,
         m_emb: sf.iter().map(|sj| mpair(s_embs / (sj * s_res_g))).collect(),
         layers,
-        norm_f: carrier_norm_site(&gf, calib.msf, s_res_g, s_xnf_t),
+        norm_f: carrier_norm_site(&gf, calib.msf, s_res_g, &xnf_ch_s),
         calib: calib.clone(),
     }
 }

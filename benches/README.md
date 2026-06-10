@@ -91,18 +91,32 @@ dot4I8, on-GPU i64-emulated row reduction (readback 9.7 MB → 1.2 MB),
 workgroup tiling. The zero-overhead commitment story is hardware-agnostic
 (pipelined hashing measured 0.00% on CPU; same structure applies).
 
-## Quality campaign (integer vs llama.cpp Q8_0 bar: PPL 34.99 ± 5.11)
+## Quality campaign (bars: our float ref PPL **34.60**, llama Q8_0 **34.99**)
 
-| configuration | int PPL | top-1 vs float |
-|---|---|---|
-| per-layer scales + i32 carrier (pre-SmoothQuant) | 2,420 | 15.8% |
-| + SmoothQuant (α=0.5, norm-folded, tied-emb handled) | (running) | |
-| + probs Q0.14 + V-cache i16 | (next) | |
+The float-reference PPL matching llama within noise validates our float
+implementation, the integer rope tables, AND the eval convention in one
+number. The integer ladder, in causal order:
 
-Method: 512-token chunks, second half scored (llama-perplexity's exact
-convention), calibration on the file tail (no leakage). The "coherent
-text" of early decodes hid a catastrophic distribution gap — hence
-measurement-first iteration.
+| configuration (cumulative) | int PPL |
+|---|---|
+| per-layer scales + i32 carrier, thin 386-token calibration | 2,420 |
+| + SmoothQuant α=0.5 (under thin calibration — HARMFUL) | 20,905 |
+| + probs Q0.14 + V-cache i16 | 15,927 |
+| + dedicated 801-token calibration corpus | **1,028** (16×!) |
+| + calibration headroom 1.25 (clipping↔resolution optimum) | **449** |
+| + per-64-block activation scales, per-(row,block) M tables | **381** |
+| + per-(row,block) weight scales (Q8_0-style, free in M) | ~400 (noise-level) |
+| (3× more max-calibration data — resolution pathology) | 1,145 — reverted |
+
+α sweep: {0.25: 18.7k, **0.5: 16.3k**, 0.75: 26.4k}. Final config ≈ 400,
+an ~11× distribution gap to the bar (logit noise ~1.3 vs needed ~0.2).
+
+Named next steps, in expected-value order: **percentile calibration**
+(max-based calibration provably degrades with MORE data — measured),
+blocked q/k + attention-path scales, A-bits beyond 16 per block on the
+worst sites, and ultimately FW-6 (deterministic float semantics = exact
+parity by construction). Diagnosis machinery (probe + diag + this
+harness) reduces each step to a ~4-minute measured iteration.
 
 ## Levers, in priority order
 
