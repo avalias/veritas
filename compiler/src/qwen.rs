@@ -216,6 +216,7 @@ fn rmsnorm(em: &mut Em, lay: &QwenLayout, src: u64, gamma: u64, site: &NormSite,
 
 /// Blocked projection (kernels::gemv_blocked semantics): per row, DOTBM
 /// accumulates Σ_b partial_b·M[r][b] exactly in acc, one rnd at the end.
+#[allow(clippy::too_many_arguments)] // codegen helper, not API surface
 fn proj_blocked(
     em: &mut Em,
     w: u64,

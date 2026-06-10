@@ -60,6 +60,24 @@ Two separable claims, now measured:
    `sdot`/`smlal` kernels, fused projection batches. The protocol is
    indifferent to this — any bit-exact kernel is admissible (§9.1).
 
+## MEASURED: the full trustless-verification chain at Qwen scale
+
+The integer path is now end-to-end: the same committed program runs in the
+fast native predictor and in the reference VM, and a real fault is
+convicted on-chain.
+
+| artifact | result |
+|---|---|
+| Qwen→VM compiler (`compiler/src/qwen.rs`) | 19,754-instr program, depth p=15; **29.55M micro-ops** for 2+1 tokens, 59.6M for 3+2 |
+| **C-14 at Qwen scale** (`qwen_c14`) | native checkpoint roots == VM-oracle roots **bit-identical at every token boundary**; register file exactly the compiler's static prediction (acc=aux=idx=0) |
+| **Qwen fraud game** (`qwen_dispute`) | one flipped weight bit at step 13,889,868 → **25 bisection rounds isolate the exact step**, one-step `verify_step` convicts, resolver slashed; 80.8 s wall, one core, no precomputed trace (two-level cursor scheme) |
+| **on-chain conviction** | the challenger's atomic-step StepProof (a DOTBM transition) is emitted as `dispute/tests/qwen_conviction.move` and the **Sui Move verifier convicts it** — self-contained (opened pages + sibling hashes), no 1 GiB image on-chain |
+
+This is the EigenAI-beating claim made concrete: deterministic real-LLM
+inference whose every micro-op is provable to a ~500-line L1 contract, with
+the predictor running at native integer speed (the determinism tax is 0 by
+associativity, §9.1) and the dispute settled by a single op.
+
 ## Extrapolation to real models (estimates, to be measured in Phase 3)
 
 | setting | compute/token | dirty bytes/token | hash cost (1 thread) | overhead |
@@ -124,8 +142,9 @@ harness) reduces each step to a ~4-minute measured iteration.
 2. ~~Don't hash the logits at all~~ — ISA support done (`ARGMAX_OFF`,
    SPEC v0.3.0): the chunked decode head cycles vocab logits through ONE
    reused page, deleting the ~600 KiB/token dominant term at Qwen scale.
-   The Phase 3 compiler adopts it; expected per-token dirty set drops to
-   ~100–200 KiB (KV append + activation scratch).
+   The Qwen compiler (`compiler/src/qwen.rs`) adopts it: the streaming head
+   cycles vocab logits through one page and tracks the absolute winning row
+   via `ARGMAX_OFF` + a `v_cell` counter — nothing vocab-sized is committed.
 3. Pipeline commitment behind next-token compute (hash token t's dirty set
    while computing t+1): wall-clock overhead → ~0 whenever hashing
    throughput ≥ dirty-byte rate. Latency cost: one checkpoint's hashing at
