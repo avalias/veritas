@@ -325,10 +325,27 @@ fn cases() -> Vec<VsCase> {
     let amx_off = Instr { k: 2, imm: 768, a: Operand::at(300), ..Instr::op(Opcode::ArgmaxOff) };
     let lp = Instr { k: 1, target: 0, imm: 9, ..Instr::op(Opcode::Loop) };
     let halt = Instr::op(Opcode::Halt);
+    let ld16 = Instr { a: Operand::at(102), ..Instr::op(Opcode::Ld16) };
+    let d816 = Instr {
+        imm: 64,
+        a: Operand::at(0),
+        b: Operand::at(128),
+        ..Instr::op(Opcode::Dot8x16)
+    };
+    let dotbm = Instr { w: Operand::at(260), ..d816 };
+    let dotbm = Instr { opcode: Opcode::Dotbm as u8, ..dotbm };
+    // B 64- but not 128-aligned ⇒ T7-wide trap (honest claim of the trap).
+    let d816_badb = Instr { b: Operand::at(64), ..d816 };
 
     vec![
         build_case("vs_dot8_honest", dot8, 11, |m| m.regs.acc = -12345, false),
         build_case("vs_dot8_false_claim", dot8, 11, |m| m.regs.acc = -12345, true),
+        build_case("vs_ld16_honest", ld16, 53, |m| m.regs.acc = 4242, false),
+        build_case("vs_dot8x16_honest", d816, 59, |m| m.regs.acc = -987_654, false),
+        build_case("vs_dot8x16_false_claim", d816, 59, |m| m.regs.acc = -987_654, true),
+        build_case("vs_dotbm_w_read_honest", dotbm, 61, |m| m.regs.acc = 31_337, false),
+        build_case("vs_dotbm_false_claim", dotbm, 61, |m| m.regs.acc = 31_337, true),
+        build_case("vs_dot8x16_wide_misalign_traps", d816_badb, 67, |_| {}, false),
         build_case(
             "vs_clamp8_write_honest",
             clamp8,

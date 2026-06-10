@@ -375,6 +375,48 @@ impl Machine {
                     self.regs.idx[k] = 0; // auto-reset for clean nesting
                 }
             }
+            Opcode::Ld16 => {
+                let ea_a = self.ea(&instr.a);
+                if !self.ok_access(ea_a, 2) {
+                    return Ok(self.trap());
+                }
+                self.regs.acc = sext16(self.mem.read_u16(ea_a));
+            }
+            Opcode::Dot8x16 | Opcode::Dotbm => {
+                // T7 variant: A = 64-B i8 line, B = 128-B i16 line.
+                if instr.imm == 0 || instr.imm > 64 {
+                    return Ok(self.trap());
+                }
+                let (ea_a, ea_b) = (self.ea(&instr.a), self.ea(&instr.b));
+                let mem_bytes = self.mem.mem_bytes();
+                if ea_a % 64 != 0
+                    || ea_a > mem_bytes - 64
+                    || ea_b % 128 != 0
+                    || ea_b > mem_bytes - 128
+                {
+                    return Ok(self.trap());
+                }
+                let lanes = instr.imm as usize;
+                let a = self.mem.read(ea_a, lanes);
+                let b = self.mem.read(ea_b, 2 * lanes);
+                let mut p = 0i64;
+                for j in 0..lanes {
+                    let av = sext8(a[j]);
+                    let bv = sext16(u16::from_le_bytes([b[2 * j], b[2 * j + 1]]));
+                    p = p.wrapping_add(av.wrapping_mul(bv));
+                }
+                if op == Opcode::Dotbm {
+                    // W slot is a READ: the per-block multiplier cell.
+                    let ea_w = self.ea(&instr.w);
+                    if !self.ok_access(ea_w, 4) {
+                        return Ok(self.trap());
+                    }
+                    let m = sext32(self.mem.read_u32(ea_w));
+                    self.regs.acc = self.regs.acc.wrapping_add(p.wrapping_mul(m));
+                } else {
+                    self.regs.acc = self.regs.acc.wrapping_add(p);
+                }
+            }
             Opcode::Halt => {
                 // halted ← 1, pc unchanged, step counts (SPEC §5.2).
                 self.regs.halted = HALTED;

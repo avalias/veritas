@@ -596,6 +596,116 @@ fn c13_dot16_equals_direct_sum_and_aliasing() {
 }
 
 // ---------------------------------------------------------------------------
+// Wide ops (SPEC 0.4.0): LD16, DOT8X16, DOTBM
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ld16_sign_extends() {
+    for (bytes, want) in [([0x34u8, 0x12], 0x1234i64), ([0x00, 0x80], -32768), ([0xff, 0xff], -1)]
+    {
+        let mut m = mk(vec![Instr { a: Operand::at(10), ..Instr::op(Opcode::Ld16) }]);
+        m.mem.write(10, &bytes);
+        m.regs.acc = 777; // overwritten, not accumulated
+        step_ok(&mut m);
+        assert_eq!(m.regs.acc, want);
+    }
+    // T3: misaligned.
+    assert_traps(mk(vec![Instr { a: Operand::at(11), ..Instr::op(Opcode::Ld16) }]));
+}
+
+#[test]
+fn c13_dot8x16_equals_direct_sum() {
+    let mut rng = XorShift64::new(23);
+    for trial in 0..50 {
+        let lanes = 1 + (rng.next_u64() % 64) as u32;
+        let mut wline = [0u8; 64];
+        let mut xline = [0u8; 128];
+        rng.fill(&mut wline);
+        rng.fill(&mut xline);
+        let acc0 = rng.next_u64() as i64;
+        let mut m = mk(vec![Instr {
+            imm: lanes,
+            a: Operand::at(0),
+            b: Operand::at(128),
+            ..Instr::op(Opcode::Dot8x16)
+        }]);
+        m.mem.write(0, &wline);
+        m.mem.write(128, &xline);
+        m.regs.acc = acc0;
+        step_ok(&mut m);
+        let mut want = acc0;
+        for j in 0..lanes as usize {
+            let wv = sext8(wline[j]);
+            let xv = i16::from_le_bytes([xline[2 * j], xline[2 * j + 1]]) as i64;
+            want = want.wrapping_add(wv.wrapping_mul(xv));
+        }
+        assert_eq!(m.regs.acc, want, "trial {trial}");
+    }
+}
+
+#[test]
+fn c13_dotbm_equals_dot_times_multiplier() {
+    let mut rng = XorShift64::new(29);
+    for trial in 0..50 {
+        let lanes = 1 + (rng.next_u64() % 64) as u32;
+        let mut wline = [0u8; 64];
+        let mut xline = [0u8; 128];
+        rng.fill(&mut wline);
+        rng.fill(&mut xline);
+        let mult = rng.next_u64() as i32;
+        let acc0 = rng.next_u64() as i64;
+
+        // Machine 1: DOTBM (W slot reads the multiplier cell).
+        let mut m1 = mk(vec![Instr {
+            imm: lanes,
+            a: Operand::at(0),
+            b: Operand::at(128),
+            w: Operand::at(256),
+            ..Instr::op(Opcode::Dotbm)
+        }]);
+        m1.mem.write(0, &wline);
+        m1.mem.write(128, &xline);
+        m1.mem.write(256, &mult.to_le_bytes());
+        m1.regs.acc = acc0;
+        step_ok(&mut m1);
+
+        // Witness: fresh-partial dot, then acc += p · m.
+        let mut p = 0i64;
+        for j in 0..lanes as usize {
+            let wv = sext8(wline[j]);
+            let xv = i16::from_le_bytes([xline[2 * j], xline[2 * j + 1]]) as i64;
+            p = p.wrapping_add(wv.wrapping_mul(xv));
+        }
+        let want = acc0.wrapping_add(p.wrapping_mul(mult as i64));
+        assert_eq!(m1.regs.acc, want, "trial {trial}");
+    }
+}
+
+#[test]
+fn traps_t7_wide() {
+    let mem_bytes = (1u64 << 8) * PAGE_SIZE as u64;
+    let wide = |imm: u32, a: u64, b: u64| Instr {
+        imm,
+        a: Operand::at(a),
+        b: Operand::at(b),
+        w: Operand::at(256),
+        ..Instr::op(Opcode::Dot8x16)
+    };
+    assert_traps(mk(vec![wide(0, 0, 128)])); // zero lanes
+    assert_traps(mk(vec![wide(65, 0, 128)])); // over cap
+    assert_traps(mk(vec![wide(64, 32, 128)])); // A not 64-aligned
+    assert_traps(mk(vec![wide(64, 0, 64)])); // B 64- but not 128-aligned
+    assert_traps(mk(vec![wide(64, 0, mem_bytes - 64)])); // B line out of bounds
+    // DOTBM extra: unaligned multiplier cell traps (T3 on the W READ).
+    let mut m = mk(vec![Instr { w: Operand::at(257), ..wide(64, 0, 128) }]);
+    m.program[0].opcode = Opcode::Dotbm as u8;
+    assert_traps(m);
+    // Positive control: last valid wide line.
+    let mut m = mk(vec![wide(64, mem_bytes - 64, mem_bytes - 128)]);
+    assert_eq!(step_ok(&mut m), StepOutcome::Ran);
+}
+
+// ---------------------------------------------------------------------------
 // Codec roundtrips
 // ---------------------------------------------------------------------------
 

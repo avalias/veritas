@@ -81,6 +81,13 @@ fn ok_line(ea: u64, mem_bytes: u64) -> bool {
     ea % DOT_LINE as u64 == 0 && ea <= mem_bytes - DOT_LINE as u64
 }
 
+/// T7 wide variant (SPEC §5.2 DOT8X16/DOTBM): 128-byte i16 line. 128 | 1024
+/// so an aligned wide line never straddles a page — one opening suffices.
+#[allow(clippy::manual_is_multiple_of)]
+fn ok_line128(ea: u64, mem_bytes: u64) -> bool {
+    ea % 128 == 0 && ea <= mem_bytes - 128
+}
+
 fn trap_regs(r: &Registers) -> Registers {
     Registers {
         halted: TRAPPED,
@@ -236,6 +243,47 @@ pub fn verify_step(
             }
             let pa = open(&proof.open_a, page_of(ea_a), judge.d, &proof.mem_root)?;
             post.acc = sext8(read_n(pa, ea_a, 1)[0]);
+        }
+        Opcode::Ld16 => {
+            let ea_a = ea(&regs, &instr.a);
+            if !ok_access(ea_a, 2, mem_bytes) {
+                return trap(&regs);
+            }
+            let pa = open(&proof.open_a, page_of(ea_a), judge.d, &proof.mem_root)?;
+            post.acc = sext16(u16::from_le_bytes(read_n(pa, ea_a, 2).try_into().unwrap()));
+        }
+        Opcode::Dot8x16 | Opcode::Dotbm => {
+            if instr.imm == 0 || instr.imm > 64 {
+                return trap(&regs); // T7 lanes
+            }
+            let (ea_a, ea_b) = (ea(&regs, &instr.a), ea(&regs, &instr.b));
+            if !ok_line(ea_a, mem_bytes) || !ok_line128(ea_b, mem_bytes) {
+                return trap(&regs); // T7 line
+            }
+            // DOTBM: the W slot is a READ — the per-block multiplier cell
+            // (the one ISA asymmetry, SPEC §5.2).
+            let ea_w = ea(&regs, &instr.w);
+            if op == Opcode::Dotbm && !ok_access(ea_w, 4, mem_bytes) {
+                return trap(&regs);
+            }
+            let pa = open(&proof.open_a, page_of(ea_a), judge.d, &proof.mem_root)?;
+            let pb = open(&proof.open_b, page_of(ea_b), judge.d, &proof.mem_root)?;
+            let lanes = instr.imm as usize;
+            let a = read_n(pa, ea_a, lanes);
+            let b = read_n(pb, ea_b, 2 * lanes);
+            let mut part = 0i64;
+            for j in 0..lanes {
+                let av = sext8(a[j]);
+                let bv = sext16(u16::from_le_bytes([b[2 * j], b[2 * j + 1]]));
+                part = part.wrapping_add(av.wrapping_mul(bv));
+            }
+            post.acc = if op == Opcode::Dotbm {
+                let pw = open(&proof.open_w, page_of(ea_w), judge.d, &proof.mem_root)?;
+                let mv = sext32(read_u32_at(pw, ea_w));
+                regs.acc.wrapping_add(part.wrapping_mul(mv))
+            } else {
+                regs.acc.wrapping_add(part)
+            };
         }
         Opcode::Ld32 | Opcode::Add32 | Opcode::Mul32 | Opcode::Div32 => {
             let ea_a = ea(&regs, &instr.a);
@@ -461,6 +509,25 @@ pub fn build_step_proof(m: &crate::exec::Machine, prog_tree: &ProgramTree) -> St
         Opcode::Ld8 => {
             if ok_access(ea_a, 1, mem_bytes) {
                 proof.open_a = opening(ea_a);
+            }
+        }
+        Opcode::Ld16 => {
+            if ok_access(ea_a, 2, mem_bytes) {
+                proof.open_a = opening(ea_a);
+            }
+        }
+        Opcode::Dot8x16 | Opcode::Dotbm => {
+            if instr.imm >= 1
+                && instr.imm <= 64
+                && ok_line(ea_a, mem_bytes)
+                && ok_line128(ea_b, mem_bytes)
+                && (op == Opcode::Dot8x16 || ok_access(ea_w, 4, mem_bytes))
+            {
+                proof.open_a = opening(ea_a);
+                proof.open_b = opening(ea_b);
+                if op == Opcode::Dotbm {
+                    proof.open_w = opening(ea_w); // READ opening (multiplier)
+                }
             }
         }
         Opcode::Ld32 | Opcode::Add32 | Opcode::Mul32 | Opcode::Div32 | Opcode::Jeq => {

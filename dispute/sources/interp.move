@@ -45,6 +45,9 @@ const OP_HALT: u8 = 0x13;
 const OP_DOT8: u8 = 0x14;
 const OP_DOT16: u8 = 0x15;
 const OP_ARGMAX_OFF: u8 = 0x16;
+const OP_LD16: u8 = 0x17;
+const OP_DOT8X16: u8 = 0x18;
+const OP_DOTBM: u8 = 0x19;
 
 // Instruction field offsets (SPEC §4.1).
 const F_IMM: u64 = 4;
@@ -120,6 +123,12 @@ fun ok_line(a: u64, mem_bytes: u64): bool {
     a % 64 == 0 && a <= mem_bytes - 64
 }
 
+/// T7 wide variant (SPEC §5.2 DOT8X16/DOTBM): 128-byte i16 line. 128 | 1024
+/// so an aligned wide line never straddles a page.
+fun ok_line128(a: u64, mem_bytes: u64): bool {
+    a % 128 == 0 && a <= mem_bytes - 128
+}
+
 /// Verify a page opening against mem_root (SPEC §8.4 V6); abort if bad.
 fun check_open(
     page: &vector<u8>,
@@ -187,7 +196,7 @@ public fun verify_step(
         E_BAD_INSTR_PROOF,
     );
     let op = instr[0];
-    if (op == 0 || op > OP_ARGMAX_OFF) {
+    if (op == 0 || op > OP_DOTBM) {
         // T2: unknown opcode (includes zero padding).
         return verdict(&mem_root, &trap_regs(&pre), claimed_post)
     };
@@ -246,13 +255,51 @@ public fun verify_step(
             j = j + 1;
         };
         post.acc = acc;
-    } else if (op == OP_LD8) {
+    } else if (op == OP_LD8 || op == OP_LD16) {
+        let size = if (op == OP_LD8) { 1 } else { 2 };
         let ea_a = ea(&pre, &instr, F_OPA);
-        if (!ok_access(ea_a, 1, mem_bytes)) {
+        if (!ok_access(ea_a, size, mem_bytes)) {
             return verdict(&mem_root, &trap_regs(&pre), claimed_post)
         };
         check_open(&page_a, &sibs_a, ea_a / PAGE, d, &mem_root);
-        post.acc = sg::sext8(page_a[ea_a % PAGE]);
+        post.acc = if (op == OP_LD8) {
+            sg::sext8(page_a[ea_a % PAGE])
+        } else {
+            sg::sext16(ble::u16_at(&page_a, ea_a % PAGE))
+        };
+    } else if (op == OP_DOT8X16 || op == OP_DOTBM) {
+        if (imm == 0 || imm > 64) {
+            return verdict(&mem_root, &trap_regs(&pre), claimed_post) // T7 lanes
+        };
+        let ea_a = ea(&pre, &instr, F_OPA);
+        let ea_b = ea(&pre, &instr, F_OPB);
+        if (!ok_line(ea_a, mem_bytes) || !ok_line128(ea_b, mem_bytes)) {
+            return verdict(&mem_root, &trap_regs(&pre), claimed_post) // T7 line
+        };
+        // DOTBM: the W slot is a READ — the per-block multiplier cell
+        // (the one ISA asymmetry, SPEC §5.2).
+        let ea_w = ea(&pre, &instr, F_OPW);
+        if (op == OP_DOTBM && !ok_access(ea_w, 4, mem_bytes)) {
+            return verdict(&mem_root, &trap_regs(&pre), claimed_post)
+        };
+        check_open(&page_a, &sibs_a, ea_a / PAGE, d, &mem_root);
+        check_open(&page_b, &sibs_b, ea_b / PAGE, d, &mem_root);
+        let (oa, ob) = (ea_a % PAGE, ea_b % PAGE);
+        let mut p = 0u64; // i64 two's-complement carrier: fresh partial
+        let mut j = 0u64;
+        while (j < imm) {
+            let av = sg::sext8(page_a[oa + j]);
+            let bv = sg::sext16(ble::u16_at(&page_b, ob + 2 * j));
+            p = sg::wadd(p, sg::wmul(av, bv));
+            j = j + 1;
+        };
+        if (op == OP_DOTBM) {
+            check_open(&page_w, &sibs_w, ea_w / PAGE, d, &mem_root);
+            let m = sg::sext32(ble::u32_at(&page_w, ea_w % PAGE));
+            post.acc = sg::wadd(pre.acc, sg::wmul(p, m));
+        } else {
+            post.acc = sg::wadd(pre.acc, p);
+        };
     } else if (op == OP_LD32 || op == OP_ADD32 || op == OP_MUL32 || op == OP_DIV32) {
         let ea_a = ea(&pre, &instr, F_OPA);
         if (!ok_access(ea_a, 4, mem_bytes)) {

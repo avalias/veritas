@@ -31,6 +31,9 @@ pub enum Opcode {
     Dot8 = 0x14,
     Dot16 = 0x15,
     ArgmaxOff = 0x16,
+    Ld16 = 0x17,
+    Dot8x16 = 0x18,
+    Dotbm = 0x19,
 }
 
 impl Opcode {
@@ -60,6 +63,9 @@ impl Opcode {
             0x14 => Dot8,
             0x15 => Dot16,
             0x16 => ArgmaxOff,
+            0x17 => Ld16,
+            0x18 => Dot8x16,
+            0x19 => Dotbm,
             _ => return None,
         })
     }

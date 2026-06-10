@@ -23,11 +23,11 @@ const P: u8 = 2; // 4 program slots
 fn rand_instr(rng: &mut XorShift64) -> Instr {
     let mem_bytes = (1u64 << D) * PAGE_SIZE as u64;
     let mut i = Instr {
-        // 1..=0x15 mostly (valid), occasionally junk (T2).
+        // 1..=0x19 mostly (valid, incl. wide ops), occasionally junk (T2).
         opcode: if rng.next_u64() % 8 == 0 {
             rng.next_u64() as u8
         } else {
-            (1 + rng.next_u64() % 0x15) as u8
+            (1 + rng.next_u64() % 0x19) as u8
         },
         k: (rng.next_u64() % 8) as u8,
         s: (rng.next_u64() % 80) as u8,

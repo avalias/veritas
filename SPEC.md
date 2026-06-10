@@ -11,6 +11,11 @@ Changed:  0.2.0 — DOT8/DOT16 line-dot micro-ops (§5.2), lazy level-0 hashing
           vocab logits buffer (the dominant per-token commitment term at
           Qwen scale, ~600 KiB/token) never enters committed state.
           Opcode numbering append-only; all prior goldens unchanged.
+          0.4.0 — wide-activation ops the measured Qwen quality work
+          forced: LD16 (0x17), DOT8X16 (0x18: i8-weight × i16-activation
+          line dot), DOTBM (0x19: fused dot-line × per-block multiplier
+          accumulate — the per-(row,block) quantization structure at one
+          op per block). W-slot is a READ for DOTBM (documented asymmetry).
 Scope:    VM state, commitment scheme, ISA, numeric formats, traces,
           dispute protocol, determinism rules, conformance tests.
 ```
@@ -444,6 +449,9 @@ Every executed step does `step ← step + 1`; `pc ← pc + 1` unless stated.
 | `DOT8` | 0x14 | A: 64-B line | — | trap T7 unless `1 ≤ imm ≤ 64` and both lines 64-aligned and in-bounds; for j = 0..imm−1: `acc ← acc +w (sext8(m8[eaA+j]) ·w sext8(m8[eaB+j]))` — bounds/alignment checked on the full 64-byte line even when imm < 64 |
 | | | B: 64-B line | | |
 | `DOT16` | 0x15 | A,B: 64-B lines | — | as `DOT8` with `1 ≤ imm ≤ 32`, lanes `m16[eaA+2j] · m16[eaB+2j]` |
+| `LD16` | 0x17 | A:2 | — | `acc ← sext16(m16[eaA])` |
+| `DOT8X16` | 0x18 | A: 64-B line (i8) B: 128-B line (i16) | — | trap T7 unless `1 ≤ imm ≤ 64`, `eaA % 64 == 0`, `eaB % 128 == 0`, lines in bounds (128 \| 1024 ⇒ no straddle); for j < imm: `acc ← acc +w sext8(m8[eaA+j]) ·w sext16(m16[eaB+2j])` |
+| `DOTBM` | 0x19 | A: 64-B i8 line, B: 128-B i16 line, W: 4 (READ!) | — | as `DOT8X16` but the line dot accumulates into a FRESH partial p, then `acc ← acc +w p ·w sext32(m32[eaW])` — one op per quantization block (per-(row,block) multiplier tables, the measured-quality structure). The W slot is a READ here — the one ISA asymmetry, chosen over a 4th operand |
 | `ARGMAX_OFF` | 0x16 | A:4 | — | trap T6 if k > 3; `v = sext32(m32[eaA])`; if `v >s acc` { `acc ← v`; `aux ← u64(imm) +w u64(idx[k])` } — `ARGMAX_STEP` with an immediate index offset, so a chunk-local scan records a GLOBAL row index. Enables the chunked decode head: per 256-row chunk, dots fill ONE reused buffer page, then a scan with `imm = chunk·256` carries the running max through a memory cell across chunks (`LD32 saved_max … scan … ST32 saved_max`). The vocab logits array never exists in committed state — at Qwen scale this deletes ~600 KiB/token of commitment hashing (the dominant term, benches/README.md) |
 
 All other opcodes (including `0x00`): trap T2. Opcode numbering is
@@ -901,7 +909,7 @@ points, saturation edges).
 | `p` (prog depth) | per-program, ≤ 32 | §3.5 | pc is u32 |
 | Register encoding | 45 B | §3.2 | pc4 + halted1 + step8 + acc8 + aux8 + idx16 |
 | Instruction | 96 B | §4.1 | 3 × 24 B operand descriptors + header |
-| Opcodes | 0x01–0x16, append-only | §5.2 | 0x00 reserved as padding-trap |
+| Opcodes | 0x01–0x19, append-only | §5.2 | 0x00 reserved as padding-trap |
 | DOT line | 64 B; lane caps 64 (i8) / 32 (i16); `ea % 64 == 0` | §5.2 | one cache line per step: divides LLM dims, never straddles a page, ~64× dispatch amortization (Q5) |
 | LUT size | 65 536 × i16 | §6.3 | full sat16 domain ⇒ no range reduction logic |
 | `out_len` | ≤ 4096 B | §4.3 | one answer; bounds final-state challenge cost |
