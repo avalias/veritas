@@ -9,7 +9,7 @@
 //! float reference.
 
 use qwen::config::QwenConfig;
-use qwen::forward::{run_committed, run_pure, Native};
+use qwen::forward::{run_committed, run_committed_pipelined, run_pure, Native};
 use qwen::image::{genesis_image, Tables};
 use qwen::layout::QwenLayout;
 use qwen::quant::{quantize, Calib, FloatModel, FloatState};
@@ -94,8 +94,15 @@ fn main() {
     println!("  int/float greedy agreement: first {agree} tokens");
 
     println!("· committed decode (per-token checkpoints)…");
-    let stats = run_committed(&native, image, &prompt, n_gen);
+    let stats = run_committed(&native, image.clone(), &prompt, n_gen);
     assert_eq!(stats.tokens, toks_pure, "commitment must not change results");
+    println!("· committed decode, PIPELINED hashing…");
+    let (pstats, wall_us) = run_committed_pipelined(&native, image, &prompt, n_gen);
+    assert_eq!(pstats.tokens, toks_pure);
+    assert_eq!(
+        pstats.boundary_roots, stats.boundary_roots,
+        "pipelined roots must equal sequential roots"
+    );
     let n_tok = stats.tokens.len().max(1) as u128;
     // integer-only percentages (basis points) to respect the float ban here
     let bp = (stats.hash_us * 10_000) / stats.compute_us.max(1);
@@ -117,4 +124,16 @@ fn main() {
         stats.dirty_pages
     );
     println!("genesis tree (one-off): {} ms", stats.genesis_us / 1000);
+    let wall_bp = if wall_us > us_pure {
+        ((wall_us - us_pure) * 10_000) / us_pure.max(1)
+    } else {
+        0
+    };
+    println!(
+        "pipelined wall-clock:  {} µs vs pure {} µs → overhead {}.{:02}%",
+        wall_us,
+        us_pure,
+        wall_bp / 100,
+        wall_bp % 100
+    );
 }

@@ -487,6 +487,83 @@ pub fn run_committed(
     stats
 }
 
+/// Pipelined commitment: a hasher thread owns the Merkle tree and digests
+/// each position's dirty-page snapshot while the main thread computes the
+/// next position. Wall-clock ≈ max(compute, hash) per token instead of
+/// compute + hash — with hash ≪ compute the overhead is just the snapshot
+/// memcpy. Roots are identical to the sequential path (same pages, same
+/// tree, same registers).
+pub fn run_committed_pipelined(
+    n: &Native,
+    image: Vec<u8>,
+    prompt: &[u32],
+    n_gen: usize,
+) -> (RunStats, u128) {
+    let mut stats = RunStats::default();
+    let t0 = Instant::now();
+    let mut mem = FlatMem::new(image);
+    let leaves: Vec<Hash> = mem.bytes.chunks_exact(PAGE_SIZE).map(page_leaf_hash).collect();
+    let mut tree =
+        MerkleTree::from_leaf_hashes(MEM_DEPTH, leaves, page_leaf_hash(&[0u8; PAGE_SIZE]));
+    stats.genesis_us = t0.elapsed().as_micros();
+
+    type Job = (Vec<(u64, Vec<u8>)>, Registers);
+    let (tx, rx) = std::sync::mpsc::channel::<Job>();
+    let wall = Instant::now();
+    let mut roots = Vec::new();
+    std::thread::scope(|sc| {
+        let hasher = sc.spawn(move || {
+            let mut out = Vec::new();
+            while let Ok((pages, regs)) = rx.recv() {
+                let updates: Vec<(u64, Hash)> = pages
+                    .iter()
+                    .map(|(idx, bytes)| (*idx, page_leaf_hash(bytes)))
+                    .collect();
+                tree.update_leaf_hashes_bulk(&updates);
+                out.push(state_root(&tree.root(), &regs.encode()));
+            }
+            out
+        });
+
+        let mut tok = prompt[0];
+        let n_pos = prompt.len() + n_gen - 1;
+        for pos in 0..n_pos {
+            let decide = pos >= prompt.len() - 1;
+            let next = n.position(&mut mem, pos, tok, decide);
+            // Snapshot dirty pages (small memcpy) and hand off.
+            let dirty = mem.take_dirty();
+            stats.dirty_pages += dirty.len();
+            let snapshot: Vec<(u64, Vec<u8>)> = dirty
+                .iter()
+                .map(|pg| (*pg, mem.slice(*pg * PAGE_SIZE as u64, PAGE_SIZE).to_vec()))
+                .collect();
+            let regs = Registers {
+                pc: 0,
+                halted: 0,
+                step: pos as u64 + 1,
+                acc: 0,
+                aux: 0,
+                idx: [tok, 0, 0, 0],
+            };
+            tx.send((snapshot, regs)).expect("hasher alive");
+            if let Some(t) = next {
+                stats.tokens.push(t);
+                if t == n.im.cfg.eos_token_id {
+                    break;
+                }
+                tok = t;
+            } else {
+                tok = prompt[pos + 1];
+            }
+        }
+        drop(tx);
+        roots = hasher.join().expect("hasher");
+    });
+    let wall_us = wall.elapsed().as_micros();
+    stats.boundary_roots = roots;
+    (stats, wall_us)
+}
+
 /// Pure decode, no commitments — the "ordinary inference" baseline.
 pub fn run_pure(n: &Native, image: Vec<u8>, prompt: &[u32], n_gen: usize) -> (Vec<u32>, u128) {
     let mut mem = FlatMem::new(image);
