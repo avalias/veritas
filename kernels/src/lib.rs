@@ -119,7 +119,7 @@ pub fn dot_w8_x16(w: &[i8], x: &[i16]) -> i64 {
     use std::arch::aarch64::*;
     let n = w.len();
     debug_assert_eq!(n, x.len());
-    if n % 16 != 0 {
+    if !n.is_multiple_of(16) {
         return dot_w8_x16_scalar(w, x);
     }
     let mut acc = 0i64;
@@ -162,7 +162,7 @@ pub fn bytes_as_i8(b: &[u8]) -> &[i8] {
 }
 
 pub fn bytes_as_i16(b: &[u8]) -> &[i16] {
-    assert!(b.as_ptr() as usize % 2 == 0 && b.len() % 2 == 0);
+    assert!((b.as_ptr() as usize).is_multiple_of(2) && b.len().is_multiple_of(2));
     unsafe { std::slice::from_raw_parts(b.as_ptr() as *const i16, b.len() / 2) }
 }
 
@@ -229,7 +229,7 @@ pub fn run_disjoint_i64(
     chunk_len: usize,
     f: &(dyn Fn(usize, &mut [i64]) + Sync),
 ) {
-    assert!(chunk_len > 0 && out.len() % chunk_len == 0);
+    assert!(chunk_len > 0 && out.len().is_multiple_of(chunk_len));
     let n = out.len() / chunk_len;
     let base = SendPtr(out.as_mut_ptr());
     pool.run(n, 1, &move |start, end| {

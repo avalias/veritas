@@ -208,7 +208,6 @@ impl FloatState {
 /// Rotary uses the SAME integer Q1.14 tables as the integer runtime so the
 /// two implementations share positional encodings exactly.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub fn float_forward(
     m: &FloatModel,
     st: &mut FloatState,
@@ -543,15 +542,15 @@ pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
     let res_max = calib.res.iter().fold(1e-6f32, |a, &b| a.max(b));
     let s_res_g = res_max / (1u64 << 29) as f32;
     let s_res: Vec<f32> = calib.res.iter().map(|_| s_res_g).collect();
-    let s_xn1: Vec<f32> = calib.xn1.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
-    let s_xn2: Vec<f32> = calib.xn2.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
+    // per-tensor xn scales superseded by smoothed per-layer values below
+
     let s_qk: Vec<f32> = calib.qk.iter().map(|&v| v.max(1e-6) / 16384.0).collect();
     let s_qk_pre: Vec<f32> = calib.qk_pre.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
     let s_gate: Vec<f32> = calib.gate.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
     let s_up: Vec<f32> = calib.up.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
     let s_v: Vec<f32> = calib.v.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
-    let s_h: Vec<f32> = calib.ffn_h.iter().map(|&v| v.max(1e-6) / 32767.0).collect();
-    let s_xnf = calib.xnf.max(1e-6) / 32767.0;
+
+
 
     let layers = (0..nl)
         .map(|l| {

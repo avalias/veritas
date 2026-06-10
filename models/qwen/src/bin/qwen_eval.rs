@@ -94,7 +94,7 @@ fn main() {
         // Float twin runs alongside for top-1 agreement (slow but bounded).
         for c in 0..n_chunks {
             let chunk = &tokens[c * MAX_SEQ..(c + 1) * MAX_SEQ];
-            let image = genesis_image(&lay, &im, &tables, &chunk[..1].to_vec());
+            let image = genesis_image(&lay, &im, &tables, &chunk[..1]);
             let mut mem = FlatMem::new(image);
             let mut fs = FloatState::new(&cfg, MAX_SEQ);
             let mut dummy = Calib::new(cfg.num_hidden_layers);

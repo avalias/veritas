@@ -15,7 +15,7 @@ use crate::layout::{QwenLayout, MAX_SEQ, MEM_DEPTH};
 use crate::quant::{IntModel, NormSite, SHIFT};
 use std::time::Instant;
 use toy_model::forward::{dot16, FlatMem};
-use vm::exec::{rnd, sat16, sat8, trunc_div};
+use vm::exec::{rnd, sat16, trunc_div};
 use vm::hash::{page_leaf_hash, state_root, Hash};
 use vm::merkle::MerkleTree;
 use vm::state::Registers;
@@ -145,7 +145,7 @@ impl<'a> Native<'a> {
     /// EVAL hook: full integer logits (committed semantics: rnd(dot,11))
     /// recomputed from the current xn. Threaded; read-only.
     pub fn head_logits(&self, mem: &FlatMem, out: &mut [i64]) {
-        let h = self.im.cfg.hidden_size as usize;
+        let h = self.im.cfg.hidden_size;
         let vocab = self.im.cfg.vocab_size;
         let x = mem.slice(self.lay.xn, 2 * h);
         let emb = mem.slice(self.lay.emb, vocab * h);

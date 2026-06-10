@@ -102,14 +102,14 @@ impl GpuGemv {
     /// rows×cols GEMV with resident weights: only x (2·cols bytes) crosses
     /// to the GPU; i32 partials come back (committed structure).
     pub fn dots_resident(&self, wbuf: &wgpu::Buffer, x: &[u8], rows: usize, cols: usize) -> Vec<i64> {
-        assert!(cols % 64 == 0 && x.len() == 2 * cols);
+        assert!(cols.is_multiple_of(64) && x.len() == 2 * cols);
         self.dots_inner(wbuf, x, rows, cols)
     }
 
     /// rows×cols GEMV: w (i8 bytes), x (i16 LE bytes) → i64 dots with the
     /// committed 64-lane-partial structure. cols must be a multiple of 64.
     pub fn dots(&self, w: &[u8], x: &[u8], rows: usize, cols: usize) -> Vec<i64> {
-        assert!(cols % 64 == 0 && w.len() == rows * cols && x.len() == 2 * cols);
+        assert!(cols.is_multiple_of(64) && w.len() == rows * cols && x.len() == 2 * cols);
         let wbuf = self.upload_weights(w);
         self.dots_inner(&wbuf, x, rows, cols)
     }
@@ -121,7 +121,7 @@ impl GpuGemv {
             contents: x,
             usage: wgpu::BufferUsages::STORAGE,
         });
-        let wbuf = wbuf;
+
         let psize = (rows * chunks * 4) as u64;
         let pbuf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
