@@ -1,0 +1,15 @@
+[package]
+name = "gpu"
+description = "GPU integer kernels (wgpu/Metal): bit-exact committed semantics on real GPU hardware. Same partial-sum structure as the scalar definition, so equality is provable, not hoped."
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+vm = { path = "../vm" }
+kernels = { path = "../kernels" }
+wgpu = "26"
+pollster = "0.4"
+
+# GPU host code needs no unsafe and no floats; WGSL shaders are integer-only.
+[lints]
+workspace = true

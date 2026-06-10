@@ -14,3 +14,6 @@ kernels = { path = "../../kernels" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+sha3.workspace = true
