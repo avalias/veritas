@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use vm::exec::rnd;
 
+pub mod fkernels;
+
 // ---------------------------------------------------------------------------
 // Persistent worker pool (replaces ~200 thread spawns per token)
 // ---------------------------------------------------------------------------
@@ -694,6 +696,12 @@ pub fn run_disjoint_i64(
 struct SendPtr(*mut i64);
 unsafe impl Send for SendPtr {}
 unsafe impl Sync for SendPtr {}
+
+/// f32 twin of SendPtr for the committed-float kernels (fkernels).
+#[derive(Clone, Copy)]
+pub(crate) struct SendPtrF(pub *mut f32);
+unsafe impl Send for SendPtrF {}
+unsafe impl Sync for SendPtrF {}
 
 #[cfg(test)]
 mod tests {

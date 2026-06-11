@@ -543,6 +543,7 @@ version = "0.1.0"
 dependencies = [
  "kernels",
  "pollster",
+ "qwen",
  "vm",
  "wgpu",
 ]

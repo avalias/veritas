@@ -7,6 +7,8 @@
 //! never drift across platforms via libm.
 
 pub mod config;
+pub mod fmath;
+pub mod fmodel;
 pub mod forward;
 pub mod image;
 pub mod layout;
