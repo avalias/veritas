@@ -11,6 +11,13 @@ qwen = { path = "../models/qwen" }
 wgpu = "26"
 pollster = "0.4"
 
-# GPU host code needs no unsafe and no floats; WGSL shaders are integer-only.
-[lints]
-workspace = true
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = "0.32"
+
+# Own lints (not workspace): the FW-6 direct-Metal path reads result
+# buffers through metal-rs raw pointers (one audited unsafe), and committed
+# FLOAT semantics are this crate's subject. Float use stays file-gated.
+[lints.rust]
+unsafe_code = "deny" # deny (not forbid): audited allows permitted
+[lints.clippy]
+float_arithmetic = "deny"

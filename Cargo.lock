@@ -542,6 +542,7 @@ name = "gpu"
 version = "0.1.0"
 dependencies = [
  "kernels",
+ "metal",
  "pollster",
  "qwen",
  "vm",

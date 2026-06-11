@@ -29,6 +29,7 @@ pub fn bf16_to_f32(bits: u16) -> f32 {
 /// i ∈ 0..4, via fused multiply-add in sequence. Combine: vector adds
 /// (a0+a1), (a2+a3), then their sum; horizontal (s0+s1) + (s2+s3).
 /// This maps 1:1 onto 4×f32x4 NEON registers and 4×vec4<f32> in WGSL.
+#[allow(clippy::needless_range_loop)] // spec-literal lane indices (the tree IS the spec)
 pub fn fdot_block_scalar(w: &[u16], x: &[f32]) -> f32 {
     debug_assert_eq!(w.len(), 64);
     debug_assert_eq!(x.len(), 64);

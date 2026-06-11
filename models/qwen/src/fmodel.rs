@@ -114,6 +114,7 @@ impl FState {
 
 /// Committed f32×f32 sum-of-products: SAME 16-lane/64-block tree as the
 /// bf16 GEMV (fkernels), for activation·activation dots (norm sums, scores).
+#[allow(clippy::needless_range_loop)] // spec-literal lane indices
 fn fdot32(a: &[f32], b: &[f32]) -> f32 {
     debug_assert_eq!(a.len(), b.len());
     debug_assert!(a.len().is_multiple_of(64));
@@ -184,7 +185,7 @@ pub fn fposition(
         fgemv(pool, &lw.wv, &xn, kv_per, h, &mut st.vc[kbase..kbase + kv_per]);
 
         // Per-head QK-norm + rope, q heads then k heads (pinned order).
-        let mut rotate = |v: &mut [f32]| {
+        let rotate = |v: &mut [f32]| {
             for p2 in 0..half {
                 let c = m.rope_cos[pos * half + p2];
                 let s = m.rope_sin[pos * half + p2];
@@ -200,13 +201,13 @@ pub fn fposition(
         let mut hbuf = vec![0f32; dh];
         for hd in 0..nh {
             let qs = &mut q[hd * dh..(hd + 1) * dh];
-            rmsnorm(&qs.to_vec(), &lw.q_norm, eps, &mut hbuf);
+            rmsnorm(qs, &lw.q_norm, eps, &mut hbuf);
             qs.copy_from_slice(&hbuf);
             rotate(qs);
         }
         for kvh in 0..nkv {
             let ks = &mut st.kc[kbase + kvh * dh..kbase + (kvh + 1) * dh];
-            rmsnorm(&ks.to_vec(), &lw.k_norm, eps, &mut hbuf);
+            rmsnorm(ks, &lw.k_norm, eps, &mut hbuf);
             ks.copy_from_slice(&hbuf);
             rotate(ks);
         }
