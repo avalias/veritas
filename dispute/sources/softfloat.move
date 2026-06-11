@@ -269,3 +269,183 @@ public fun block_dot(w: &vector<u32>, x: &vector<u32>): u32 {
     };
     fadd(fadd(s[0], s[1]), fadd(s[2], s[3]))
 }
+
+/// fp32 divide a/b, RN — long division on significands, remainder sticky.
+public fun fdiv(a: u32, b: u32): u32 {
+    if (is_nan(a) || is_nan(b)) {
+        return QNAN
+    };
+    let ss = sign_of(a) ^ sign_of(b);
+    if (is_inf(a)) {
+        if (is_inf(b)) {
+            return QNAN
+        };
+        return pack(ss, INF_EXP, 0)
+    };
+    if (is_inf(b)) {
+        return pack(ss, 0, 0)
+    };
+    if (is_zero(b)) {
+        if (is_zero(a)) {
+            return QNAN
+        };
+        return pack(ss, INF_EXP, 0)
+    };
+    if (is_zero(a)) {
+        return pack(ss, 0, 0)
+    };
+    let (ea, ma) = norm_sig(exp_of(a), frac_of(a));
+    let (eb, mb) = norm_sig(exp_of(b), frac_of(b));
+    let num = (ma as u64) << 26;
+    let q = num / (mb as u64);
+    let r = num % (mb as u64);
+    let mut sig = q;
+    // ea − eb cancels both EOFFs; round_pack expects one ⇒ add it back.
+    let mut e = ea + 127 + EOFF - eb;
+    if (sig < 1u64 << 26) {
+        sig = sig << 22;
+        e = e - 1;
+    } else {
+        sig = sig << 21;
+    };
+    if (r != 0) {
+        sig = sig | 1;
+    };
+    round_pack(ss, e, sig)
+}
+
+fun isqrt_wide(v: u128): u64 {
+    let mut lo: u128 = 0;
+    let mut hi: u128 = 1u128 << 39;
+    while (lo < hi) {
+        let mid = (lo + hi + 1) >> 1;
+        if (mid * mid <= v) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        };
+    };
+    lo as u64
+}
+
+/// fp32 sqrt, RN — integer sqrt at even exponent, remainder sticky.
+public fun fsqrt(a: u32): u32 {
+    if (is_nan(a)) {
+        return QNAN
+    };
+    if (is_zero(a)) {
+        return a
+    };
+    if (sign_of(a) == 1) {
+        return QNAN
+    };
+    if (is_inf(a)) {
+        return a
+    };
+    let (ea, ma) = norm_sig(exp_of(a), frac_of(a));
+    // e_unb = ea − EOFF − 150, kept offset-free via parity on (ea − EOFF).
+    // Work with eu = ea (offset EOFF+150 absorbed below).
+    let e_unb_off = ea; // value = ma · 2^(ea − EOFF − 150)
+    // Even/odd of the true unbiased exponent == even/odd of (ea − EOFF − 150)
+    // == even/odd of ea (EOFF=4096 and 150 are even).
+    let (m2, e2_off) = if ((e_unb_off % 2) != 0) {
+        ((ma as u64) << 1, e_unb_off - 1)
+    } else {
+        ((ma as u64), e_unb_off)
+    };
+    let wide = (m2 as u128) << 52;
+    let s = isqrt_wide(wide);
+    let rem = wide - (s as u128) * (s as u128);
+    // true e2 = e2_off − EOFF − 150 (even); half_e = (e2 − 52)/2;
+    // round_pack offset exponent eo = half_e + 174 + EOFF
+    //   = (e2_off − EOFF − 202)/2 + 174 + EOFF = (e2_off − 202)/2 + 174 + EOFF/2 + ... 
+    // compute directly in u64: eo = (e2_off + EOFF) / 2 + 174 - 101 - EOFF/2 ... use
+    // eo = (e2_off − 202)/2 + 174 + (EOFF/2): with EOFF even and e2_off even-aligned
+    // to the true exponent's parity, all terms are exact integers.
+    let eo = (e2_off + 146 + EOFF) / 2; // ≡ ((e2_off−EOFF−202)/2) + 174 + EOFF
+    let mut sig = s;
+    let mut e = eo;
+    while (sig < 1u64 << 47) {
+        sig = sig << 1;
+        e = e - 1;
+    };
+    if (rem != 0) {
+        sig = sig | 1;
+    };
+    round_pack(0, e, sig)
+}
+
+/// fp32 floor (toward −inf).
+public fun ffloor(a: u32): u32 {
+    if (is_nan(a)) {
+        return QNAN
+    };
+    if (is_inf(a) || is_zero(a)) {
+        return a
+    };
+    let eraw = exp_of(a);
+    if (eraw < 127) {
+        return if (sign_of(a) == 0) { 0 } else { 0xBF800000 }
+    };
+    let e = eraw - 127;
+    if (e >= 23) {
+        return a
+    };
+    let mask = (1u32 << ((23 - e) as u8)) - 1;
+    let trunc = a & (mask ^ 0xFFFFFFFF);
+    if (sign_of(a) == 1 && (a & mask) != 0) {
+        return fadd(trunc, 0xBF800000)
+    };
+    trunc
+}
+
+/// fp32 → i32 (returned as u32 two's complement), truncating, saturating,
+/// NaN → 0 (the committed convert rule; == Rust `as` semantics).
+public fun ftoi(a: u32): u32 {
+    if (is_nan(a)) {
+        return 0
+    };
+    let neg = sign_of(a) == 1;
+    if (is_inf(a)) {
+        return if (neg) { 0x80000000 } else { 0x7FFFFFFF }
+    };
+    let eraw = exp_of(a);
+    if (eraw < 127) {
+        return 0
+    };
+    let e = eraw - 127;
+    if (e >= 31) {
+        return if (neg) { 0x80000000 } else { 0x7FFFFFFF }
+    };
+    let m = (frac_of(a) | 0x800000) as u64;
+    let v = if (e >= 23) { m << ((e - 23) as u8) } else { m >> ((23 - e) as u8) };
+    if (neg) {
+        // two's complement negate in u32
+        (((v as u32) ^ 0xFFFFFFFF) as u64 + 1) as u32
+    } else {
+        v as u32
+    }
+}
+
+/// i32 (u32 two's complement) → fp32, RN.
+public fun itof(v: u32): u32 {
+    if (v == 0) {
+        return 0
+    };
+    let neg = (v >> 31) == 1;
+    let mag: u64 = if (neg) {
+        (((v ^ 0xFFFFFFFF) as u64) + 1)
+    } else {
+        v as u64
+    };
+    // leading zeros of mag (mag ≤ 2^31)
+    let mut lz = 0u64;
+    let mut probe = mag;
+    while (probe < (1u64 << 63)) {
+        probe = probe << 1;
+        lz = lz + 1;
+    };
+    let sig = mag << ((lz - 16) as u8);
+    let e = EOFF + 190 - lz; // round_pack offset frame
+    round_pack(if (neg) { 1 } else { 0 }, e, sig)
+}

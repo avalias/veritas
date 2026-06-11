@@ -413,7 +413,7 @@ fn cases() -> Vec<VsCase> {
 /// committed 64-block dot.
 #[allow(clippy::needless_range_loop)] // spec-literal lane indices
 fn emit_softfloat_vectors() {
-    use vm::softfloat::{fadd, ffma, fmul};
+    use vm::softfloat::{fadd, fdiv, ffloor, ffma, fmul, fsqrt, ftoi, itof};
     let mut s = 0x50F7_F107u64;
     let mut rng = move || {
         s ^= s << 13;
@@ -477,10 +477,23 @@ fn emit_softfloat_vectors() {
         b_v.push(rand_bits());
         c_v.push(rand_bits());
     }
+    let mut div_w = Vec::new();
+    let mut sqrt_w = Vec::new();
+    let mut floor_w = Vec::new();
+    let mut ftoi_w = Vec::new();
+    let mut itof_in = Vec::new();
+    let mut itof_w = Vec::new();
     for i in 0..a_v.len() {
         mul_w.push(fmul(a_v[i], b_v[i]));
         add_w.push(fadd(a_v[i], b_v[i]));
         fma_w.push(ffma(a_v[i], b_v[i], c_v[i]));
+        div_w.push(fdiv(a_v[i], b_v[i]));
+        sqrt_w.push(fsqrt(a_v[i]));
+        floor_w.push(ffloor(a_v[i]));
+        ftoi_w.push(ftoi(a_v[i]) as u32);
+        let v = (a_v[i] ^ b_v[i]) as i32;
+        itof_in.push(v as u32);
+        itof_w.push(itof(v));
     }
     let u32s = |v: &[u32]| v.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(", ");
     write!(
@@ -502,6 +515,27 @@ fun rust_softfloat_vectors() {{
         i = i + 1;
     }};
 }}
+
+#[test]
+fun rust_softfloat_unary_div_cvt_vectors() {{
+    let a: vector<u32> = vector[{a2}];
+    let b: vector<u32> = vector[{b2}];
+    let divw: vector<u32> = vector[{divw}];
+    let sqrtw: vector<u32> = vector[{sqrtw}];
+    let floorw: vector<u32> = vector[{floorw}];
+    let ftoiw: vector<u32> = vector[{ftoiw}];
+    let itofi: vector<u32> = vector[{itofi}];
+    let itofw: vector<u32> = vector[{itofw}];
+    let mut i = 0u64;
+    while (i < a.length()) {{
+        assert!(sf::fdiv(a[i], b[i]) == divw[i], i);
+        assert!(sf::fsqrt(a[i]) == sqrtw[i], 10000 + i);
+        assert!(sf::ffloor(a[i]) == floorw[i], 20000 + i);
+        assert!(sf::ftoi(a[i]) == ftoiw[i], 30000 + i);
+        assert!(sf::itof(itofi[i]) == itofw[i], 40000 + i);
+        i = i + 1;
+    }};
+}}
 "#,
         u32s(&a_v),
         u32s(&b_v),
@@ -509,6 +543,14 @@ fun rust_softfloat_vectors() {{
         u32s(&mul_w),
         u32s(&add_w),
         u32s(&fma_w),
+        a2 = u32s(&a_v),
+        b2 = u32s(&b_v),
+        divw = u32s(&div_w),
+        sqrtw = u32s(&sqrt_w),
+        floorw = u32s(&floor_w),
+        ftoiw = u32s(&ftoi_w),
+        itofi = u32s(&itof_in),
+        itofw = u32s(&itof_w),
     )
     .unwrap();
     // Committed block dots (finite inputs — honest-trace domain).

@@ -283,6 +283,171 @@ pub fn ffma(a: u32, b: u32, c: u32) -> u32 {
     round_pack(sign, e, folded)
 }
 
+
+/// fp32 divide a/b, RN. Long division on significands: 26-bit quotient
+/// (24 + guard/round) + remainder sticky.
+pub fn fdiv(a: u32, b: u32) -> u32 {
+    if is_nan(a) || is_nan(b) {
+        return QNAN;
+    }
+    let ss = sign_of(a) ^ sign_of(b);
+    if is_inf(a) {
+        if is_inf(b) {
+            return QNAN; // inf/inf
+        }
+        return pack(ss, INF_EXP, 0);
+    }
+    if is_inf(b) {
+        return pack(ss, 0, 0);
+    }
+    if is_zero(b) {
+        if is_zero(a) {
+            return QNAN; // 0/0
+        }
+        return pack(ss, INF_EXP, 0); // x/0 -> inf
+    }
+    if is_zero(a) {
+        return pack(ss, 0, 0);
+    }
+    let (ea, ma) = norm_sig(exp_of(a), frac_of(a));
+    let (eb, mb) = norm_sig(exp_of(b), frac_of(b));
+    // value = (ma/mb) * 2^(ea - eb); ma/mb in (0.5, 2). q = floor(ma<<26 / mb)
+    // in (2^25, 2^27]; sticky from the remainder.
+    let num = (ma as u64) << 26;
+    let q = num / (mb as u64);
+    let r = num % (mb as u64);
+    // round_pack frame: sig in [2^47, 2^48), value = sig*2^(E-127-47).
+    // q is at scale 2^(ea-eb-26): for q in [2^26, 2^27): sig = q<<21,
+    // E = ea-eb+127; q in (2^25, 2^26): one more left shift, E-1.
+    let mut sig = q;
+    let mut e = ea - eb + 127;
+    if sig < 1 << 26 {
+        sig <<= 22;
+        e -= 1;
+    } else {
+        sig <<= 21;
+    }
+    debug_assert!((1u64 << 47..1 << 48).contains(&sig));
+    sig |= u64::from(r != 0); // sticky
+    round_pack(ss, e, sig)
+}
+
+/// Binary-search integer sqrt (deterministic, <= 40 iterations).
+fn isqrt_u128(v: u128) -> u64 {
+    let mut lo: u128 = 0;
+    let mut hi: u128 = 1 << 39; // v <= 2^77 => sqrt < 2^39
+    while lo < hi {
+        let mid = (lo + hi + 1) >> 1;
+        if mid * mid <= v {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo as u64
+}
+
+/// fp32 square root, RN: integer sqrt of the significand at even exponent,
+/// exact remainder sticky.
+pub fn fsqrt(a: u32) -> u32 {
+    if is_nan(a) {
+        return QNAN;
+    }
+    if is_zero(a) {
+        return a; // +-0 -> +-0 (IEEE)
+    }
+    if sign_of(a) == 1 {
+        return QNAN; // sqrt of negative
+    }
+    if is_inf(a) {
+        return a;
+    }
+    let (ea, ma) = norm_sig(exp_of(a), frac_of(a));
+    let e_unb = ea - 150; // value = ma * 2^e_unb, ma in [2^23, 2^24)
+    // Make the significand's exponent even, then sqrt(m2 << 52) gives a
+    // ~2^38 integer result s with value = s * 2^((e2-52)/2).
+    let (m2, e2) = if (e_unb % 2) != 0 { ((ma as u64) << 1, e_unb - 1) } else { (ma as u64, e_unb) };
+    let wide = (m2 as u128) << 52;
+    let s = isqrt_u128(wide);
+    let rem = wide - (s as u128) * (s as u128);
+    let half_e = (e2 - 52) / 2; // exact: e2-52 even
+    // value = s * 2^half_e; bring s into [2^47, 2^48): s < 2^39 so only
+    // left shifts occur (exact).
+    let mut sig = s;
+    let mut e = half_e + 174; // biased round_pack exponent
+    while sig < 1 << 47 {
+        sig <<= 1;
+        e -= 1;
+    }
+    sig |= u64::from(rem != 0);
+    round_pack(0, e, sig)
+}
+
+/// fp32 floor (round toward -inf to an integral value).
+pub fn ffloor(a: u32) -> u32 {
+    if is_nan(a) {
+        return QNAN;
+    }
+    if is_inf(a) || is_zero(a) {
+        return a;
+    }
+    let e = exp_of(a) as i32 - 127; // unbiased
+    if e < 0 {
+        // |a| < 1: floor is +0 (positive) or -1 (negative; -0 handled above
+        // only for true zero -- negative subnormals floor to -1).
+        return if sign_of(a) == 0 { 0 } else { 0xBF80_0000 };
+    }
+    if e >= 23 {
+        return a; // already integral
+    }
+    let mask = (1u32 << (23 - e)) - 1;
+    let trunc = a & !mask;
+    if sign_of(a) == 1 && (a & mask) != 0 {
+        return fadd(trunc, 0xBF80_0000); // toward -inf
+    }
+    trunc
+}
+
+/// fp32 -> i32, truncating, Rust `as` semantics (platform-identical by
+/// language guarantee: saturating, NaN -> 0). The committed convert rule.
+pub fn ftoi(a: u32) -> i32 {
+    if is_nan(a) {
+        return 0;
+    }
+    let neg = sign_of(a) == 1;
+    if is_inf(a) {
+        return if neg { i32::MIN } else { i32::MAX };
+    }
+    let e = exp_of(a) as i32 - 127;
+    if e < 0 {
+        return 0;
+    }
+    if e >= 31 {
+        return if neg { i32::MIN } else { i32::MAX };
+    }
+    let m = (frac_of(a) | 0x80_0000) as u64;
+    let v = if e >= 23 { m << (e - 23) } else { m >> (23 - e) };
+    if neg {
+        (v as i64).wrapping_neg() as i32
+    } else {
+        v as i32
+    }
+}
+
+/// i32 -> fp32, RN (Rust `as f32` semantics).
+pub fn itof(v: i32) -> u32 {
+    if v == 0 {
+        return 0;
+    }
+    let sign = u32::from(v < 0);
+    let mag = v.unsigned_abs() as u64; // <= 2^31
+    let lz = mag.leading_zeros();
+    let sig = mag << (lz - 16); // top bit to position 47
+    // mag = sig·2^(16−lz) and value = sig·2^(E−174) ⇒ E = 190 − lz.
+    let e = 190 - lz as i32;
+    round_pack(sign, e, sig)
+}
+
 #[cfg(test)]
 #[allow(clippy::float_arithmetic)] // tests compare against HARDWARE floats
 #[allow(clippy::needless_range_loop)] // spec-literal lane indices in the tree
@@ -357,6 +522,41 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn fdiv_matches_hardware_bitwise() {
+        let mut s = 0xD117u64;
+        for i in 0..2_000_000u64 {
+            let (a, b) = (rand_f32_bits(&mut s), rand_f32_bits(&mut s));
+            let want = canon((f32::from_bits(a) / f32::from_bits(b)).to_bits());
+            assert_eq!(fdiv(a, b), want, "i={i} a={a:08x} b={b:08x}");
+        }
+    }
+
+    #[test]
+    fn fsqrt_matches_hardware_bitwise() {
+        let mut s = 0x5C47u64;
+        for i in 0..2_000_000u64 {
+            let a = rand_f32_bits(&mut s);
+            let want = canon(f32::from_bits(a).sqrt().to_bits());
+            assert_eq!(fsqrt(a), want, "i={i} a={a:08x}");
+        }
+    }
+
+    #[test]
+    fn ffloor_ftoi_itof_match_rust_semantics() {
+        let mut s = 0xF100u64;
+        for i in 0..2_000_000u64 {
+            let a = rand_f32_bits(&mut s);
+            let wf = canon(f32::from_bits(a).floor().to_bits());
+            assert_eq!(ffloor(a), wf, "floor i={i} a={a:08x}");
+            // Rust `as` casts are platform-identical by language guarantee.
+            let wi = f32::from_bits(a) as i32;
+            assert_eq!(ftoi(a), wi, "ftoi i={i} a={a:08x}");
+            let v = xorshift(&mut s) as i32;
+            assert_eq!(itof(v), (v as f32).to_bits(), "itof i={i} v={v}");
+        }
+    }
     /// The committed 64-block dot (fkernels tree), replayed entirely in
     /// softfloat, must equal the hardware kernel bit-for-bit — this is the
     /// exact computation the Move one-step verifier performs for a DOTF op.
