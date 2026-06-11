@@ -386,6 +386,69 @@ unsafe fn block_partial_sdot(w: &[i8], xl: &[i8], xh: &[i8], clamp: &[u8]) -> i6
     p
 }
 
+/// One 64-element i8×i8 block partial via a SINGLE sdot pass (no limb split).
+/// This is the kernel a *dynamic per-block i8 activation* design would use —
+/// the measurement of the speed ceiling the i16→i8 quality re-derivation
+/// would unlock. `asm!` issues the DotProd instruction on stable.
+#[cfg(target_arch = "aarch64")]
+#[inline]
+unsafe fn block_dot_i8(w: *const i8, x: *const i8) -> i32 {
+    let sum: u64;
+    core::arch::asm!(
+        "movi v0.4s, #0",
+        "ldp q2, q3, [{w}]",
+        "ldp q4, q5, [{w}, #32]",
+        "ldp q6, q7, [{x}]",
+        "ldp q16, q17, [{x}, #32]",
+        "sdot v0.4s, v2.16b, v6.16b",
+        "sdot v0.4s, v3.16b, v7.16b",
+        "sdot v0.4s, v4.16b, v16.16b",
+        "sdot v0.4s, v5.16b, v17.16b",
+        "addv s0, v0.4s",
+        "fmov {s:w}, s0",
+        w = in(reg) w,
+        x = in(reg) x,
+        s = out(reg) sum,
+        out("v0") _, out("v2") _, out("v3") _, out("v4") _,
+        out("v5") _, out("v6") _, out("v7") _, out("v16") _, out("v17") _,
+        options(nostack, readonly),
+    );
+    sum as u32 as i32
+}
+
+/// Blocked GEMV with i8 activations, single sdot per block (the dynamic-i8
+/// design's hot kernel). NOT bit-comparable to the i16 path (different
+/// activation width) — exists purely to MEASURE the speed ceiling. Scalar
+/// reference for the equality test is `block`-wise i8·i8.
+#[cfg(target_arch = "aarch64")]
+#[allow(clippy::too_many_arguments)]
+pub fn gemv_i8_blocked(
+    pool: &Pool,
+    w: &[i8],
+    x: &[i8],
+    rows: usize,
+    cols: usize,
+    m_blocks: &[i32],
+    shift: u8,
+    out: &mut [i64],
+) {
+    let blocks = cols / 64;
+    let out_addr = SendPtr(out.as_mut_ptr());
+    pool.run(rows, 16, &move |start, end| {
+        let out_ptr = out_addr;
+        for r in start..end {
+            let wrow = &w[r * cols..(r + 1) * cols];
+            let mrow = &m_blocks[r * blocks..(r + 1) * blocks];
+            let mut acc = 0i64;
+            for b in 0..blocks {
+                let p = unsafe { block_dot_i8(wrow[b * 64..].as_ptr(), x[b * 64..].as_ptr()) };
+                acc = acc.wrapping_add((p as i64).wrapping_mul(mrow[b] as i64));
+            }
+            unsafe { *out_ptr.0.add(r) = rnd(acc, shift) };
+        }
+    });
+}
+
 /// Blocked GEMV via the sdot two-limb path. Falls back to the vmlal kernel if
 /// DotProd is unavailable. Bit-identical to `gemv_w8_x16_blocked`.
 #[allow(clippy::too_many_arguments)]
@@ -678,6 +741,31 @@ mod tests {
                     &x[b * 64..(b + 1) * 64],
                 );
                 acc = acc.wrapping_add(p.wrapping_mul(m[r * blocks + b] as i64));
+            }
+            assert_eq!(out[r], rnd(acc, 20), "row {r}");
+        }
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn i8_blocked_equals_scalar() {
+        let pool = Pool::new(8);
+        let mut s = 0x5151u64;
+        let (rows, cols) = (97, 1024);
+        let blocks = cols / 64;
+        let w: Vec<i8> = (0..rows * cols).map(|_| xorshift(&mut s) as i8).collect();
+        let x: Vec<i8> = (0..cols).map(|_| xorshift(&mut s) as i8).collect();
+        let m: Vec<i32> = (0..rows * blocks).map(|_| (xorshift(&mut s) % (1 << 24)) as i32 + 1).collect();
+        let mut out = vec![0i64; rows];
+        gemv_i8_blocked(&pool, &w, &x, rows, cols, &m, 20, &mut out);
+        for r in 0..rows {
+            let mut acc = 0i64;
+            for b in 0..blocks {
+                let mut p = 0i32;
+                for c in 0..64 {
+                    p += w[r * cols + b * 64 + c] as i32 * x[b * 64 + c] as i32;
+                }
+                acc = acc.wrapping_add((p as i64).wrapping_mul(m[r * blocks + b] as i64));
             }
             assert_eq!(out[r], rnd(acc, 20), "row {r}");
         }

@@ -6,7 +6,9 @@
 //!
 //!   cargo run -p benches --release --bin kernel_ab
 
-use kernels::{gemv_blocked_bytes, gemv_blocked_dot_bytes, gemv_blocked_legacy_bytes, Pool};
+use kernels::{
+    gemv_blocked_bytes, gemv_blocked_dot_bytes, gemv_blocked_legacy_bytes, gemv_i8_blocked, Pool,
+};
 use std::time::Instant;
 
 fn main() {
@@ -78,8 +80,27 @@ fn main() {
     // Same numeric result whether block_partial_sdot is the stable asm! or
     // the nightly vdotq_s32 intrinsic (measured ≈equal: both ~0.73×).
     println!(
-        "  sdot two-limb:          {mb:>6} ns/GEMV  ({}.{:02}× vs legacy)",
+        "  sdot two-limb (i16):    {mb:>6} ns/GEMV  ({}.{:02}× vs legacy)",
         ml / mb.max(1),
         (ml * 100 / mb.max(1)) % 100
+    );
+
+    // The CEILING: single-sdot i8×i8 (what a dynamic-i8 activation redesign
+    // would run). Not bit-comparable to the i16 paths — different activation
+    // width — so it is the speed reference, not a drop-in.
+    let xi8: Vec<i8> = (0..cols).map(|_| rng() as i8).collect();
+    let mut out_d = vec![0i64; rows];
+    let mut td = Vec::with_capacity(iters);
+    for _ in 0..iters {
+        td.push(time(&mut || {
+            gemv_i8_blocked(&pool, kernels::bytes_as_i8(&w), &xi8, rows, cols, &m, 20, &mut out_d)
+        }));
+    }
+    td.sort_unstable();
+    let md = td[iters / 2];
+    println!(
+        "  single-sdot i8 (CEIL):  {md:>6} ns/GEMV  ({}.{:02}× vs legacy — the i8-activation ceiling)",
+        ml / md.max(1),
+        (ml * 100 / md.max(1)) % 100
     );
 }
