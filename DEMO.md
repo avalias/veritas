@@ -48,6 +48,13 @@ permissionless because being wrong is provable.**
 
 ### 3.1 What exactly does the judge read? — PROVENANCE-GATED EVIDENCE
 
+> The full literature-grounded design of this layer — who decides what to
+> fetch (all discretion at creation time), trust-group independence
+> accounting, zkTLS tiering, judge hardening against every published
+> attack class, the extraction+symbolic-aggregation decomposition, and
+> the pre-registered testing protocol — is in **[EVIDENCE.md](EVIDENCE.md)**.
+> This section is the summary.
+
 **Rejected design (v0): bonded free-text submission.** Anyone could
 submit any paragraph; the "evidence set" degenerates into voting with
 prose — the same human-discretion hole (UMA/Polymarket-style social
