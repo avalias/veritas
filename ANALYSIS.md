@@ -81,15 +81,23 @@ Two separable claims, both measured at Qwen scale (`qwen_demo`):
    thread count or SIMD width; the GPU produces bit-identical logits. There
    is nothing to measure because there is no special mode — the fast path
    *is* the committed path.
-2. **Commitment overhead = 0–3% wall-clock.** Per-token the model dirties
-   a bounded page set (KV append + activation scratch; the LM-head logits
-   never enter committed state thanks to the streaming `ARGMAX_OFF` head).
-   Sequential hashing is ~4.5% of compute; pipelined behind the next token
-   it falls into the run-to-run noise (0.00% on the cleanest run, roots
-   asserted identical to the sequential path).
+2. **Commitment overhead, decomposed honestly** (the predictor is now
+   scratch-free, so the cost is no longer masked):
+   - **Merkle hashing: ~3% pipelined** behind the next token — the
+     fundamental, near-zero cost. The LM-head logits never enter committed
+     state (streaming `ARGMAX_OFF` head), so the dirty set stays bounded.
+   - **VM-fidelity scratch: ~5%** — but this is a *compiler artifact*, not
+     inherent to commitment: the current program commits sigmoid
+     intermediates as memory cells instead of keeping them in registers.
+     Ordinary serving (`position_uncommitted`) skips them; a leaner
+     compilation would cut the committed cost too.
+
+   An earlier "0–3%" figure compared committed-vs-pure with *both* paths
+   writing the scratch, hiding it. The profiler (`QWEN_PROF`) exposed it.
 
 Extrapolation and the levers (parallel leaf hashing, HW SHA3, checkpoint
-sparsity) are in [benches/README.md](benches/README.md).
+sparsity, leaner sigmoid compilation) are in
+[benches/README.md](benches/README.md).
 
 ## 5. Quality, measured — and the honest gap
 
@@ -123,10 +131,10 @@ not papered over.
 
 ## 6. Speed, measured — and the honest gap
 
-~28 tok/s integer decode vs llama.cpp Q8_0 101 tok/s (pure CPU) — a ~3.6×
-gap. **Single-run tok/s on this machine drifts ±20% with thermals**, so
-kernel changes were evaluated by a thermal-robust same-process A/B ratio
-(`benches/kernel_ab`), not wall-clock:
+~32–39 tok/s scratch-free predictor decode vs llama.cpp Q8_0 101 tok/s
+(pure CPU) — a ~3× gap. **Single-run tok/s on this machine drifts ±20% with
+thermals**, so kernel changes were evaluated by a thermal-robust
+same-process A/B ratio (`benches/kernel_ab`), not wall-clock:
 
 | blocked-GEMV kernel (3072×1024) | ns | vs legacy |
 |---|---|---|

@@ -41,13 +41,20 @@ level; this alone cut commitment cost ~1.7×).
 
 | metric | value |
 |---|---|
-| integer decode (`qwen_demo`) | **~28 tok/s** (NEON smlal + persistent pool; was 14.8 naive. ±20% thermal drift between runs — see the controlled A/B below for the real kernel deltas) |
-| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s — **gap ~3.6×** (was 6.8×) |
+| predictor decode, scratch-free (`qwen_demo` pure) | **~32–39 tok/s** (NEON smlal + persistent pool; was 14.8 naive. ±20% thermal drift — use the controlled A/B below for kernel deltas, never single runs) |
+| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s — **gap ~3×** |
 | llama.cpp Q8_0, `-ngl 0` (Accelerate/AMX BLAS) | 109 tok/s |
-| commitment, sequential | 1.6 ms/token ≈ 4.5% of compute (dirty set grew with i16 V/probs) |
-| commitment, **pipelined** (hasher thread) | **0–3% wall-clock** (run-noise dominated; 0.00% measured on the earlier config; roots bit-identical, asserted) |
+| commitment — Merkle hashing, pipelined | **~3% wall-clock** (hasher thread; the fundamental, near-zero cost; roots bit-identical, asserted) |
+| commitment — VM-fidelity scratch | ~5% (a COMPILER ARTIFACT: the program commits sigmoid intermediates as memory cells; a leaner compilation removes it. The predictor skips it entirely) |
 | genesis tree (per-judge, one-off) | ~1.4 s |
-| quality (final night config) | **PPL 421 vs float-ref 34.60 / llama-Q8 34.99; top-1 agreement 20.5%** — full measured ladder below |
+| quality (final config) | **PPL 421 vs float-ref 34.60 / llama-Q8 34.99; top-1 agreement 20.5%** — full measured ladder below |
+
+> **Honest overhead, decomposed (QWEN_PROF profiling, scratch-free predictor):**
+> determinism tax **0** (integer associativity) · Merkle hashing **~3%**
+> pipelined (fundamental) · VM-fidelity scratch **~5%** (compiler-reducible —
+> the committed runtime mirrors the VM program's intermediate stores; ordinary
+> serving via `position_uncommitted` skips them). The earlier rosy "0–3%"
+> compared committed-vs-pure with BOTH doing scratch, masking it.
 
 Two separable claims, now measured:
 1. **Determinism + commitment cost ≈ 0** on the integer path — math is
