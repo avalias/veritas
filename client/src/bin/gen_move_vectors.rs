@@ -336,6 +336,23 @@ fn cases() -> Vec<VsCase> {
     let dotbm = Instr { opcode: Opcode::Dotbm as u8, ..dotbm };
     // B 64- but not 128-aligned ⇒ T7-wide trap (honest claim of the trap).
     let d816_badb = Instr { b: Operand::at(64), ..d816 };
+    // FW-6 float ops: FDOT (block dot accumulate) + FOP selectors.
+    let fdot = Instr {
+        imm: 64,
+        a: Operand::at(0),     // 128-aligned bf16 line
+        b: Operand::at(256),   // 256-aligned f32 line
+        w: Operand::at(512),   // f32 accumulator cell
+        ..Instr::op(Opcode::Fdot)
+    };
+    let ffma_op = Instr {
+        k: 2,
+        a: Operand::at(16),
+        b: Operand::at(20),
+        w: Operand::at(24),
+        ..Instr::op(Opcode::Fop)
+    };
+    let fsqrt_op = Instr { k: 4, a: Operand::at(16), w: Operand::at(28), ..Instr::op(Opcode::Fop) };
+    let fdiv_op = Instr { k: 3, a: Operand::at(16), b: Operand::at(20), w: Operand::at(32), ..Instr::op(Opcode::Fop) };
 
     vec![
         build_case("vs_dot8_honest", dot8, 11, |m| m.regs.acc = -12345, false),
@@ -346,6 +363,11 @@ fn cases() -> Vec<VsCase> {
         build_case("vs_dotbm_w_read_honest", dotbm, 61, |m| m.regs.acc = 31_337, false),
         build_case("vs_dotbm_false_claim", dotbm, 61, |m| m.regs.acc = 31_337, true),
         build_case("vs_dot8x16_wide_misalign_traps", d816_badb, 67, |_| {}, false),
+        build_case("vs_fdot_honest", fdot, 71, |_| {}, false),
+        build_case("vs_fdot_false_claim", fdot, 71, |_| {}, true),
+        build_case("vs_fop_fma_honest", ffma_op, 73, |_| {}, false),
+        build_case("vs_fop_sqrt_honest", fsqrt_op, 79, |_| {}, false),
+        build_case("vs_fop_div_false_claim", fdiv_op, 83, |_| {}, true),
         build_case(
             "vs_clamp8_write_honest",
             clamp8,

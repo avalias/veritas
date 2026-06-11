@@ -11,6 +11,7 @@ module dispute::interp;
 use dispute::bytes_le as ble;
 use dispute::merkle;
 use dispute::signed as sg;
+use dispute::softfloat as sf;
 
 const E_PRE_ROOT: u64 = 1;
 const E_BAD_INSTR_PROOF: u64 = 2;
@@ -48,6 +49,8 @@ const OP_ARGMAX_OFF: u8 = 0x16;
 const OP_LD16: u8 = 0x17;
 const OP_DOT8X16: u8 = 0x18;
 const OP_DOTBM: u8 = 0x19;
+const OP_FDOT: u8 = 0x1A;
+const OP_FOP: u8 = 0x1B;
 
 // Instruction field offsets (SPEC §4.1).
 const F_IMM: u64 = 4;
@@ -129,6 +132,16 @@ fun ok_line128(a: u64, mem_bytes: u64): bool {
     a % 128 == 0 && a <= mem_bytes - 128
 }
 
+/// Little-endian bytes of a u32 (float-op write payloads).
+fun u32_le(v: u32): vector<u8> {
+    vector[
+        ((v & 0xFF) as u8),
+        (((v >> 8) & 0xFF) as u8),
+        (((v >> 16) & 0xFF) as u8),
+        (((v >> 24) & 0xFF) as u8),
+    ]
+}
+
 /// Verify a page opening against mem_root (SPEC §8.4 V6); abort if bad.
 fun check_open(
     page: &vector<u8>,
@@ -196,7 +209,7 @@ public fun verify_step(
         E_BAD_INSTR_PROOF,
     );
     let op = instr[0];
-    if (op == 0 || op > OP_DOTBM) {
+    if (op == 0 || op > OP_FOP) {
         // T2: unknown opcode (includes zero padding).
         return verdict(&mem_root, &trap_regs(&pre), claimed_post)
     };
@@ -255,6 +268,76 @@ public fun verify_step(
             j = j + 1;
         };
         post.acc = acc;
+    } else if (op == OP_FDOT) {
+        // FW-6 committed block dot: A = 128-aligned 128-byte bf16 line,
+        // B = 256-aligned 256-byte f32 line, W = f32 cell (read + WRITE):
+        // W <- fadd(W, block_dot(widen(A), B)). imm must be 64 (T7).
+        if (imm != 64) {
+            return verdict(&mem_root, &trap_regs(&pre), claimed_post)
+        };
+        let ea_a = ea(&pre, &instr, F_OPA);
+        let ea_b = ea(&pre, &instr, F_OPB);
+        let ea_w = ea(&pre, &instr, F_OPW);
+        if (ea_a % 128 != 0 || ea_a > mem_bytes - 128
+            || ea_b % 256 != 0 || ea_b > mem_bytes - 256
+            || !ok_access(ea_w, 4, mem_bytes)) {
+            return verdict(&mem_root, &trap_regs(&pre), claimed_post)
+        };
+        check_open(&page_a, &sibs_a, ea_a / PAGE, d, &mem_root);
+        check_open(&page_b, &sibs_b, ea_b / PAGE, d, &mem_root);
+        check_open(&page_w, &sibs_w, ea_w / PAGE, d, &mem_root);
+        let (oa, ob) = (ea_a % PAGE, ea_b % PAGE);
+        // Widen bf16 weights to f32 bit patterns; read f32 activations.
+        let mut wv = vector<u32>[];
+        let mut xv = vector<u32>[];
+        let mut j = 0u64;
+        while (j < 64) {
+            let wbits = ble::u16_at(&page_a, oa + 2 * j);
+            wv.push_back((wbits as u32) << 16);
+            xv.push_back(ble::u32_at(&page_b, ob + 4 * j) as u32);
+            j = j + 1;
+        };
+        let cell = ble::u32_at(&page_w, ea_w % PAGE) as u32;
+        let out = sf::fadd(cell, sf::block_dot(&wv, &xv));
+        has_write = true;
+        write_ea = ea_w;
+        write_bytes = u32_le(out);
+    } else if (op == OP_FOP) {
+        // FW-6 scalar float op, k-selected: 0 add, 1 mul, 2 fma (W read),
+        // 3 div, 4 sqrt, 5 floor, 6 ftoi, 7 itof. T6 beyond.
+        if (k > 7) {
+            return verdict(&mem_root, &trap_regs(&pre), claimed_post)
+        };
+        let ea_a = ea(&pre, &instr, F_OPA);
+        let ea_b = ea(&pre, &instr, F_OPB);
+        let ea_w = ea(&pre, &instr, F_OPW);
+        let binary = k <= 3;
+        if (!ok_access(ea_a, 4, mem_bytes)
+            || (binary && !ok_access(ea_b, 4, mem_bytes))
+            || !ok_access(ea_w, 4, mem_bytes)) {
+            return verdict(&mem_root, &trap_regs(&pre), claimed_post)
+        };
+        check_open(&page_a, &sibs_a, ea_a / PAGE, d, &mem_root);
+        let a = ble::u32_at(&page_a, ea_a % PAGE) as u32;
+        let out = if (k == 0 || k == 1 || k == 3) {
+            check_open(&page_b, &sibs_b, ea_b / PAGE, d, &mem_root);
+            let b = ble::u32_at(&page_b, ea_b % PAGE) as u32;
+            if (k == 0) { sf::fadd(a, b) }
+            else if (k == 1) { sf::fmul(a, b) }
+            else { sf::fdiv(a, b) }
+        } else if (k == 2) {
+            check_open(&page_b, &sibs_b, ea_b / PAGE, d, &mem_root);
+            let b = ble::u32_at(&page_b, ea_b % PAGE) as u32;
+            check_open(&page_w, &sibs_w, ea_w / PAGE, d, &mem_root);
+            let c = ble::u32_at(&page_w, ea_w % PAGE) as u32;
+            sf::ffma(a, b, c)
+        } else if (k == 4) { sf::fsqrt(a) }
+        else if (k == 5) { sf::ffloor(a) }
+        else if (k == 6) { sf::ftoi(a) }
+        else { sf::itof(a) };
+        has_write = true;
+        write_ea = ea_w;
+        write_bytes = u32_le(out);
     } else if (op == OP_LD8 || op == OP_LD16) {
         let size = if (op == OP_LD8) { 1 } else { 2 };
         let ea_a = ea(&pre, &instr, F_OPA);

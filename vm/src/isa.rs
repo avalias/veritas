@@ -34,6 +34,8 @@ pub enum Opcode {
     Ld16 = 0x17,
     Dot8x16 = 0x18,
     Dotbm = 0x19,
+    Fdot = 0x1A,
+    Fop = 0x1B,
 }
 
 impl Opcode {
@@ -66,6 +68,8 @@ impl Opcode {
             0x17 => Ld16,
             0x18 => Dot8x16,
             0x19 => Dotbm,
+            0x1A => Fdot,
+            0x1B => Fop,
             _ => return None,
         })
     }

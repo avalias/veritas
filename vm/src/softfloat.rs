@@ -448,6 +448,29 @@ pub fn itof(v: i32) -> u32 {
     round_pack(sign, e, sig)
 }
 
+
+/// The committed 64-element block dot over bf16 weights × f32 activations
+/// (the fkernels tree, bit-for-bit): 16 virtual fma lanes (lane kk takes
+/// j = 16·i + kk), pinned combine s[l] = (a0+a1)+(a2+a3), pinned horizontal
+/// (s0+s1)+(s2+s3). THE semantic of the FDOT micro-op; the Move twin is
+/// dispute::softfloat::block_dot.
+pub fn block_dot_bf16(w_bf16: &[u16], x_bits: &[u32]) -> u32 {
+    debug_assert_eq!(w_bf16.len(), 64);
+    debug_assert_eq!(x_bits.len(), 64);
+    let mut lane = [0u32; 16];
+    for i in 0..4 {
+        for (kk, slot) in lane.iter_mut().enumerate() {
+            let j = 16 * i + kk;
+            *slot = ffma((w_bf16[j] as u32) << 16, x_bits[j], *slot);
+        }
+    }
+    let mut s = [0u32; 4];
+    for (l, slot) in s.iter_mut().enumerate() {
+        *slot = fadd(fadd(lane[l], lane[4 + l]), fadd(lane[8 + l], lane[12 + l]));
+    }
+    fadd(fadd(s[0], s[1]), fadd(s[2], s[3]))
+}
+
 #[cfg(test)]
 #[allow(clippy::float_arithmetic)] // tests compare against HARDWARE floats
 #[allow(clippy::needless_range_loop)] // spec-literal lane indices in the tree

@@ -705,6 +705,79 @@ fn traps_t7_wide() {
     assert_eq!(step_ok(&mut m), StepOutcome::Ran);
 }
 
+
+// ---------------------------------------------------------------------------
+// Float ops (SPEC FW-6): FDOT, FOP
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fdot_accumulates_committed_block() {
+    use vm::softfloat::{block_dot_bf16, fadd};
+    let mut rng = XorShift64::new(0xF0D7);
+    for trial in 0..30 {
+        let mut w16 = [0u16; 64];
+        let mut x32 = [0u32; 64];
+        for j in 0..64 {
+            // finite, moderate values: bf16 weights, f32 activations
+            w16[j] = ((rng.next_u64() as u32 & 0x3F7F_FFFF) >> 16) as u16;
+            x32[j] = rng.next_u64() as u32 & 0x3F7F_FFFF;
+        }
+        let cell0 = rng.next_u64() as u32 & 0x3F7F_FFFF;
+        let mut m = mk(vec![Instr {
+            imm: 64,
+            a: Operand::at(0),
+            b: Operand::at(256),
+            w: Operand::at(512),
+            ..Instr::op(Opcode::Fdot)
+        }]);
+        let wb: Vec<u8> = w16.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let xb: Vec<u8> = x32.iter().flat_map(|v| v.to_le_bytes()).collect();
+        m.mem.write(0, &wb);
+        m.mem.write(256, &xb);
+        m.mem.write(512, &cell0.to_le_bytes());
+        step_ok(&mut m);
+        let want = fadd(cell0, block_dot_bf16(&w16, &x32));
+        assert_eq!(m.mem.read_u32(512), want, "trial {trial}");
+    }
+}
+
+#[test]
+fn fop_all_selectors_and_traps() {
+    use vm::softfloat as sf;
+    let a_bits = 0x4048_F5C3u32; // 3.14
+    let b_bits = 0x4015_5555u32; // 2.333
+    let c_bits = 0xBF80_0000u32; // -1.0
+    for k in 0u8..8 {
+        let mut m = mk(vec![Instr {
+            k,
+            a: Operand::at(0),
+            b: Operand::at(4),
+            w: Operand::at(8),
+            ..Instr::op(Opcode::Fop)
+        }]);
+        m.mem.write(0, &a_bits.to_le_bytes());
+        m.mem.write(4, &b_bits.to_le_bytes());
+        m.mem.write(8, &c_bits.to_le_bytes());
+        step_ok(&mut m);
+        let want = match k {
+            0 => sf::fadd(a_bits, b_bits),
+            1 => sf::fmul(a_bits, b_bits),
+            2 => sf::ffma(a_bits, b_bits, c_bits),
+            3 => sf::fdiv(a_bits, b_bits),
+            4 => sf::fsqrt(a_bits),
+            5 => sf::ffloor(a_bits),
+            6 => sf::ftoi(a_bits) as u32,
+            _ => sf::itof(a_bits as i32),
+        };
+        assert_eq!(m.mem.read_u32(8), want, "k={k}");
+    }
+    // T6: selector out of range; T7: FDOT wrong imm; T3: misalignment.
+    assert_traps(mk(vec![Instr { k: 8, a: Operand::at(0), b: Operand::at(4), w: Operand::at(8), ..Instr::op(Opcode::Fop) }]));
+    assert_traps(mk(vec![Instr { imm: 32, a: Operand::at(0), b: Operand::at(256), w: Operand::at(512), ..Instr::op(Opcode::Fdot) }]));
+    assert_traps(mk(vec![Instr { imm: 64, a: Operand::at(64), b: Operand::at(256), w: Operand::at(512), ..Instr::op(Opcode::Fdot) }]));
+    assert_traps(mk(vec![Instr { imm: 64, a: Operand::at(0), b: Operand::at(128), w: Operand::at(512), ..Instr::op(Opcode::Fdot) }]));
+}
+
 // ---------------------------------------------------------------------------
 // Codec roundtrips
 // ---------------------------------------------------------------------------

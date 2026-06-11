@@ -418,6 +418,70 @@ impl Machine {
                     self.regs.acc = self.regs.acc.wrapping_add(p);
                 }
             }
+            Opcode::Fdot => {
+                // FW-6 committed block dot: A = 128-byte bf16 weight line
+                // (128-aligned), B = 256-byte f32 line (256-aligned; 256 |
+                // 1024 so never page-straddling), W = f32 accumulator cell:
+                // W <- fadd(W, block_dot(A, B)). imm MUST be 64 (T7).
+                if instr.imm != 64 {
+                    return Ok(self.trap());
+                }
+                let (ea_a, ea_b, ea_w) = (self.ea(&instr.a), self.ea(&instr.b), self.ea(&instr.w));
+                let mem_bytes = self.mem.mem_bytes();
+                if ea_a % 128 != 0
+                    || ea_a > mem_bytes - 128
+                    || ea_b % 256 != 0
+                    || ea_b > mem_bytes - 256
+                    || !self.ok_access(ea_w, 4)
+                {
+                    return Ok(self.trap());
+                }
+                let wb = self.mem.read(ea_a, 128);
+                let xb = self.mem.read(ea_b, 256);
+                let mut w16 = [0u16; 64];
+                let mut x32 = [0u32; 64];
+                for j in 0..64 {
+                    w16[j] = u16::from_le_bytes([wb[2 * j], wb[2 * j + 1]]);
+                    x32[j] = u32::from_le_bytes([
+                        xb[4 * j],
+                        xb[4 * j + 1],
+                        xb[4 * j + 2],
+                        xb[4 * j + 3],
+                    ]);
+                }
+                let cell = self.mem.read_u32(ea_w);
+                let out = crate::softfloat::fadd(cell, crate::softfloat::block_dot_bf16(&w16, &x32));
+                self.mem.write(ea_w, &out.to_le_bytes());
+            }
+            Opcode::Fop => {
+                // FW-6 scalar float op on 4-byte cells, k-selected:
+                // 0 add, 1 mul, 2 fma (W read+write), 3 div, 4 sqrt,
+                // 5 floor, 6 ftoi, 7 itof. T6 beyond.
+                if instr.k > 7 {
+                    return Ok(self.trap());
+                }
+                let (ea_a, ea_b, ea_w) = (self.ea(&instr.a), self.ea(&instr.b), self.ea(&instr.w));
+                let binary = instr.k <= 3;
+                if !self.ok_access(ea_a, 4)
+                    || (binary && !self.ok_access(ea_b, 4))
+                    || !self.ok_access(ea_w, 4)
+                {
+                    return Ok(self.trap());
+                }
+                use crate::softfloat as sf;
+                let a = self.mem.read_u32(ea_a);
+                let out = match instr.k {
+                    0 => sf::fadd(a, self.mem.read_u32(ea_b)),
+                    1 => sf::fmul(a, self.mem.read_u32(ea_b)),
+                    2 => sf::ffma(a, self.mem.read_u32(ea_b), self.mem.read_u32(ea_w)),
+                    3 => sf::fdiv(a, self.mem.read_u32(ea_b)),
+                    4 => sf::fsqrt(a),
+                    5 => sf::ffloor(a),
+                    6 => sf::ftoi(a) as u32,
+                    _ => sf::itof(a as i32),
+                };
+                self.mem.write(ea_w, &out.to_le_bytes());
+            }
             Opcode::Halt => {
                 // halted ← 1, pc unchanged, step counts (SPEC §5.2).
                 self.regs.halted = HALTED;

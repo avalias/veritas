@@ -236,6 +236,84 @@ pub fn verify_step(
             }
             post.acc = acc;
         }
+        Opcode::Fdot => {
+            // FW-6 committed block dot (see exec.rs): imm must be 64; A a
+            // 128-aligned 128-byte bf16 line, B a 256-aligned 256-byte f32
+            // line, W a 4-aligned f32 accumulator cell (read + WRITE).
+            if instr.imm != 64 {
+                return trap(&regs); // T7
+            }
+            let (ea_a, ea_b, ea_w) =
+                (ea(&regs, &instr.a), ea(&regs, &instr.b), ea(&regs, &instr.w));
+            if ea_a % 128 != 0
+                || ea_a > mem_bytes - 128
+                || ea_b % 256 != 0
+                || ea_b > mem_bytes - 256
+                || !ok_access(ea_w, 4, mem_bytes)
+            {
+                return trap(&regs);
+            }
+            let pa = open(&proof.open_a, page_of(ea_a), judge.d, &proof.mem_root)?;
+            let pb = open(&proof.open_b, page_of(ea_b), judge.d, &proof.mem_root)?;
+            let pw = open(&proof.open_w, page_of(ea_w), judge.d, &proof.mem_root)?;
+            let wb = read_n(pa, ea_a, 128);
+            let xb = read_n(pb, ea_b, 256);
+            let mut w16 = [0u16; 64];
+            let mut x32 = [0u32; 64];
+            for j in 0..64 {
+                w16[j] = u16::from_le_bytes([wb[2 * j], wb[2 * j + 1]]);
+                x32[j] = u32::from_le_bytes([
+                    xb[4 * j],
+                    xb[4 * j + 1],
+                    xb[4 * j + 2],
+                    xb[4 * j + 3],
+                ]);
+            }
+            let cell = read_u32_at(pw, ea_w);
+            let out =
+                crate::softfloat::fadd(cell, crate::softfloat::block_dot_bf16(&w16, &x32));
+            write = Some((ea_w, out.to_le_bytes().to_vec()));
+        }
+        Opcode::Fop => {
+            if instr.k > 7 {
+                return trap(&regs); // T6
+            }
+            let (ea_a, ea_b, ea_w) =
+                (ea(&regs, &instr.a), ea(&regs, &instr.b), ea(&regs, &instr.w));
+            let binary = instr.k <= 3;
+            if !ok_access(ea_a, 4, mem_bytes)
+                || (binary && !ok_access(ea_b, 4, mem_bytes))
+                || !ok_access(ea_w, 4, mem_bytes)
+            {
+                return trap(&regs);
+            }
+            let pa = open(&proof.open_a, page_of(ea_a), judge.d, &proof.mem_root)?;
+            let a = read_u32_at(pa, ea_a);
+            use crate::softfloat as sf;
+            let out = match instr.k {
+                0 | 1 | 3 => {
+                    let pb = open(&proof.open_b, page_of(ea_b), judge.d, &proof.mem_root)?;
+                    let b = read_u32_at(pb, ea_b);
+                    match instr.k {
+                        0 => sf::fadd(a, b),
+                        1 => sf::fmul(a, b),
+                        _ => sf::fdiv(a, b),
+                    }
+                }
+                2 => {
+                    let pb = open(&proof.open_b, page_of(ea_b), judge.d, &proof.mem_root)?;
+                    let b = read_u32_at(pb, ea_b);
+                    let pw = open(&proof.open_w, page_of(ea_w), judge.d, &proof.mem_root)?;
+                    let c = read_u32_at(pw, ea_w);
+                    sf::ffma(a, b, c)
+                }
+                4 => sf::fsqrt(a),
+                5 => sf::ffloor(a),
+                6 => sf::ftoi(a) as u32,
+                _ => sf::itof(a as i32),
+            };
+            write = Some((ea_w, out.to_le_bytes().to_vec()));
+        }
         Opcode::Ld8 => {
             let ea_a = ea(&regs, &instr.a);
             if !ok_access(ea_a, 1, mem_bytes) {
@@ -504,6 +582,33 @@ pub fn build_step_proof(m: &crate::exec::Machine, prog_tree: &ProgramTree) -> St
             {
                 proof.open_a = opening(ea_a);
                 proof.open_b = opening(ea_b);
+            }
+        }
+        Opcode::Fdot => {
+            if instr.imm == 64
+                && ea_a % 128 == 0
+                && ea_a <= mem_bytes - 128
+                && ea_b % 256 == 0
+                && ea_b <= mem_bytes - 256
+                && ok_access(ea_w, 4, mem_bytes)
+            {
+                proof.open_a = opening(ea_a);
+                proof.open_b = opening(ea_b);
+                proof.open_w = opening(ea_w); // read + write
+            }
+        }
+        Opcode::Fop => {
+            let binary = instr.k <= 3;
+            if instr.k <= 7
+                && ok_access(ea_a, 4, mem_bytes)
+                && (!binary || ok_access(ea_b, 4, mem_bytes))
+                && ok_access(ea_w, 4, mem_bytes)
+            {
+                proof.open_a = opening(ea_a);
+                if binary {
+                    proof.open_b = opening(ea_b);
+                }
+                proof.open_w = opening(ea_w);
             }
         }
         Opcode::Ld8 => {
