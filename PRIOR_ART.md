@@ -171,3 +171,47 @@ space offering per-operation challengeable commitments as of June 2026."*
    CUDA; MLX/Metal with fast-math off — measured on M4), so *their*
    kernels become *our* predictor with ~zero overhead, and our protocol
    adds the missing property: cheap on-chain falsifiability.
+
+---
+
+## 7. Provenance-gated evidence × deterministic LLM judge: novelty check (June 2026, sourced)
+
+Survey of cryptographic content-provenance deployment and the oracle
+landscape (full agent report 2026-06-11). Key verified facts:
+
+- **C2PA in news is production-real, images/video only**: BBC ships
+  Content Credentials on select BBC Verify stories (since 2024-03); the
+  IPTC signing tool passed the C2PA Conformance Program (2026-04-14) and
+  signs iptc.org news images in production — we downloaded and verified a
+  real signed asset (IMG_4069, JUMBF manifest). Trust lists are public
+  (github.com/c2pa-org/conformance-public; IPTC Origin Verified News
+  Publishers List — first members BBC, CBC). Manifests are COSE/ES256 —
+  **natively verifiable on Sui via `sui::ecdsa_r1`**. C2PA 2.3/2.4 (2026)
+  spec text/HTML provenance; no production text signing yet.
+- **DKIM news alerts are the text-evidence workhorse**: BBC's DKIM key
+  (`50dkim1._domainkey.bbc.co.uk`, RSA-2048) verified live and stable
+  2024→2026; NYT (`google` selector) and Reuters (`k2`) likewise;
+  archive.prove.email archives >1M keys with timestamps (API verified).
+  RSA is NOT Sui-native → verify via Move bigint modexp (e=65537) or
+  zkEmail-style Groth16 (`sui::groth16` is native, BN254+BLS12-381).
+- **zkTLS**: Reclaim Protocol has a LIVE SUI MAINNET VERIFIER
+  (`client::verify_proof`, threshold attestor signatures — `ecdsa_k1`
+  native); trust = attestor threshold (eprint 2024/733). TLSNotary
+  itself: not production-ready, no on-chain verifier.
+- **Sui native crypto inventory**: ed25519, ecdsa_k1 (+ecrecover),
+  ecdsa_r1 (P-256), bls12381 (+group_ops), groth16 (BN254/BLS12-381),
+  blake2b/keccak/sha2/sha3, hmac, poseidon, ecvrf, vdf,
+  **nitro_attestation** (native AWS Nitro TEE attestation!), `random` @0x8.
+- **Pyth is live on Sui** (ed25519-signed payloads) for price facts.
+
+**Prior-art verdict: the combination is NOVEL.** Closest neighbors, to
+cite and differentiate: (a) a16z/Andrew Hall (2026-01) — committed
+LLM+prompt judges, but no provenance gating, no determinism, no fraud
+proofs; (b) ORA opML — fraud-provable ML, no evidence provenance;
+(c) APRO×Brevis (2026-01, BNB) — zkTLS feeds + LLM parsing, but the LLM
+is a trusted node pipeline (threshold-signed, not deterministic, not
+disputable). Nobody gates an LLM judge's admissible evidence by
+C2PA/zkTLS/DKIM provenance AND makes the judgment itself
+bit-deterministic and fraud-provable. That stack — provenance-verified
+inputs → committed deterministic pipeline → one-micro-op on-chain
+adjudication — is ours.

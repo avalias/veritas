@@ -58,12 +58,13 @@ provenance proof.** The market's judge spec commits a **source policy** —
 a set of trust anchors — and a submission enters the evidence set iff it
 carries a machine-verifiable attestation chaining to one of them:
 
-| attestation class | what it proves | trust root | verification |
-|---|---|---|---|
-| **C2PA / Content Credentials** (BBC-style signed content) | "publisher P created/published these exact bytes" | publisher cert on the C2PA trust list, pinned in the registry | X.509/ECDSA signature + hash-binding to content — native curve ops on Sui |
-| **zkTLS / web proofs** (TLSNotary/Reclaim class) | "https://domain/... served these bytes at time T" | the site's TLS identity (+ the proof system's stated assumptions, pinned) | proof verification on-chain or in the dispute game |
-| **DKIM-signed mail** (zkEmail class) | "domain D's mail server sent these bytes" (e.g., Reuters/AP breaking-news alerts) | the publisher's DNS-published DKIM key, pinned at market creation | RSA/Ed25519 signature verify |
-| **on-chain facts** | prices, events, balances | the chain itself | free |
+| attestation class | proves | trust root | Sui verification | demo-real today? |
+|---|---|---|---|---|
+| **C2PA / Content Credentials** | publisher P published these exact image/video bytes | publisher cert on the C2PA / IPTC Origin trust list (pinned) | **`sui::ecdsa_r1` NATIVE** (manifests are COSE/ES256, P-256) | **YES** — BBC ships it on BBC Verify; IPTC signs news images in production; we downloaded + verified a real signed asset |
+| **DKIM-signed news mail** | domain D's server sent these exact header+body bytes (breaking-news alerts/newsletters) | the domain's DNS DKIM key (pinned; archive.prove.email keeps timestamped history) | RSA not native → Move modexp (e=65537) OR zkEmail Groth16 via **`sui::groth16` NATIVE** | **YES** — BBC `50dkim1` (RSA-2048) verified live, stable 2024→2026; NYT, Reuters likewise |
+| **zkTLS / web proof** | https://domain/… served these bytes (attestor-clock time T) | the proof system's attestor set (assumptions pinned) | **Reclaim has a LIVE Sui mainnet verifier** (`client::verify_proof`, `ecdsa_k1`) | YES (Reclaim); TLSNotary not production-ready |
+| **signed on-chain feeds** | price/event facts | the chain / feed pubkey | **Pyth live on Sui** (ed25519 payloads); native | YES |
+| **TEE attestation (bonus)** | this enclave ran this code | AWS Nitro PCRs | **`sui::nitro_attestation` NATIVE** | YES (soft-finality backstop only) |
 
 Properties this buys:
 
@@ -167,10 +168,14 @@ Scenario walk, end to end on localnet, one command:
    hash, decision table, tokenizer hash) → market "Will it rain in Paris
    tomorrow?" with dates and fees. AMM seeded.
 2. **Trade**: three simulated traders move the price (CPMM swaps).
-3. **Evidence**: two submissions with REAL provenance proofs (per the
-   research-selected attestation classes — target: a genuine DKIM-signed
-   news alert and/or a C2PA-signed asset and/or a zkTLS-proven page about
-   a real PAST event), verified at submission, ordered, committed.
+3. **Evidence (REAL provenance, real past event)**: a market on a settled
+   past question, resolved from genuinely-attested sources:
+   - a **C2PA-signed news image** (the verified IPTC asset, or a BBC
+     Verify asset) → `ecdsa_r1` check on-chain;
+   - a **DKIM-signed news alert** from a pinned domain (BBC `50dkim1`
+     RSA-2048, key from archive.prove.email) → modexp/Groth16 check.
+   Each verified AT SUBMISSION; rejected if the signature/trust-chain
+   fails; admitted set ordered by attestation hash, committed.
 4. **Resolve (honest)**: resolver runs the judge (native predictor for
    the answer + committed run for roots), inserts input on-chain,
    asserts YES with bond; window passes; market settles; winners redeem;
