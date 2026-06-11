@@ -3,8 +3,9 @@
 *The hardest sub-problem of [VISION.md](VISION.md): when a data source does
 NOT sign its content, how trustlessly can a chain learn what it served?
 This document states the cryptographic obstruction exactly, why a single
-proxy/notary is irreducibly trusted, and the decomposition that drives the
-floor down to the chain's own consensus.*
+proxy/notary is irreducibly trusted, and the decomposition that splits a
+fetch into a zero-trust (server-signed) half and an irreducibly
+observer-trusted (symmetric-content) half — NOT a free lunch.*
 
 ## 1. The obstruction (a theorem, not an engineering gap)
 
