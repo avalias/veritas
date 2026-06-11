@@ -54,37 +54,39 @@ Two separable claims, now measured:
    bit-exact at any kernel speed (associativity), and hashing hides
    entirely behind compute when pipelined. This holds on GPU for the same
    reasons (integer kernels + on-device keccak / pipelining).
-2. **Kernel parity with llama.cpp is unfinished**: ~3.6× gap. The ROOT
-   CAUSE is precise and fundamental to the quality choice: our i16
-   activations force `vmlal_s16` (4 MACs/instruction); llama.cpp's Q8 path
-   quantizes activations to i8 and uses `sdot` (16 MACs/instruction) —
-   4× the MAC density. The i16 width is exactly what the quality campaign
-   required (i8 activations destroyed Qwen3's outlier range).
-
-   **Controlled A/B (`benches/kernel_ab`, thermal-robust ratio of medians,
-   3072×1024 GEMV).** Single-run tok/s drifts ±20% with thermals, so kernel
-   deltas are measured as same-process ratios, not wall-clock tok/s:
+2. **Kernel parity with llama.cpp is unfinished: ~3.6× gap — and it is
+   MEMORY-BOUND, not MAC-bound.** Controlled A/B (`benches/kernel_ab`,
+   thermal-robust ratio of medians, 3072×1024 GEMV; single-run tok/s drifts
+   ±20% with thermals, so kernel deltas are same-process ratios):
 
    | blocked-GEMV kernel | ns/GEMV | vs legacy |
    |---|---|---|
-   | legacy `dot_w8_x16` per 64-block | 46,010 | 1.00× |
-   | fused `block_partial` (one reduction/block) | 44,333 | **1.03×** |
-   | `sdot` two-limb decomposition (via `asm!`) | 60,890 | **0.75×** |
+   | legacy `dot_w8_x16` per 64-block | 45,708 | 1.00× |
+   | fused `block_partial` (one reduction/block) — **current** | 44,281 | **1.03×** |
+   | `sdot` two-limb decomposition (i16, asm! or nightly intrinsic) | 60,869 | **0.75×** |
+   | **single-sdot i8×i8 (the i8-activation CEILING)** | 32,724 | **1.39×** |
 
-   Two measured negatives this round: (a) the `sdot` two-limb trick is
-   bit-exact and halves the MAC instruction count, yet runs **0.73× — both
-   via stable `asm!` AND nightly `vdotq_s32` intrinsics** (≈equal, so it is
-   NOT a scheduling artifact). The limb split is fundamental overhead:
-   handling i16 needs *two* sdot passes (low + high limb) plus dual
-   activation loads and an i64 recombine, which eats the instruction-count
-   win. (b) fusing q/k/v into one pool dispatch was also slower (barriers
-   aren't the bottleneck). The fused `block_partial` (+3%) is the only kept
-   change. **Conclusion: there is no bit-exact i16 kernel that reaches
-   llama's i8-`sdot` density.** The only path is *real* per-block dynamic
-   i8 activations (llama's design — a single sdot, no limb split), which is
-   a quality re-derivation (static i8 destroyed Qwen3's outliers; dynamic
-   per-block i8 may recover it). The protocol is indifferent — any
-   bit-exact kernel is admissible (§9.1).
+   The decisive number is the last row. A single-`sdot` i8 kernel has 4×
+   the MAC density of our i16 `vmlal` — yet it is only **1.39× faster**,
+   not 4×. So batch-1 decode GEMV is **bound by streaming the i8 weights**
+   (read once per token, identical for i16 and i8 activations); the MACs
+   hide behind memory latency. Consequences, all measured:
+   - The i16 activation width the quality campaign required costs **almost
+     nothing** in speed (the i8 ceiling is only 1.35× over the current i16
+     path). The earlier "i16 `vmlal` is the wall" framing was wrong.
+   - The `sdot` two-limb trick (i16 → two i8 limbs) is bit-exact but
+     **0.73×** — slower both via `asm!` and nightly `vdotq_s32` intrinsics
+     (≈equal, so not a scheduling artifact): the limb split's dual loads +
+     i64 recombine cost more than they save on a memory-bound kernel.
+   - Fusing q/k/v into one pool dispatch was also slower (barriers aren't
+     the bottleneck).
+
+   So the path to llama's 101 tok/s is **memory-access efficiency**
+   (weight prefetch, cache tiling, thread work distribution — llama's years
+   of tuning), NOT a cleverer dot kernel and NOT dynamic-i8 (which buys
+   ~1.35× at most, ~28→~38 tok/s, still 2.6× short). The fused
+   `block_partial` (+3%) is the only kept change. The protocol is
+   indifferent — any bit-exact kernel is admissible (§9.1).
 
 ## MEASURED: the full trustless-verification chain at Qwen scale
 

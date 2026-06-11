@@ -13,6 +13,7 @@
 use crate::image::Tables;
 use crate::layout::{QwenLayout, MAX_SEQ, MEM_DEPTH};
 use crate::quant::{IntModel, NormSite, SHIFT};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use toy_model::forward::{dot16, FlatMem};
 use vm::exec::{rnd, sat16, trunc_div};
@@ -20,6 +21,37 @@ use vm::hash::{page_leaf_hash, state_root, Hash};
 use vm::merkle::MerkleTree;
 use vm::state::Registers;
 use vm::PAGE_SIZE;
+
+// ---------------------------------------------------------------------------
+// Coarse per-phase profiler (env QWEN_PROF=1). Diagnostic only: the
+// individual GEMVs are memory-optimal (~95 GB/s, measured), so full-decode
+// speed is governed by where time goes BETWEEN them. Atomics so the cost is
+// ~nil when off and thread-safe when on.
+// ---------------------------------------------------------------------------
+pub const PROF_LABELS: [&str; 6] = ["embed", "qkv", "qknorm+rope", "attn", "ffn", "head"];
+static PROF: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+
+fn prof_on() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("QWEN_PROF").as_deref() == Ok("1"))
+}
+
+#[inline]
+fn prof_add(slot: usize, t: Instant) {
+    if prof_on() {
+        PROF[slot].fetch_add(t.elapsed().as_micros() as u64, Ordering::Relaxed);
+    }
+}
+
+/// (label, microseconds) per phase since the last reset; then resets.
+pub fn prof_take() -> Vec<(&'static str, u64)> {
+    PROF_LABELS
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (*l, PROF[i].swap(0, Ordering::Relaxed)))
+        .collect()
+}
 
 /// i8-weight × i16-activation dot over LE bytes. 64-lane i32 partials
 /// (≤ 64·127·32767 < 2^29) accumulate into i64 — exact, vectorizes well.
@@ -172,14 +204,28 @@ impl<'a> Native<'a> {
         kernels::gemv_blocked_bytes(&self.pool, w, x, vocab, h, &self.im.m_head.0, self.im.m_head.1, out);
     }
 
-    /// One position. `decide` ⇒ run the LM head and return the argmax token.
+    /// One position, committing every VM-faithful scratch cell (the C-14 /
+    /// committed-decode path). `decide` ⇒ run the LM head and return argmax.
     pub fn position(&self, mem: &mut FlatMem, pos: usize, tok: u32, decide: bool) -> Option<u32> {
-        self.position_impl(mem, pos, tok, decide, usize::MAX)
+        self.position_impl(mem, pos, tok, decide, usize::MAX, true)
+    }
+
+    /// One position WITHOUT the committed-only scratch — the honest "ordinary
+    /// inference" predictor. Produces identical tokens (the skipped cells are
+    /// VM bookkeeping the computation never reads back); ~1.4× faster.
+    pub fn position_uncommitted(
+        &self,
+        mem: &mut FlatMem,
+        pos: usize,
+        tok: u32,
+        decide: bool,
+    ) -> Option<u32> {
+        self.position_impl(mem, pos, tok, decide, usize::MAX, false)
     }
 
     /// Probe hook: run only the first `upto` layers (no head).
     pub fn position_prefix(&self, mem: &mut FlatMem, pos: usize, tok: u32, upto: usize) {
-        self.position_impl(mem, pos, tok, false, upto);
+        self.position_impl(mem, pos, tok, false, upto, true);
     }
 
     fn position_impl(
@@ -189,6 +235,7 @@ impl<'a> Native<'a> {
         tok: u32,
         decide: bool,
         upto: usize,
+        commit: bool,
     ) -> Option<u32> {
         let cfg = &self.im.cfg;
         let (h, dh, f) = (cfg.hidden_size as u64, cfg.head_dim as u64, cfg.intermediate_size as u64);
@@ -198,14 +245,17 @@ impl<'a> Native<'a> {
 
         // Embedding into the i32 residual carrier (global scale, no
         // rescales anywhere — i32 spans Qwen3's full dynamic range).
+        let tprof = Instant::now();
         for c in 0..h {
             let e = mem.r8i(lay.emb + tok as u64 * h + c);
             // ST32 semantics: low-32 truncation (value bounded ~2^18 anyway).
             mem.w32(lay.x + 4 * c, rnd(e.wrapping_mul(self.im.m_emb[c as usize] as i64), SHIFT) as u32);
         }
+        prof_add(0, tprof);
 
         for (l, lw) in self.im.layers.iter().enumerate().take(upto) {
             let a = &lay.layers[l];
+            let tprof = Instant::now();
             self.rmsnorm_to_i16(mem, lay.x, lay.xn, &lw.norm1, h);
             // QKV projections (row-parallel), stores single-threaded.
             // NOTE: fusing q/k/v into one pool dispatch was measured SLOWER
@@ -225,7 +275,9 @@ impl<'a> Native<'a> {
             for (r, v) in vv.iter().enumerate() {
                 mem.w16(vrow + 2 * r as u64, sat16(*v) as u16);
             }
+            prof_add(1, tprof);
             // QK-norm + rotary.
+            let tprof = Instant::now();
             for hd in 0..nh {
                 let base = lay.q + hd * dh * 2;
                 self.qknorm_i16(mem, base, &lw.qnorm, dh);
@@ -236,8 +288,10 @@ impl<'a> Native<'a> {
                 self.qknorm_i16(mem, base, &lw.knorm, dh);
                 self.rope(mem, base, pos, dh);
             }
+            prof_add(2, tprof);
             // Attention per q-head (GQA) on the persistent pool; heads
             // write disjoint dh-sized chunks of ctx.
+            let tprof = Instant::now();
             let mut ctx = vec![0i64; (nh * dh) as usize];
             {
                 let memr: &FlatMem = mem;
@@ -245,10 +299,12 @@ impl<'a> Native<'a> {
                     attn_head(self, memr, l, hd as u64, pos, out)
                 });
             }
-            // Stores + probs/att32 scratch writes happen single-threaded
-            // inside attn_head? No — attn_head is read-only; replay its
-            // scratch writes here for committed-state fidelity.
-            replay_attn_scratch(self, mem, l, pos);
+            // attn_head is read-only; the committed path replays its scratch
+            // (att32/e32/probs/sum/neg_max) for VM fidelity — pure waste for
+            // the predictor, which only needs ctx.
+            if commit {
+                replay_attn_scratch(self, mem, l, pos);
+            }
             for (i, v) in ctx.iter().enumerate() {
                 mem.w16(lay.attnx + 2 * i as u64, sat16(*v) as u16);
             }
@@ -258,7 +314,9 @@ impl<'a> Native<'a> {
                 let with_res = v.wrapping_add(mem.r32i(lay.x + 4 * c as u64));
                 mem.w32(lay.x + 4 * c as u64, with_res as u32); // ST32 truncation
             }
+            prof_add(3, tprof);
             // FFN: silu(gate)·up → down, with residual.
+            let tprof = Instant::now();
             self.rmsnorm_to_i16(mem, lay.x, lay.xn, &lw.norm2, h);
             let gv = self.proj_b(mem, a.w_gate, &lw.m_gate, f, h, lay.xn);
             let uv = self.proj_b(mem, a.w_up, &lw.m_up, f, h, lay.xn);
@@ -269,42 +327,50 @@ impl<'a> Native<'a> {
                 // write below is a committed VM cell (boundary equality).
                 let g = sat16(gv[r]) as i64;
                 let u = sat16(uv[r]) as i64;
-                mem.w16(lay.g16, g as u16);
-                mem.w16(lay.u16, u as u16);
-                mem.w32(lay.up32, u as u32);
                 let x411 = rnd(g.wrapping_mul(lw.m_sig as i64), SHIFT);
-                mem.w32(lay.t_x, x411 as u32);
-                // Sign byte: CLAMP8(x411·2^30) ∈ {0, 127, −128} — the VM's
-                // JEQ-on-0x80 sign dispatch.
-                mem.w8(lay.t_sign, vm::exec::sat8(x411.wrapping_mul(1 << 30)) as u8);
                 // σ via e^{-|g|} only (the exp LUT saturates for positive
                 // arguments): σ(g≥0) = 2^28/(2^14+em), σ(g<0) = em·2^14/(2^14+em).
                 let em = self.lut(&self.tables.exp, if x411 >= 0 { -x411 } else { x411 });
                 let sig = if x411 >= 0 {
-                    mem.w32(lay.t_den, (16384 + em) as u32);
                     trunc_div(1i64 << 28, 16384 + em)
                 } else {
-                    mem.w32(lay.t_ep, em as u32);
-                    mem.w32(lay.t_den, (16384 + em) as u32);
                     trunc_div(em << 14, 16384 + em)
                 };
-                mem.w32(lay.t_sig, sig as u32);
                 let hpre = rnd(g.wrapping_mul(sig), 14); // g·σ at s_g
-                mem.w32(lay.silu32, hpre as u32);
                 let prod = hpre.wrapping_mul(u);
                 let hq = rnd(prod.wrapping_mul(lw.m_h[r] as i64), SHIFT);
                 mem.w16(lay.h_ffn + 2 * r as u64, sat16(hq) as u16);
+                if commit {
+                    // VM-faithful scratch cells (the compiler emits stores to
+                    // these). Write-only mirrors — the computation above reads
+                    // none of them — so the predictor skips them.
+                    mem.w16(lay.g16, g as u16);
+                    mem.w16(lay.u16, u as u16);
+                    mem.w32(lay.up32, u as u32);
+                    mem.w32(lay.t_x, x411 as u32);
+                    mem.w8(lay.t_sign, vm::exec::sat8(x411.wrapping_mul(1 << 30)) as u8);
+                    if x411 >= 0 {
+                        mem.w32(lay.t_den, (16384 + em) as u32);
+                    } else {
+                        mem.w32(lay.t_ep, em as u32);
+                        mem.w32(lay.t_den, (16384 + em) as u32);
+                    }
+                    mem.w32(lay.t_sig, sig as u32);
+                    mem.w32(lay.silu32, hpre as u32);
+                }
             }
             let dv = self.proj_b(mem, a.w_down, &lw.m_down, h, f, lay.h_ffn);
             for (c, v) in dv.iter().enumerate() {
                 let with_res = v.wrapping_add(mem.r32i(lay.x + 4 * c as u64));
                 mem.w32(lay.x + 4 * c as u64, with_res as u32); // ST32 truncation
             }
+            prof_add(4, tprof);
         }
 
         if !decide {
             return None;
         }
+        let tprof = Instant::now();
         // LM head (tied embeddings), streaming/chunked: logits cycle through
         // ONE page (ARGMAX_OFF pattern) — nothing vocab-sized is committed.
         self.rmsnorm_to_i16(mem, lay.x, lay.xn, &self.im.norm_f, h);
@@ -324,8 +390,12 @@ impl<'a> Native<'a> {
         }
         // Committed-state writes of the streaming head: the cycled buffer
         // page retains the LAST chunk's logits; saved_max the final max.
-        replay_head_scratch(self, mem, win.0);
-        mem.w32(lay.tok, win.1);
+        // Pure recompute waste for the predictor.
+        if commit {
+            replay_head_scratch(self, mem, win.0);
+            mem.w32(lay.tok, win.1);
+        }
+        prof_add(5, tprof);
         Some(win.1)
     }
 }
@@ -595,7 +665,8 @@ pub fn run_pure(n: &Native, image: Vec<u8>, prompt: &[u32], n_gen: usize) -> (Ve
     let n_pos = prompt.len() + n_gen - 1;
     for pos in 0..n_pos {
         let decide = pos >= prompt.len() - 1;
-        if let Some(t) = n.position(&mut mem, pos, tok, decide) {
+        // The predictor skips committed-only scratch (identical tokens).
+        if let Some(t) = n.position_uncommitted(&mut mem, pos, tok, decide) {
             tokens.push(t);
             if t == n.im.cfg.eos_token_id {
                 break;

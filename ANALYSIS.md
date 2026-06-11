@@ -128,25 +128,31 @@ gap. **Single-run tok/s on this machine drifts ±20% with thermals**, so
 kernel changes were evaluated by a thermal-robust same-process A/B ratio
 (`benches/kernel_ab`), not wall-clock:
 
-- A fused blocked-GEMV kernel (one horizontal reduction per block instead
-  of four) is a real but small **+3%** — kept.
-- An `sdot` two-limb decomposition (bit-exact, half the MAC instructions)
-  measured **0.73× — slower, both via stable `asm!` and nightly `vdotq_s32`
-  intrinsics** (≈equal, so not a scheduling artifact). Handling i16 needs
-  two sdot passes (low + high limb) plus dual activation loads and an i64
-  recombine — the limb split is fundamental overhead that eats the
-  instruction-count win.
-- Fusing q/k/v into one pool dispatch was also slower — pool barriers are
-  not the bottleneck.
+| blocked-GEMV kernel (3072×1024) | ns | vs legacy |
+|---|---|---|
+| legacy dot-per-block | 45,708 | 1.00× |
+| fused `block_partial` (current) | 44,281 | 1.03× — kept |
+| `sdot` two-limb (i16) | 60,869 | 0.75× — slower |
+| **single-`sdot` i8 (the i8 ceiling)** | 32,724 | **1.39×** |
 
-The root cause is precise and **inherent to the quality choice**: i16
-activations force `vmlal_s16` (4 MACs/instruction); llama's Q8 path uses i8
-activations and a single `sdot` (16 MACs/instruction). There is no
-bit-exact i16 kernel that reaches that density — the only path is *real*
-per-block dynamic i8 activations (a quality re-derivation: static i8
-destroyed Qwen3's outliers, dynamic per-block i8 may recover them).
-Crucially, **the protocol is kernel-agnostic** (§9.1): any bit-exact kernel
-is admissible, so this is an optimization runway, not a design constraint.
+The decisive measurement is the last row. A single-`sdot` i8 kernel has 4×
+the MAC density of our i16 `vmlal` — and is only **1.39× faster, not 4×**.
+So batch-1 decode GEMV is **memory-bandwidth bound** on the i8 weights
+(streamed once per token, identical for i16 and i8 activations); the MACs
+hide behind memory latency. This overturns the intuitive story:
+
+- The i16 activation width the quality campaign required costs **almost
+  nothing** in speed (the i8 ceiling is ~1.35× over the current i16 path).
+- The bit-exact `sdot` two-limb trick is **slower** (0.73×, asm! and
+  nightly intrinsic alike) — its limb split adds load/recombine traffic a
+  memory-bound kernel can't amortize.
+- Dynamic-i8 activations are therefore **not** the path to llama parity —
+  they buy ~1.35× (~28→~38 tok/s), still 2.6× short.
+
+The real path to 101 tok/s is **memory-access efficiency** — weight
+prefetch, cache tiling, thread work distribution: llama's years of hand
+tuning. **The protocol is kernel-agnostic** (§9.1): any bit-exact kernel is
+admissible, so this is a pure optimization runway, not a design constraint.
 
 ## 7. Where this sits versus prior art
 
@@ -180,7 +186,7 @@ concrete path into that open lane.
 | Gap | Status | Path |
 |---|---|---|
 | Integer quality ~11× PPL to bar | measured; percentile lever ruled out | more activation bits on worst sites; ultimately FW-6 (exact by construction) |
-| CPU speed ~3.6× to llama | measured; root cause = i16 MAC density | nightly DotProd intrinsics, or dynamic-i8 activations |
+| CPU speed ~3.6× to llama | measured; **memory-bandwidth bound, not MAC-bound** (i8 kernel ceiling only 1.35×) | memory-access efficiency: weight prefetch, cache tiling, thread distribution |
 | GPU integer GEMV perf | bit-exactness proven; perf is dp4a-class HW dependent | packed dot4I8, on-GPU i64 reduction |
 | Localnet Qwen E2E (real txs) | on-chain conviction proven via Move vector | drive the existing localnet client over the Qwen program |
 | `run_committed` register file | provisional; mem roots already match VM | wire the compiler's pinned boundary registers |

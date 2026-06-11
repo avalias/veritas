@@ -77,7 +77,16 @@ fn main() {
     let native = Native { lay: &lay, im: &im, tables: &tables, threads, pool: kernels::Pool::new(threads) };
 
     println!("· pure native decode ({threads} threads)…");
+    let _ = qwen::forward::prof_take(); // reset
     let (toks_pure, us_pure) = run_pure(&native, image.clone(), &prompt, n_gen);
+    let prof = qwen::forward::prof_take();
+    if prof.iter().any(|(_, us)| *us > 0) {
+        let total: u64 = prof.iter().map(|(_, us)| *us).sum();
+        println!("  per-phase compute (QWEN_PROF), summed over decode:");
+        for (label, us) in &prof {
+            println!("    {label:<14} {us:>8} µs  ({}%)", us * 100 / total.max(1));
+        }
+    }
     let text = tokenizer.decode(&toks_pure, false).unwrap_or_default();
     println!("  integer output: {:?} = {:?}", toks_pure, text);
     println!(
