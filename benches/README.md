@@ -95,6 +95,49 @@ Two separable claims, now measured:
    `block_partial` (+3%) is the only kept change. The protocol is
    indifferent — any bit-exact kernel is admissible (§9.1).
 
+## MEASURED: FW-6 — "Qwen as published", deterministically (committed float)
+
+The principled answer to "did quantization dumb the model down": stop
+approximating. The committed semantics are now the model's OWN bf16/f32
+math in a PINNED reduction order — quality is an identity, not a
+calibration outcome. Every claim below is a runnable artifact.
+
+| proof | artifact | result |
+|---|---|---|
+| **quality == published model** | `fqwen ppl` | **PPL 34.5974** (libm float ref 34.60, llama.cpp Q8 34.99) — the integer path's 421 gap is GONE by construction |
+| **determinism (CPU)** | `fqwen stable` | decoded tokens AND all **151,936 final logits bit-identical**, 1 thread vs 10 |
+| **determinism (GPU)** | `fgpu_check` | all **151,936 logits bit-identical, Apple M4 Metal vs CPU**, real bf16 LM head — after disabling Metal fast-math; the wgpu path (fast-math not exposed) measurably diverges by 1 ulp on 90% of rows, printed as the documented gap |
+| **cross-platform pin** | `fdot_golden_bits_cross_platform`, `cexp_golden_bits` | committed dot + exp bits golden-pinned; CI must reproduce them on x86_64 Linux |
+| **kernel = definition** | fkernels tests | NEON bit-equal to the scalar tree (`to_bits()`, no tolerances); thread-count invariant |
+
+Mechanics: bf16 weights stay resident in published form (widening to f32
+is exact); dots run in a committed 16-lane/64-block fma tree (the shape is
+part of the spec — float adds don't associate); exp is a committed
+polynomial (~2 ulp, same bits everywhere); **no libm in any committed
+path**; rope tables are frozen artifacts. The protocol layers (Merkle,
+bisection, dispute) are arithmetic-agnostic and carry over unchanged; the
+remaining FW-6 protocol work is the float one-step verifier in Move
+(softfloat for ONE disputed op) and the float-ISA compiler.
+
+Speed at equal precision (2 bytes/weight, ~1.5 GB streamed/token, same
+machine):
+
+| engine | tok/s |
+|---|---|
+| committed-float `fqwen` (CPU, first implementation) | **~28–34** |
+| llama.cpp F16 CPU (`-dev none`, threads=4) | 58.8 |
+| llama.cpp F16 Metal GPU | 80.1 |
+| memory roofline (≈120 GB/s ÷ 1.5 GB) | ~80 |
+
+llama F16 CPU sits at ~88 GB/s effective; we stream ~50 GB/s — the gap is
+memory-access tuning (their FP16 FMLAL widening kernels + years of cache
+work), not determinism: our determinism is free by construction (proven
+bitwise above). Closing levers, in order: hardware bf16 widening FMA
+(`vbfmlal` — not yet on stable Rust; would re-pin the tree to its lane
+order), weight-layout prefetch/tiling, and the committed-Metal forward
+(GPU GEMV already runs at CPU-pool speed unoptimized; llama Metal shows
+80 tok/s is available on this chip).
+
 ## MEASURED: the full trustless-verification chain at Qwen scale
 
 The integer path is now end-to-end: the same committed program runs in the

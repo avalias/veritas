@@ -297,7 +297,7 @@ impl GpuFGemv {
 
     /// rows×cols committed-float GEMV with resident bf16 weights.
     pub fn fgemv(&self, wbuf: &wgpu::Buffer, x: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-        assert!(cols % 64 == 0 && x.len() == cols);
+        assert!(cols.is_multiple_of(64) && x.len() == cols);
         let xbytes: Vec<u8> = x.iter().flat_map(|v| v.to_le_bytes()).collect();
         let xbuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -449,7 +449,7 @@ impl MetalFGemv {
     /// rows×cols committed-float GEMV; fast-math OFF.
     #[allow(unsafe_code)] // metal-rs buffer reads are raw pointers; bounds are ours
     pub fn fgemv(&self, wbuf: &metal::Buffer, x: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-        assert!(cols % 64 == 0 && x.len() == cols);
+        assert!(cols.is_multiple_of(64) && x.len() == cols);
         let xbuf = self.device.new_buffer_with_data(
             x.as_ptr() as *const core::ffi::c_void,
             (x.len() * 4) as u64,

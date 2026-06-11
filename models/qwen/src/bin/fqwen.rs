@@ -15,7 +15,7 @@
 #![allow(clippy::float_arithmetic)] // FW-6 + f64 eval-side scoring
 
 use qwen::config::QwenConfig;
-use qwen::fmodel::{fposition, FModel, FState};
+use qwen::fmodel::{fposition, FModel, FScratch, FState};
 use qwen::tensors::SafeTensors;
 use std::io::Write as _;
 use std::time::Instant;
@@ -44,7 +44,12 @@ fn main() {
     let m = FModel::load(&cfg, &st, MAX_SEQ);
     drop(st);
     println!("  loaded in {:.1?}", t0.elapsed());
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    // QWEN_THREADS overrides; default 4 (M-series P-cores — E-cores HURT
+    // memory-bound GEMV; llama-bench defaults to 4 here too).
+    let threads = std::env::var("QWEN_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
 
     match mode.as_str() {
         "demo" | "stable" => {
@@ -58,6 +63,7 @@ fn main() {
             let decode = |nthreads: usize| -> (Vec<u32>, Vec<u32>, u128) {
                 let pool = kernels::Pool::new(nthreads);
                 let mut fs = FState::new(&cfg, MAX_SEQ);
+                let mut sc = FScratch::new(&cfg, MAX_SEQ);
                 let mut logits = vec![0f32; cfg.vocab_size];
                 let mut out = Vec::new();
                 let mut tok = prompt[0];
@@ -65,7 +71,7 @@ fn main() {
                 let n_pos = prompt.len() + n_gen - 1;
                 for pos in 0..n_pos {
                     let decide = pos >= prompt.len() - 1;
-                    match fposition(&m, &mut fs, &pool, tok, decide, &mut logits) {
+                    match fposition(&m, &mut fs, &mut sc, &pool, tok, decide, &mut logits) {
                         Some(t) => {
                             out.push(t);
                             if t == cfg.eos_token_id {
@@ -114,6 +120,7 @@ fn main() {
             assert!(tokens.len() >= n_chunks * MAX_SEQ);
             let pool = kernels::Pool::new(threads);
             let half = MAX_SEQ / 2;
+            let mut sc = FScratch::new(&cfg, MAX_SEQ);
             let mut logits = vec![0f32; cfg.vocab_size];
             let mut nll = 0f64;
             let mut scored = 0usize;
@@ -121,7 +128,7 @@ fn main() {
                 let chunk = &tokens[c * MAX_SEQ..(c + 1) * MAX_SEQ];
                 let mut fs = FState::new(&cfg, MAX_SEQ);
                 for p in 0..MAX_SEQ - 1 {
-                    fposition(&m, &mut fs, &pool, chunk[p], true, &mut logits);
+                    fposition(&m, &mut fs, &mut sc, &pool, chunk[p], true, &mut logits);
                     if p + 1 >= half {
                         nll -= logprob_of(&logits, chunk[p + 1] as usize);
                         scored += 1;

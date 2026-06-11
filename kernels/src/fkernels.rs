@@ -61,41 +61,57 @@ pub fn fdot_row_scalar(w: &[u16], x: &[f32]) -> f32 {
     acc
 }
 
-/// NEON implementation of the SAME tree. 4×f32x4 accumulators, vfmaq per
-/// 16-lane stride, vector combine, pinned horizontal sum. Bit-identical to
-/// `fdot_row_scalar` (asserted by tests).
+/// NEON implementation of the SAME tree. Each block's 4×f32x4 fma chains are
+/// computed exactly as specified; TWO blocks run interleaved for instruction-
+/// level parallelism (their partials are independent computations — only the
+/// final `acc += p_b` chain is ordered, and it stays sequential), so the
+/// result is bit-identical to `fdot_row_scalar` (asserted by tests).
 #[cfg(target_arch = "aarch64")]
 pub fn fdot_row(w: &[u16], x: &[f32]) -> f32 {
     use std::arch::aarch64::*;
+
+    /// One committed 64-block: returns the block partial.
+    #[inline(always)]
+    unsafe fn block(w: *const u16, x: *const f32) -> f32 {
+        let mut a0 = vdupq_n_f32(0.0);
+        let mut a1 = vdupq_n_f32(0.0);
+        let mut a2 = vdupq_n_f32(0.0);
+        let mut a3 = vdupq_n_f32(0.0);
+        for i in 0..4 {
+            let base = 16 * i;
+            // bf16 → f32: u16x8 load, widen with <<16, reinterpret.
+            let wb = vld1q_u16(w.add(base));
+            let wlo = vreinterpretq_f32_u32(vshll_n_u16(vget_low_u16(wb), 16));
+            let whi = vreinterpretq_f32_u32(vshll_high_n_u16(wb, 16));
+            let wb2 = vld1q_u16(w.add(base + 8));
+            let wlo2 = vreinterpretq_f32_u32(vshll_n_u16(vget_low_u16(wb2), 16));
+            let whi2 = vreinterpretq_f32_u32(vshll_high_n_u16(wb2, 16));
+            a0 = vfmaq_f32(a0, wlo, vld1q_f32(x.add(base)));
+            a1 = vfmaq_f32(a1, whi, vld1q_f32(x.add(base + 4)));
+            a2 = vfmaq_f32(a2, wlo2, vld1q_f32(x.add(base + 8)));
+            a3 = vfmaq_f32(a3, whi2, vld1q_f32(x.add(base + 12)));
+        }
+        let s = vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3));
+        // pinned horizontal: (s0+s1) + (s2+s3)
+        (vgetq_lane_f32(s, 0) + vgetq_lane_f32(s, 1))
+            + (vgetq_lane_f32(s, 2) + vgetq_lane_f32(s, 3))
+    }
+
     debug_assert_eq!(w.len(), x.len());
     debug_assert!(w.len().is_multiple_of(64));
+    let n = w.len();
     let mut acc = 0f32;
     unsafe {
         let mut b = 0;
-        while b < w.len() {
-            let mut a0 = vdupq_n_f32(0.0);
-            let mut a1 = vdupq_n_f32(0.0);
-            let mut a2 = vdupq_n_f32(0.0);
-            let mut a3 = vdupq_n_f32(0.0);
-            for i in 0..4 {
-                let base = b + 16 * i;
-                // bf16 → f32: u16x8 load, widen with <<16, reinterpret.
-                let wb = vld1q_u16(w.as_ptr().add(base));
-                let wlo = vreinterpretq_f32_u32(vshll_n_u16(vget_low_u16(wb), 16));
-                let whi = vreinterpretq_f32_u32(vshll_high_n_u16(wb, 16));
-                let wb2 = vld1q_u16(w.as_ptr().add(base + 8));
-                let wlo2 = vreinterpretq_f32_u32(vshll_n_u16(vget_low_u16(wb2), 16));
-                let whi2 = vreinterpretq_f32_u32(vshll_high_n_u16(wb2, 16));
-                a0 = vfmaq_f32(a0, wlo, vld1q_f32(x.as_ptr().add(base)));
-                a1 = vfmaq_f32(a1, whi, vld1q_f32(x.as_ptr().add(base + 4)));
-                a2 = vfmaq_f32(a2, wlo2, vld1q_f32(x.as_ptr().add(base + 8)));
-                a3 = vfmaq_f32(a3, whi2, vld1q_f32(x.as_ptr().add(base + 12)));
-            }
-            let s = vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3));
-            // pinned horizontal: (s0+s1) + (s2+s3)
-            let p = (vgetq_lane_f32(s, 0) + vgetq_lane_f32(s, 1))
-                + (vgetq_lane_f32(s, 2) + vgetq_lane_f32(s, 3));
-            acc += p;
+        while b + 128 <= n {
+            let p0 = block(w.as_ptr().add(b), x.as_ptr().add(b));
+            let p1 = block(w.as_ptr().add(b + 64), x.as_ptr().add(b + 64));
+            acc += p0; // sequential block chain — order preserved
+            acc += p1;
+            b += 128;
+        }
+        while b < n {
+            acc += block(w.as_ptr().add(b), x.as_ptr().add(b));
             b += 64;
         }
     }
@@ -156,6 +172,31 @@ mod tests {
             let b = fdot_row_scalar(&w, &x);
             assert_eq!(a.to_bits(), b.to_bits(), "trial {trial} cols {cols}");
         }
+    }
+
+    /// CROSS-PLATFORM golden pin: the committed scalar dot must produce
+    /// EXACTLY these bits on every architecture (CI runs this on x86_64
+    /// Linux and aarch64 macOS — same bits or the build is red). Generated
+    /// on Apple M4; IEEE-754 + pinned order makes them universal.
+    #[test]
+    fn fdot_golden_bits_cross_platform() {
+        let mut s = 0xABCDu64;
+        let mut rng = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        let cols = 1024;
+        let w: Vec<u16> = (0..cols)
+            .map(|_| {
+                let v = (rng() % 2000) as f32 / 1000.0 - 1.0;
+                (v.to_bits() >> 16) as u16
+            })
+            .collect();
+        let x: Vec<f32> = (0..cols).map(|_| (rng() % 4000) as f32 / 100.0 - 20.0).collect();
+        assert_eq!(fdot_row_scalar(&w, &x).to_bits(), 0x43a61249, "committed dot bits");
+        assert_eq!(fdot_row(&w, &x).to_bits(), 0x43a61249, "fast path same bits");
     }
 
     /// Thread-count invariance: 1-thread pool == 8-thread pool, bitwise.

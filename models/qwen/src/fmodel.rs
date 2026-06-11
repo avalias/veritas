@@ -148,12 +148,44 @@ fn rmsnorm(x: &[f32], gamma: &[f32], eps: f32, out: &mut [f32]) {
     }
 }
 
+/// Reused per-position scratch (allocation-free decode loop).
+pub struct FScratch {
+    x: Vec<f32>,
+    xn: Vec<f32>,
+    q: Vec<f32>,
+    attnx: Vec<f32>,
+    gate: Vec<f32>,
+    up: Vec<f32>,
+    down: Vec<f32>,
+    hbuf: Vec<f32>,
+    scores: Vec<f32>,
+}
+
+impl FScratch {
+    pub fn new(cfg: &QwenConfig, max_seq: usize) -> Self {
+        let (h, dh) = (cfg.hidden_size, cfg.head_dim);
+        let nh = cfg.num_attention_heads;
+        Self {
+            x: vec![0.0; h],
+            xn: vec![0.0; h],
+            q: vec![0.0; nh * dh],
+            attnx: vec![0.0; nh * dh],
+            gate: vec![0.0; cfg.intermediate_size],
+            up: vec![0.0; cfg.intermediate_size],
+            down: vec![0.0; h],
+            hbuf: vec![0.0; dh],
+            scores: vec![0.0; max_seq],
+        }
+    }
+}
+
 /// One decode position under committed semantics; returns argmax token if
 /// `decide`. Logits land in `logits_out` (vocab-sized) when decide.
 #[allow(clippy::too_many_arguments)]
 pub fn fposition(
     m: &FModel,
     st: &mut FState,
+    sc: &mut FScratch,
     pool: &Pool,
     tok: u32,
     decide: bool,
@@ -170,19 +202,18 @@ pub fn fposition(
     let inv_sqrt_dh = 1.0 / (dh as f32).sqrt(); // IEEE sqrt+div: pinned
 
     // Embedding: exact bf16→f32 widening (lookup, no arithmetic).
-    let mut x: Vec<f32> =
-        m.emb[tok as usize * h..(tok as usize + 1) * h].iter().map(|&b| bf16_to_f32(b)).collect();
-    let mut xn = vec![0f32; h];
-    let mut q = vec![0f32; nh * dh];
-    let mut attnx = vec![0f32; nh * dh];
+    let FScratch { x, xn, q, attnx, gate, up, down, hbuf, scores } = sc;
+    for (c, slot) in x.iter_mut().enumerate() {
+        *slot = bf16_to_f32(m.emb[tok as usize * h + c]);
+    }
 
     for (l, lw) in m.layers.iter().enumerate() {
-        rmsnorm(&x, &lw.ln1, eps, &mut xn);
+        rmsnorm(x, &lw.ln1, eps, xn);
         // q/k/v under the committed GEMV tree (row-parallel, bit-stable).
-        fgemv(pool, &lw.wq, &xn, nh * dh, h, &mut q);
+        fgemv(pool, &lw.wq, xn, nh * dh, h, q);
         let kbase = (l * m.max_seq + pos) * kv_per;
-        fgemv(pool, &lw.wk, &xn, kv_per, h, &mut st.kc[kbase..kbase + kv_per]);
-        fgemv(pool, &lw.wv, &xn, kv_per, h, &mut st.vc[kbase..kbase + kv_per]);
+        fgemv(pool, &lw.wk, xn, kv_per, h, &mut st.kc[kbase..kbase + kv_per]);
+        fgemv(pool, &lw.wv, xn, kv_per, h, &mut st.vc[kbase..kbase + kv_per]);
 
         // Per-head QK-norm + rope, q heads then k heads (pinned order).
         let rotate = |v: &mut [f32]| {
@@ -198,22 +229,21 @@ pub fn fposition(
                 v[p2 + half] = nb;
             }
         };
-        let mut hbuf = vec![0f32; dh];
         for hd in 0..nh {
             let qs = &mut q[hd * dh..(hd + 1) * dh];
-            rmsnorm(qs, &lw.q_norm, eps, &mut hbuf);
-            qs.copy_from_slice(&hbuf);
+            rmsnorm(qs, &lw.q_norm, eps, hbuf);
+            qs.copy_from_slice(hbuf);
             rotate(qs);
         }
         for kvh in 0..nkv {
             let ks = &mut st.kc[kbase + kvh * dh..kbase + (kvh + 1) * dh];
-            rmsnorm(ks, &lw.k_norm, eps, &mut hbuf);
-            ks.copy_from_slice(&hbuf);
+            rmsnorm(ks, &lw.k_norm, eps, hbuf);
+            ks.copy_from_slice(hbuf);
             rotate(ks);
         }
 
         // Attention (causal, GQA), pinned per head.
-        let mut scores = vec![0f32; pos + 1];
+        let scores = &mut scores[..pos + 1];
         for hd in 0..nh {
             let kvh = hd / group;
             let qs = &q[hd * dh..(hd + 1) * dh];
@@ -221,7 +251,7 @@ pub fn fposition(
                 let kb = (l * m.max_seq + j) * kv_per + kvh * dh;
                 *sc = fdot32(qs, &st.kc[kb..kb + dh]) * inv_sqrt_dh;
             }
-            csoftmax(&mut scores);
+            csoftmax(scores);
             let ctx = &mut attnx[hd * dh..(hd + 1) * dh];
             ctx.fill(0.0);
             for (j, &p) in scores.iter().enumerate() {
@@ -233,23 +263,20 @@ pub fn fposition(
             }
         }
         // O-projection + residual (pinned adds).
-        fgemv(pool, &lw.wo, &attnx, h, nh * dh, &mut xn);
+        fgemv(pool, &lw.wo, attnx, h, nh * dh, xn);
         for c in 0..h {
             x[c] += xn[c];
         }
 
         // FFN: silu(gate)·up → down, + residual.
-        rmsnorm(&x, &lw.ln2, eps, &mut xn);
+        rmsnorm(x, &lw.ln2, eps, xn);
         let f = cfg.intermediate_size;
-        let mut gate = vec![0f32; f];
-        let mut up = vec![0f32; f];
-        fgemv(pool, &lw.w_gate, &xn, f, h, &mut gate);
-        fgemv(pool, &lw.w_up, &xn, f, h, &mut up);
+        fgemv(pool, &lw.w_gate, xn, f, h, gate);
+        fgemv(pool, &lw.w_up, xn, f, h, up);
         for r in 0..f {
             gate[r] = csilu(gate[r]) * up[r];
         }
-        let mut down = vec![0f32; h];
-        fgemv(pool, &lw.w_down, &gate, h, f, &mut down);
+        fgemv(pool, &lw.w_down, gate, h, f, down);
         for c in 0..h {
             x[c] += down[c];
         }
@@ -259,9 +286,8 @@ pub fn fposition(
         return None;
     }
     // LM head (tied): committed GEMV over the bf16 embedding matrix.
-    let mut xnf = vec![0f32; h];
-    rmsnorm(&x, &m.ln_f, eps, &mut xnf);
-    fgemv(pool, &m.emb, &xnf, cfg.vocab_size, h, logits_out);
+    rmsnorm(x, &m.ln_f, eps, xn);
+    fgemv(pool, &m.emb, xn, cfg.vocab_size, h, logits_out);
     // Pinned argmax: ascending scan, strictly greater ⇒ lowest-id ties.
     let mut win = (f32::NEG_INFINITY, 0u32);
     for (v, &s) in logits_out.iter().enumerate() {

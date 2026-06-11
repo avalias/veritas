@@ -99,7 +99,31 @@ Extrapolation and the levers (parallel leaf hashing, HW SHA3, checkpoint
 sparsity, leaner sigmoid compilation) are in
 [benches/README.md](benches/README.md).
 
-## 5. Quality, measured — and the honest gap
+## 5. Quality — SOLVED by FW-6 (committed float), measured
+
+The user-decision after the integer campaign: stop approximating the model
+and make the committed semantics BE the model ("Position 1"). Landed and
+measured the same day:
+
+| proof | result |
+|---|---|
+| quality | **committed-float PPL 34.5974** — equal to the libm float reference (34.60) and llama Q8 (34.99). The model is *Qwen as published*; there is nothing to calibrate |
+| CPU determinism | tokens + all 151,936 logits **bit-identical, 1 vs 10 threads** |
+| GPU determinism | all 151,936 logits **bit-identical, Metal vs CPU** (real bf16 LM head, Apple M4) — requires `fastMathEnabled=false`, which wgpu cannot set (measured 1-ulp divergence through wgpu, documented); direct Metal passes |
+| cross-platform | committed dot/exp bits golden-pinned; CI reproduces on x86_64 |
+
+Mechanics: bf16-resident weights (exact f32 widening), a pinned
+16-lane/64-block fma reduction tree (float adds don't associate, so the
+tree IS part of the spec), committed polynomial exp (~2 ulp, identical
+bits everywhere), zero libm at runtime, frozen-artifact rope tables. The
+protocol layers are arithmetic-agnostic and carry over; remaining FW-6
+protocol work is the float one-step verifier in Move (softfloat for one
+disputed op) and the float-ISA compiler.
+
+The integer-path findings below are retained as the historical record of
+why approximation was abandoned.
+
+### 5b. The integer-path record (superseded by FW-6 for quality)
 
 Bars: our float reference **PPL 34.60**, llama.cpp Q8_0 **34.99** (same
 text, llama-perplexity convention). The float reference matching llama

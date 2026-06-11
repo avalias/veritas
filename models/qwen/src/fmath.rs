@@ -21,7 +21,7 @@ pub fn cexp(x: f32) -> f32 {
     // Pinned clamp: softmax args are ≤ 0; sigmoid args are moderate. The
     // clamp keeps 2^k construction in range and the function total.
     let x = x.clamp(-87.0, 88.0);
-    const LOG2E: f32 = 1.442_695_f32;
+    const LOG2E: f32 = core::f32::consts::LOG2_E; // exactly-rounded f32
     const LN2_HI: f32 = 0.693_359_4_f32; // high part: exact in 11 bits
     const LN2_LO: f32 = -2.121_944_4e-4_f32; // ln2 − LN2_HI
     // k = floor(x·log2e + 0.5) — floor is IEEE-exact; ties bias is part of
@@ -123,6 +123,10 @@ mod tests {
         // A few absolute anchors (computed by this committed definition).
         assert_eq!(cexp(0.0), 1.0);
         assert!((cexp(1.0) - core::f32::consts::E).abs() < 3e-7);
+        // CROSS-PLATFORM golden pins (generated on Apple M4; CI must
+        // reproduce on x86_64 Linux — same bits everywhere or red).
+        assert_eq!(cexp(-3.7).to_bits(), 0x3cca88fe);
+        assert_eq!(cexp(1.25).to_bits(), 0x405f61c7);
     }
 
     #[test]
