@@ -4,6 +4,11 @@ description = "Performance kernels: persistent pool + NEON integer GEMV. The ONL
 edition.workspace = true
 version.workspace = true
 
+[features]
+# Enables the vdotq_s32 intrinsic path (requires nightly). Experiment to
+# measure the sdot ceiling the stable asm! path could not reach.
+nightly_dotprod = []
+
 [dependencies]
 vm = { path = "../vm" }
 

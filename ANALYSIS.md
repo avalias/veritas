@@ -130,20 +130,23 @@ kernel changes were evaluated by a thermal-robust same-process A/B ratio
 
 - A fused blocked-GEMV kernel (one horizontal reduction per block instead
   of four) is a real but small **+3%** — kept.
-- An `sdot` two-limb decomposition (bit-exact, 4× fewer MAC instructions)
-  measured **0.75× — slower**: inline `asm!` is opaque to the compiler's
-  scheduler, killing cross-block pipelining. The win needs nightly
-  `vdotq_s32` intrinsics or a hand-pipelined whole-row asm loop.
+- An `sdot` two-limb decomposition (bit-exact, half the MAC instructions)
+  measured **0.73× — slower, both via stable `asm!` and nightly `vdotq_s32`
+  intrinsics** (≈equal, so not a scheduling artifact). Handling i16 needs
+  two sdot passes (low + high limb) plus dual activation loads and an i64
+  recombine — the limb split is fundamental overhead that eats the
+  instruction-count win.
 - Fusing q/k/v into one pool dispatch was also slower — pool barriers are
   not the bottleneck.
 
 The root cause is precise and **inherent to the quality choice**: i16
 activations force `vmlal_s16` (4 MACs/instruction); llama's Q8 path uses i8
-activations and `sdot` (16 MACs/instruction). Closing the gap means either
-nightly DotProd intrinsics or per-block *dynamic* i8 activations (llama's
-design — a quality re-derivation). Crucially, **the protocol is
-kernel-agnostic** (§9.1): any bit-exact kernel is admissible, so this is an
-optimization runway, not a design constraint.
+activations and a single `sdot` (16 MACs/instruction). There is no
+bit-exact i16 kernel that reaches that density — the only path is *real*
+per-block dynamic i8 activations (a quality re-derivation: static i8
+destroyed Qwen3's outliers, dynamic per-block i8 may recover them).
+Crucially, **the protocol is kernel-agnostic** (§9.1): any bit-exact kernel
+is admissible, so this is an optimization runway, not a design constraint.
 
 ## 7. Where this sits versus prior art
 

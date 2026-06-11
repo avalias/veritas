@@ -72,16 +72,19 @@ Two separable claims, now measured:
    | `sdot` two-limb decomposition (via `asm!`) | 60,890 | **0.75×** |
 
    Two measured negatives this round: (a) the `sdot` two-limb trick is
-   bit-exact and issues 4× fewer MAC instructions, but `asm!` is opaque to
-   the scheduler so it can't pipeline block N+1's loads behind block N's
-   `sdot`s — net SLOWER. The theoretical win needs nightly `vdotq_s32`
-   intrinsics (free scheduling) or a hand-pipelined whole-row asm loop.
-   (b) fusing q/k/v into one pool dispatch was also slower (barriers
-   aren't the bottleneck). The fused `block_partial` (+3%) is the only
-   kept change. The residual gap is the i16-vmlal MAC-density wall; the
-   real levers are nightly DotProd intrinsics or per-block *dynamic* i8
-   activations (llama's design, a quality re-derivation). The protocol is
-   indifferent — any bit-exact kernel is admissible (§9.1).
+   bit-exact and halves the MAC instruction count, yet runs **0.73× — both
+   via stable `asm!` AND nightly `vdotq_s32` intrinsics** (≈equal, so it is
+   NOT a scheduling artifact). The limb split is fundamental overhead:
+   handling i16 needs *two* sdot passes (low + high limb) plus dual
+   activation loads and an i64 recombine, which eats the instruction-count
+   win. (b) fusing q/k/v into one pool dispatch was also slower (barriers
+   aren't the bottleneck). The fused `block_partial` (+3%) is the only kept
+   change. **Conclusion: there is no bit-exact i16 kernel that reaches
+   llama's i8-`sdot` density.** The only path is *real* per-block dynamic
+   i8 activations (llama's design — a single sdot, no limb split), which is
+   a quality re-derivation (static i8 destroyed Qwen3's outliers; dynamic
+   per-block i8 may recover it). The protocol is indifferent — any
+   bit-exact kernel is admissible (§9.1).
 
 ## MEASURED: the full trustless-verification chain at Qwen scale
 

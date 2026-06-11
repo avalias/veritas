@@ -3,6 +3,7 @@
 //! cells). Everything here is bit-exact by integer algebra and verified by
 //! equality tests against scalar references — `unsafe` is for speed, never
 //! for semantics.
+#![cfg_attr(feature = "nightly_dotprod", feature(stdarch_neon_dotprod))]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -309,7 +310,7 @@ fn split_limbs(x: &[i16]) -> (Vec<i8>, Vec<i8>, Vec<Vec<u8>>) {
 /// instructions (16 MACs each). `vdotq_s32` is unstable on stable Rust, so
 /// the DotProd instruction is issued through inline `asm!`. Lane sums ≤
 /// 64·127·128 < 2^21, well within i32. Pointers must address 64 valid bytes.
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", not(feature = "nightly_dotprod")))]
 #[inline]
 unsafe fn block_dot_sdot(w: *const i8, xl: *const i8, xh: *const i8) -> (i32, i32) {
     let sum_l: u64;
@@ -349,13 +350,38 @@ unsafe fn block_dot_sdot(w: *const i8, xl: *const i8, xh: *const i8) -> (i32, i3
 
 /// One 64-element block partial via the two-limb sdot decomposition, with the
 /// xh==128 overflow correction. Bit-identical to the scalar i64 dot.
-#[cfg(target_arch = "aarch64")]
+///
+/// Stable build: the `asm!` path (measured 0.75× — the asm barrier blocks
+/// cross-block scheduling). Nightly + `nightly_dotprod`: the `vdotq_s32`
+/// intrinsic, which the compiler schedules freely — the experiment to find
+/// the real sdot ceiling.
+#[cfg(all(target_arch = "aarch64", not(feature = "nightly_dotprod")))]
 #[inline]
 unsafe fn block_partial_sdot(w: &[i8], xl: &[i8], xh: &[i8], clamp: &[u8]) -> i64 {
     let (sl, sh) = block_dot_sdot(w.as_ptr(), xl.as_ptr(), xh.as_ptr());
     let mut p = sl as i64 + 256 * (sh as i64);
     for &ci in clamp {
         p += 256 * (w[ci as usize] as i64); // xh was 128, stored 127
+    }
+    p
+}
+
+#[cfg(all(target_arch = "aarch64", feature = "nightly_dotprod"))]
+#[target_feature(enable = "dotprod")]
+unsafe fn block_partial_sdot(w: &[i8], xl: &[i8], xh: &[i8], clamp: &[u8]) -> i64 {
+    use std::arch::aarch64::*;
+    let mut al = vdupq_n_s32(0);
+    let mut ah = vdupq_n_s32(0);
+    let mut i = 0;
+    while i < 64 {
+        let wv = vld1q_s8(w.as_ptr().add(i));
+        al = vdotq_s32(al, wv, vld1q_s8(xl.as_ptr().add(i)));
+        ah = vdotq_s32(ah, wv, vld1q_s8(xh.as_ptr().add(i)));
+        i += 16;
+    }
+    let mut p = vaddvq_s32(al) as i64 + 256 * (vaddvq_s32(ah) as i64);
+    for &ci in clamp {
+        p += 256 * (w[ci as usize] as i64);
     }
     p
 }

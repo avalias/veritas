@@ -75,8 +75,10 @@ fn main() {
         ml / ma.max(1),
         (ml * 100 / ma.max(1)) % 100
     );
+    // Same numeric result whether block_partial_sdot is the stable asm! or
+    // the nightly vdotq_s32 intrinsic (measured ≈equal: both ~0.73×).
     println!(
-        "  sdot two-limb (asm):    {mb:>6} ns/GEMV  ({}.{:02}× vs legacy)",
+        "  sdot two-limb:          {mb:>6} ns/GEMV  ({}.{:02}× vs legacy)",
         ml / mb.max(1),
         (ml * 100 / mb.max(1)) % 100
     );
