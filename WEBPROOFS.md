@@ -53,32 +53,59 @@ no witness honesty: cert chain → pinned CA root; `CertificateVerify` over
 the transcript; the key schedule; AEAD tag internal consistency. ⇒
 *"genuine session with the real server S at time T"* is **trustless**.
 
-**(b) The symmetric content half → drive the witness down to the chain
-itself.** Only *content authenticity* rests on the witness. Ladder, by
-decreasing added trust:
+**(b) The symmetric content half → ALWAYS costs an observer you trust.**
+This is the corrected, honest statement (an earlier draft wrongly claimed
+this half could reach "the chain's own safety" — see §3.1). You cannot
+fraud-prove an observation, only a signature; the symmetric content is an
+**attested observation**, so SOME observer is trusted. The defenses, by
+*increasing* trust:
 
-| rung | added trust | notes |
+| option | trust root | honest caveat |
 |---|---|---|
-| single proxy/notary (Reclaim/TLSNotary) | the proxy doesn't collude with the prover | what today's zkTLS assumes — the shaky one |
-| DECO 3-party handshake | a liveness/timing assumption (commit before key release) | single-party, integrity from timing |
-| **k diverse bonded witnesses** | collude with **k** independent ASNs simultaneously | any honest dissenting transcript slashes liars; **buildable now** |
-| TEE-proxy (AWS Nitro) | the hardware vendor + auditable enclave code | `sui::nitro_attestation` native; no committee |
-| **validator-set as witness** | **= the chain's own safety** (supermajority-honest) | THE FLOOR: adds nothing beyond the L1 you already chose |
+| **avoid it — use source-signed content** | the issuer's key | not a witness at all (Web Credential); ALWAYS prefer |
+| **k diverse independent witnesses** | ≥1 of k is honest | works ONLY for public, globally-consistent facts (honest observers should agree); bonds DON'T help (fabrication is internally consistent ⇒ unprovable ⇒ unslashable) — the only signal is observers DISAGREEING |
+| **DECO 3-party handshake** | a liveness/timing assumption | single-party, integrity from commit-before-key-release |
+| **TEE-proxy (AWS Nitro)** | the **hardware vendor** + enclave code | a SEPARATE computer/root, ORTHOGONAL to L1 stake — never collapses into validator trust |
+| single proxy/notary (Reclaim/TLSNotary) | that one observer doesn't collude with the prover | today's zkTLS — the weakest |
 
-The top rung is the breakthrough framing: **the only entity a chain's users
-already trust is its validators, with their stake. If the fetch-witness
-function is performed by the validator set as part of consensus, the
-content attestation inherits the chain's own slashing/diversity/supermajority
-security — the oracle adds NO trust beyond the chain hosting it.** An
-on-chain oracle cannot be more trustless than its chain; this attains that
-bound. You don't add an oracle — you teach the chain to witness.
+No option reaches the chain's consensus floor, because external observation
+is not deterministically recomputable by validators (each fetch may see
+different bytes; a wrong observation is often not even provable, so not
+slashable). The strong move is therefore to **avoid the symmetric half**
+(source-signed content) and, where unavoidable, **use diversity scoped to
+public globally-consistent facts** — not to pretend a witness inherits the
+L1.
+
+### 3.1 Why a witness can't reach chain security (the distinction I owe)
+
+Two trust types, not to be conflated:
+
+- **Verifiable consensus** (the chain's real security): validators agree
+  on facts EVERY one can independently, deterministically recompute from
+  shared data; misbehavior is cryptographically PROVABLE (double-sign →
+  slash). "Don't trust, verify."
+- **Attested observation** (any oracle): someone CLAIMS to have seen
+  external reality; others cannot recompute it (not in the session; the
+  server may serve different bytes per observer); a WRONG observation is
+  often not even provable, so cannot be slashed. Bonds deter only provable
+  faults — and symmetric-content fabrication is the unprovable one.
+
+Unsigned web content is irreducibly attested observation. So it can NEVER
+have the chain's everyone-checks security; there is always an observer set
+you trust. Validator-witnessing is a NEW, weaker assumption layered on the
+chain (honest supermajority performs + agrees on a non-recomputable
+external action) — strictly MORE trust than chain consensus, not equal,
+and not free. The TEE rung is a DIFFERENT computer rooted in a hardware
+vendor's attestation key, orthogonal to (and additive with) L1 stake.
 
 ## 4. The honest floor
 
 - **Source signs** → no witness, trust = the issuer (a Web Credential).
-- **Unsigned source** → the handshake is trustless (fraud-proven); the
-  content rests on *the chain's own consensus* (top rung) or a *diverse
-  bonded quorum* (today). Never a single trusted proxy.
+- **Unsigned source** → the handshake half is trustless (fraud-proven);
+  the content half rests on a trusted observer set — minimized via
+  source-signing (avoid it), else k diverse observers SCOPED TO PUBLIC
+  globally-consistent facts, else a TEE (hardware-vendor root). It is never
+  zero and never the chain's consensus floor.
 - **Diversity (k-of-n issuers/witnesses)** caps how much any one
   compromise matters; **immutable signed snapshots** remove mutability;
   the **fraud-proven AI** makes everything above the floor trustless.
@@ -94,4 +121,7 @@ bound. You don't add an oracle — you teach the chain to witness.
   verification (signature + key-schedule checks — same op class as the
   softfloat we shipped), the `Credential` interface, k-of-n witness
   diversity, the optimistic web-proof fraud game.
-- Research/protocol-change (the ideal floor): validator-set-as-witness.
+- NOT a free lunch: there is no construction that makes unsigned-content
+  observation as trustless as on-chain state. The win is the DECOMPOSITION
+  (zero-trust handshake + minimized-observer content) and the strong
+  preference for source-signed Web Credentials — not a magic witness.
