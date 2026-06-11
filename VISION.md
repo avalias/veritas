@@ -8,25 +8,38 @@ first instance), [ANALYSIS.md](ANALYSIS.md) (what is built+measured),
 [PRIOR_ART.md](PRIOR_ART.md) (the landscape + novelty check),
 [SPEC.md](SPEC.md) (normative).*
 
-## 1. The thesis: dissolve the oracle problem by routing trust, not creating it
+## 1. The thesis: the impossibility, and the maximal escape
 
-The oracle problem — "how does a chain learn a true fact about the world?"
-— has only ever been answered by **adding a trusted party**: token-voters
-(UMA), a TEE committee (EigenAI), a threshold-signing node (APRO), a
-data-provider quorum (Chainlink). Each new system is a new thing to trust.
+A blockchain has no senses; it cannot perceive an election, a launch, a
+rainfall. So **someone must vouch for the raw fact** — no construction and
+no math conjures a trustless world-fact onto a chain that did not witness
+it. Every oracle that claims otherwise has merely hidden the voucher
+(UMA's token-voters, Chainlink's nodes, APRO's zkTLS notary).
 
-Our answer inverts it. The world is **already** saturated with
-cryptographic attestations: publishers sign content (C2PA/ES256),
-newsletters are DKIM-signed, TLS authenticates served bytes, DNS publishes
-the keys, exchanges sign feeds, enclaves attest. The missing piece was
-never a trusted oracle — it is a way to **compute over that existing web
-of signatures, trustlessly, and land the result on-chain.**
+Total trust therefore factors: **Trust(raw fact) × Trust(everything done
+with it).** The maximal honest goal:
 
-So the general system is not a market and not an oracle. It is a
-**trustless `f(authenticated_inputs) → output`**: any committed
-deterministic program over any cryptographically-attested inputs, where
-being wrong about the result is provable on-chain in one micro-op. We do
-not create trust. We route existing cryptographic trust through verified
+- drive **Trust(computation) → 0** — deterministic execution + fraud
+  (now) / validity (later) proofs. **Done and measured.**
+- drive **Trust(raw fact) → its irreducible floor**, and make that floor
+  **explicit, minimal, diversified, market-chosen, and immutable** — never
+  a hidden oracle.
+
+Two design rules get us to the floor, and they are the whole trick:
+
+1. **Read only SIGNED STATEMENTS, never mutable state.** A signed thing —
+   an OAuth JWT, a DKIM email, a signed API/feed response, a C2PA
+   manifest — is immutable the instant it is signed and carries its own
+   timestamp. "The publisher changed their website" cannot alter a
+   statement their key signed at time T. This deletes the entire class of
+   mutability/retroactive-slash shakiness.
+2. **The voucher is the issuer's OWN signature, chained to a pinned PKI
+   root — not a new trusted party.** You trust "Sign-in-with-Twitter is
+   really Twitter" exactly as much as the whole internet already does, and
+   nothing more.
+
+We do not create trust. We route the web's existing cryptographic trust —
+at its irreducible, explicit, diversified floor — through verified
 computation.
 
 ## 2. The one elegant primitive: one program, one trace, one dispute
@@ -37,65 +50,86 @@ node *and* threshold signers, each trusting the others. We collapse the
 disputed as one object:**
 
 ```
-  [native Sui: verify each corpus item's attestation — C2PA/DKIM/zkTLS/TEE]
-                              │  (cheap, one-shot, off the trace)
-                              ▼
-   committed attested corpus  →  deterministic Agent (search · reason ·
-        synthesize over the corpus)  →  decision / output
+ [native Sui: verify each Web Credential — JWT(zkLogin)/DKIM/feed/C2PA;
+  immutable SIGNED statements only, never mutable web state]
+                          │  (cheap, one-shot, off the trace)
+                          ▼
+ k-of-n credentials from independent pinned issuers  →  deterministic AI
+        judge (read · weigh · synthesize)  →  verdict
    └──────────── one committed deterministic program, bisectable ─────────┘
+        + augmentation game: a new credential that flips the verdict slashes
 ```
 
-Attestation verification is native-chain and one-shot (NOT micro-ops —
-Sui does it cheaper). What lives in the fraud-proven trace is the part
-that genuinely cannot be trusted to a node: the agent's reasoning over the
-corpus, and the deterministic completeness check. Lie about the reasoning
-→ bisection lands on a model/control micro-op; omit a decision-relevant
-attested item → the augmentation game flips and slashes. **No trusted
-module boundaries inside the answer.**
+Credential verification is native-chain and one-shot (NOT micro-ops). What
+lives in the fraud-proven trace is the part no node can be trusted with:
+the AI's reasoning over the credentials, and the deterministic completeness
+check. Diversity (k-of-n independent issuers) bounds raw-fact trust;
+immutable signed snapshots remove mutability risk. **No trusted module
+boundaries inside the answer.**
 
-## 3. The genuinely new idea: a deterministic agent over an attested corpus
+## 3. The general primitive: the Web Credential, a diversity predicate, a deterministic AI
 
-NOT "verify signatures inside the VM" — Sui checks signatures natively,
-so doing it as micro-ops is strictly worse (same trust, more gas, no
-benefit). A thing belongs inside the deterministic VM only if it CANNOT
-be done trustlessly outside. Signature verification fails that test. Two
-things pass it, and they are the contribution:
+**The Web Credential.** Strip every real-world trust source to its
+skeleton and they are the same object:
 
-**(a) The agentic reasoning.** "Deep research" naively means the model
-fetches live web content — non-deterministic I/O (pages change, geo-vary,
-rate-limit; the challenger can't reproduce the runner's bytes), which is
-unbisectable. We flip it: the answer is a deterministic function
+    Credential = (claim, signature, key, proof-key-authentic-under-pinned-root, time)
 
-    answer = Agent(question, committed_attested_corpus, model)
+| source | claim | key authenticity chains to |
+|---|---|---|
+| **OAuth JWT** (Sign-in-with-Google/Twitter/Apple) | account/handle X has/did Y | provider JWKS → TLS cert → Certificate Transparency |
+| **DKIM email** (Reuters/AP/NYT alerts) | domain D's server sent these bytes | DNS DKIM key → DNSSEC |
+| **signed API/feed** (exchanges, Pyth, banks) | endpoint asserts value V at T | API signing key / cert |
+| **C2PA** (media — ONE instance, not the system) | publisher P produced these bytes | C2PA trust list |
+| **TLS cert + CT** | domain is keyed K | CA roots → CT logs |
+| **eIDAS / gov seal** | official document says Z | EU trust list |
 
-The corpus is a set of evidence items each carrying a provenance
-attestation, grown PERMISSIONLESSLY (anyone may add any genuinely-attested
-item in the window). The Agent — the LLM doing the research-grade
-reasoning, searching the corpus, following citations within it, weighing
-sources, synthesizing — runs DETERMINISTICALLY (the part we proved
-bit-exact). No fetch inside the deterministic core: "research" becomes
-reasoning over a large authenticated pool, which is where the intelligence
-actually lives. THIS is the in-VM win nobody else has — opML proves the
-compute but not the reasoning's inputs; zkTLS-oracles authenticate one
-fetch but the LLM step is a trusted node.
+C2PA is one row, not the design. The design is **"a signed statement whose
+key authenticity reduces to a small set of on-chain-pinned PKI roots"** —
+which covers OAuth (every major platform), email, signed feeds/APIs,
+government data, media: an enormous, growing fraction of *valuable* data,
+**none of it needing a committee**, because the issuer's own key is the
+root. (Genuinely *unsigned* web content — arbitrary HTML — still needs a
+witness: TEE-fetch via `sui::nitro_attestation` (native, no committee)
+preferred, zkTLS/notary last. Honest: a chain cannot get unsigned facts
+more trustlessly than *some* witness — true for everyone.)
 
-**(b) Completeness by adversarial augmentation.** The unsolved hole in
-every research oracle — "did the searcher search honestly/completely?" —
-is not a cryptographic property and cannot be proven directly. We do not
-prove it. We make OMITTING a decision-relevant attested fact a
-publicly-triggerable slashing condition: anyone may submit an additional
-attested item; if re-running the deterministic Agent with it included
-FLIPS the answer, the resolver is slashed and the answer corrected. "Does
-adding E change the output" is itself deterministic and fraud-provable.
-The resolver is forced to comprehensiveness by the threat that anyone can
-expose a missing source — the adversarial logic of the dispute, applied to
-the search. Griefing is priced (an item that doesn't flip costs the
-submitter their bond).
+**Safety by diversity, not by a single voucher.** A market commits a
+PREDICATE over a credential multiset; safety comes from **k-of-n agreement
+across INDEPENDENT pinned issuers**:
 
-Attestation verification itself stays where it belongs — NATIVE on Sui
-(`ecdsa_r1` for C2PA/ES256, `groth16` for zkEmail/zkTLS,
-`nitro_attestation` for TEE), one cheap check per corpus item, NOT in the
-VM trace.
+    YES iff the deterministic AI judge, reading >= k credentials from
+    distinct pinned issuers in {AP, Reuters, X-verified, AFP, ...} signed
+    within [t0, t1], concludes YES.
+
+The market is safe unless k independent real-world publishers are
+simultaneously compromised AND the judge ran wrong (impossible —
+fraud-proven). "Is this fact true on-chain" reduces to "do k independent
+entities you explicitly chose, who already sign their content, agree — as
+read by a fixed, public, provably-executed AI."
+
+**The compute is the deterministic AI, fraud-proven** (proven: integer +
+float Qwen, bit-exact, convicted on-chain). Reading/weighing/synthesizing
+the credentials is the part that genuinely cannot be trusted to a node —
+that is the in-VM win; attestation verification stays NATIVE on Sui.
+
+**Completeness by adversarial augmentation.** "Did the judge see all the
+evidence?" is not cryptographic and is not proven directly. Instead,
+omitting a decision-relevant credential is a publicly-triggerable slash:
+anyone submits another valid credential; if re-running the deterministic
+judge with it FLIPS the verdict, the resolver is slashed and the answer
+corrected (deterministic ⇒ fraud-provable; griefing priced — a
+non-flipping item costs its submitter the bond).
+
+**The math (general, partly native already).** Sui's **zkLogin** is a
+deployed circuit verifying an OAuth JWT against pinned provider keys in
+zero-knowledge on-chain — the existence proof. The general object is a
+**universal web-credential verifier**: one interface over `ecdsa_r1`
+(ES256/C2PA, native), `ed25519` (native), and Move-RSA-modexp or a
+zkEmail-style `groth16` (DKIM/RSA-JWT — `groth16` verify is native), so
+ANY row above becomes one on-chain `Credential`. That generalization —
+zkLogin/zkEmail → a universal PKI-credential SNARK — turns the entire
+existing internet trust infrastructure into an on-chain-queryable source,
+with no notary and no node network.
 
 ## 4. What makes it general (the axes)
 
@@ -142,33 +176,25 @@ byline already carries, now explicit).
 
 ## 7. The minimal generalization of the architecture
 
-What turns the built market into the general substrate:
-
-1. **Attested-corpus I/O.** A `Corpus` object: provenance-attested items,
-   grown permissionlessly in a window; each attestation verified NATIVELY
-   on Sui at submission (no VM burden, no committee where the source
-   signs). The deterministic Agent reads only the committed corpus — I/O
-   non-determinism eliminated.
-2. **The deterministic Agent** = the committed program: searches/reasons
-   over the corpus to an answer, bit-exact (the float/integer judges
-   already proven; the agent loop is bounded control flow over them).
-3. **Two games over one `Claim`** generalizing the market `Fact`:
+1. **Web-Credential I/O.** A `Credential` interface verified NATIVELY on
+   Sui per item (zkLogin for OAuth JWT; `ecdsa_r1` for ES256/C2PA;
+   `ed25519`; Move-RSA / `groth16` for DKIM/RSA). Only signed, timestamped
+   statements admitted — no mutable state, no committee where the issuer
+   signs. Unsigned sources fall back to TEE-fetch (`nitro_attestation`,
+   native) then zkTLS (priced).
+2. **A market `Predicate`** over a credential multiset: `k-of-n` across
+   independent pinned issuers within a time window, evaluated by the
+   committed deterministic AI judge — diversity is the raw-fact safety
+   knob, fraud proofs are the compute safety.
+3. **Two games over one `Claim`** (generalizing the market `Fact`):
    compute-correctness (bisection → one micro-op) AND completeness
-   (adversarial augmentation → deterministic "does E flip it" → slash).
-4. **Composition** — a claim's output may be another claim's attested
-   input, yielding a *verifiable computation graph*: cheap to assert,
-   cheap to check optimistically, expensive only to a liar.
+   (augmentation → deterministic flip → slash).
+4. **Composition** — a claim's verdict becomes another claim's credential
+   (it is signed by the chain itself): a *verifiable computation graph*.
 
-**Trust menu for corpus items (cleanest first):** (i) publisher signs
-natively (C2PA/DKIM/signed feed) — the publisher's own key, NO committee,
-native verify; (ii) TEE-attested fetch for unsigned pages (AWS Nitro,
-`sui::nitro_attestation` native) — hardware root, no committee;
-(iii) zkTLS (Reclaim, live Sui verifier) — notary committee, last resort,
-assumption priced. Irreducible truth: the open web does not authenticate
-its own content (TLS leaves no transferable proof — why zkTLS needs a
-witness), so fully-trustless fetch of UNSIGNED content is impossible for
-anyone; we win by biasing the corpus toward natively-signed sources where
-there is no committee at all.
+The universal credential verifier (zkLogin/zkEmail generalized) is the one
+piece worth building as new crypto; everything else is assembly over
+native Sui + the proven fraud-proof VM.
 
 ## 8. One line
 
