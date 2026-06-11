@@ -111,6 +111,54 @@ pub fn dot_w8_x16_scalar(w: &[i8], x: &[i16]) -> i64 {
     acc
 }
 
+/// Scalar reference for ONE 64-element block partial: Σ w_j·x_j as i64
+/// (fits i32; ≤ 64·127·32767 < 2^29). The blocked GEMV multiplies this by
+/// the per-block M before the i64 accumulate.
+#[cfg(not(target_arch = "aarch64"))]
+fn block_partial(w: &[i8], x: &[i16]) -> i64 {
+    let mut p = 0i32;
+    for (a, b) in w.iter().zip(x) {
+        p += (*a as i32) * (*b as i32);
+    }
+    p as i64
+}
+
+/// NEON: ONE 64-element block partial, fused. Four i32 accumulators for MAC
+/// throughput, combined with cheap vector adds, then a SINGLE horizontal
+/// reduction — vs `dot_w8_x16`'s generic 256-drain path which paid four
+/// `vaddlvq` per 64-block. Bit-identical to `block_partial` (associative
+/// integer sum). Caller guarantees w.len() == x.len() == 64.
+#[cfg(target_arch = "aarch64")]
+#[inline]
+fn block_partial(w: &[i8], x: &[i16]) -> i64 {
+    use std::arch::aarch64::*;
+    debug_assert_eq!(w.len(), 64);
+    debug_assert_eq!(x.len(), 64);
+    unsafe {
+        let mut a0 = vdupq_n_s32(0);
+        let mut a1 = vdupq_n_s32(0);
+        let mut a2 = vdupq_n_s32(0);
+        let mut a3 = vdupq_n_s32(0);
+        let mut i = 0;
+        while i < 64 {
+            let wv = vld1q_s8(w.as_ptr().add(i));
+            let wl = vmovl_s8(vget_low_s8(wv));
+            let wh = vmovl_s8(vget_high_s8(wv));
+            let x0 = vld1q_s16(x.as_ptr().add(i));
+            let x1 = vld1q_s16(x.as_ptr().add(i + 8));
+            a0 = vmlal_s16(a0, vget_low_s16(wl), vget_low_s16(x0));
+            a1 = vmlal_high_s16(a1, wl, x0);
+            a2 = vmlal_s16(a2, vget_low_s16(wh), vget_low_s16(x1));
+            a3 = vmlal_high_s16(a3, wh, x1);
+            i += 16;
+        }
+        // Combine 4 accumulators with vector adds (1-cycle throughput), then
+        // one widening horizontal reduction — partial < 2^29 so no overflow.
+        let s = vaddq_s32(vaddq_s32(a0, a1), vaddq_s32(a2, a3));
+        vaddlvq_s32(s)
+    }
+}
+
 /// NEON dot: widen i8→i16, pairwise smlal into 4×i32x4 accumulators,
 /// drain to i64 every 256 columns (8-lane i32 accumulates 32 iterations of
 /// ≤2^22 products: < 2^27 per drain — no overflow).
@@ -212,7 +260,7 @@ pub fn gemv_w8_x16_blocked(
             let mrow = &m_blocks[r * blocks..(r + 1) * blocks];
             let mut acc = 0i64;
             for b in 0..blocks {
-                let p = dot_w8_x16(&wrow[b * 64..(b + 1) * 64], &x[b * 64..(b + 1) * 64]);
+                let p = block_partial(&wrow[b * 64..(b + 1) * 64], &x[b * 64..(b + 1) * 64]);
                 acc = acc.wrapping_add(p.wrapping_mul(mrow[b] as i64));
             }
             unsafe { *out_ptr.0.add(r) = rnd(acc, shift) };

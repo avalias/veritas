@@ -162,6 +162,65 @@ pub fn upch(acc: &mut Vec<f32>, vals: &[f32]) {
     }
 }
 
+/// Range-free log2 magnitude histogram for PERCENTILE calibration. Max-based
+/// activation scales provably degrade with more data (a single rare outlier
+/// blows out the scale, coarsening resolution for the bulk — measured: 3×
+/// more max-calibration data took PPL 421→1145). A high percentile clips the
+/// outlier tail and reclaims that range. Bins are 16/octave over 2^-30..2^20.
+pub const HIST_BPO: i32 = 16;
+pub const HIST_OFF: i32 = 30 * HIST_BPO; // bin 0 ↔ 2^-30
+pub const HIST_BINS: usize = 50 * HIST_BPO as usize; // up to 2^20
+
+#[derive(Debug, Clone)]
+pub struct Hist {
+    counts: Vec<u32>,
+    total: u64,
+}
+
+impl Default for Hist {
+    fn default() -> Self {
+        Self { counts: vec![0; HIST_BINS], total: 0 }
+    }
+}
+
+impl Hist {
+    pub fn observe(&mut self, vals: &[f32]) {
+        for &v in vals {
+            let a = v.abs();
+            let bin = if a < 1e-9 {
+                0
+            } else {
+                ((a.log2() * HIST_BPO as f32).round() as i32 + HIST_OFF)
+                    .clamp(0, HIST_BINS as i32 - 1) as usize
+            };
+            self.counts[bin] += 1;
+            self.total += 1;
+        }
+    }
+
+    /// Magnitude threshold at fraction `p` (e.g. 0.999) of observed values.
+    pub fn percentile(&self, p: f32) -> f32 {
+        if self.total == 0 {
+            return 1e-6;
+        }
+        let target = (p as f64 * self.total as f64) as u64;
+        let mut cum = 0u64;
+        for (b, &c) in self.counts.iter().enumerate() {
+            cum += c as u64;
+            if cum >= target {
+                return 2f32.powf((b as i32 - HIST_OFF) as f32 / HIST_BPO as f32);
+            }
+        }
+        2f32.powf((HIST_BINS as i32 - 1 - HIST_OFF) as f32 / HIST_BPO as f32)
+    }
+}
+
+/// Per-site activation-scale source: max (legacy) or a calibrated percentile.
+/// `QCAL_PCTL=0.999` (env) switches the activation scales to percentile.
+pub fn pctl_env() -> Option<f32> {
+    std::env::var("QCAL_PCTL").ok().and_then(|s| s.parse::<f32>().ok()).filter(|&p| p > 0.0 && p < 1.0)
+}
+
 pub fn rmsnorm_f(x: &[f32], gamma: &[f32], out: &mut [f32]) {
     let ms = x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32;
     let r = 1.0 / (ms + 1e-6).sqrt();
@@ -208,6 +267,14 @@ pub struct Calib {
     pub gate: Vec<f32>, // gate projection output (pre-silu), per layer
     pub up: Vec<f32>,   // up projection output, per layer
     pub ffn_h: Vec<f32>, // silu(gate)·up, per layer
+    /// Percentile-calibration histograms, parallel to the scalar maxima
+    /// above (only the sites that set activation scales).
+    pub res_h: Vec<Hist>,
+    pub qk_h: Vec<Hist>,
+    pub qk_pre_h: Vec<Hist>,
+    pub v_h: Vec<Hist>,
+    pub gate_h: Vec<Hist>,
+    pub up_h: Vec<Hist>,
 }
 
 impl Calib {
@@ -230,6 +297,12 @@ impl Calib {
             gate: vec![0.0; layers],
             up: vec![0.0; layers],
             ffn_h: vec![0.0; layers],
+            res_h: vec![Hist::default(); layers + 1],
+            qk_h: vec![Hist::default(); layers],
+            qk_pre_h: vec![Hist::default(); layers],
+            v_h: vec![Hist::default(); layers],
+            gate_h: vec![Hist::default(); layers],
+            up_h: vec![Hist::default(); layers],
         }
     }
 }
@@ -322,6 +395,7 @@ fn float_forward_impl(
     let msq = |v: &[f32]| v.iter().map(|a| a * a).sum::<f32>() / v.len() as f32;
     for (l, lw) in m.layers.iter().enumerate() {
         up(&mut calib.res[l], &x);
+        calib.res_h[l].observe(&x);
         calib.ms1[l] = calib.ms1[l].max(msq(&x));
         rmsnorm_f(&x, &lw.ln1, &mut xn);
         up(&mut calib.xn1[l], &xn);
@@ -332,6 +406,8 @@ fn float_forward_impl(
         matvec(&lw.wv, &xn, kv_per, h, &mut st.vc[kbase..kbase + kv_per]);
         up(&mut calib.qk_pre[l], &q);
         up(&mut calib.qk_pre[l], &st.kc[kbase..kbase + kv_per]);
+        calib.qk_pre_h[l].observe(&q);
+        calib.qk_pre_h[l].observe(&st.kc[kbase..kbase + kv_per]);
         let rot = |vecv: &mut [f32]| {
             for p2 in 0..dh / 2 {
                 let (c, s) = (
@@ -360,6 +436,9 @@ fn float_forward_impl(
         up(&mut calib.qk[l], &q);
         up(&mut calib.qk[l], &st.kc[kbase..kbase + kv_per]);
         up(&mut calib.v[l], &st.vc[kbase..kbase + kv_per]);
+        calib.qk_h[l].observe(&q);
+        calib.qk_h[l].observe(&st.kc[kbase..kbase + kv_per]);
+        calib.v_h[l].observe(&st.vc[kbase..kbase + kv_per]);
         let scale = 1.0 / (dh as f32).sqrt();
         for hd in 0..nh {
             let kv = hd / (nh / nkv);
@@ -388,6 +467,7 @@ fn float_forward_impl(
             x[i] += o[i];
         }
         up(&mut calib.res[l], &x);
+        calib.res_h[l].observe(&x);
         calib.ms2[l] = calib.ms2[l].max(msq(&x));
         rmsnorm_f(&x, &lw.ln2, &mut xn);
         up(&mut calib.xn2[l], &xn);
@@ -399,6 +479,8 @@ fn float_forward_impl(
         matvec(&lw.w_up, &xn, f, h, &mut upv);
         up(&mut calib.gate[l], &gate);
         up(&mut calib.up[l], &upv);
+        calib.gate_h[l].observe(&gate);
+        calib.up_h[l].observe(&upv);
         let mut hb = vec![0f32; f];
         for i in 0..f {
             let g = gate[i];
@@ -413,6 +495,7 @@ fn float_forward_impl(
         }
     }
     up(&mut calib.res[m.layers.len()], &x);
+    calib.res_h[m.layers.len()].observe(&x);
     calib.msf = calib.msf.max(msq(&x));
     rmsnorm_f(&x.clone(), &m.ln_f, &mut x);
     up(&mut calib.xnf, &x);
@@ -640,16 +723,36 @@ pub fn quantize(m: &FloatModel, calib: &Calib) -> IntModel {
     // ONE global i32 residual scale: max magnitude maps to 2^29 (2 bits of
     // headroom). Qwen3's full 0.05→6400 dynamic range fits with ~16 bits
     // of resolution for embedding-sized values — no rescales, no clipping.
+    // Activation-range source: max (default) or QCAL_PCTL percentile.
+    // MEASURED (night-3): percentile clipping HURTS these sites —
+    // {0.9999: 1220, 0.999: 1031} PPL vs max 421. The large q/k/gate/up/v
+    // activations are SIGNAL (attention logits and SwiGLU gates ride the
+    // tail), not range-wasting noise; clipping them via a tighter scale
+    // saturates real information. Kept env-gated for reproducibility; max
+    // stays the default. The real gap is logit RESOLUTION (bits), not
+    // clipping — see the quality ladder.
+    let pctl = pctl_env();
+    let amax_or_pctl = |max_v: f32, h: &Hist| -> f32 {
+        match pctl {
+            Some(p) => h.percentile(p).max(1e-6),
+            None => max_v.max(1e-6),
+        }
+    };
     let res_max = calib.res.iter().fold(1e-6f32, |a, &b| a.max(b));
     let s_res_g = res_max / (1u64 << 29) as f32; // i32: 4x headroom built in
     let s_res: Vec<f32> = calib.res.iter().map(|_| s_res_g).collect();
     // per-tensor xn scales superseded by smoothed per-layer values below
 
-    let s_qk: Vec<f32> = calib.qk.iter().map(|&v| v.max(1e-6) * HEADROOM / 16384.0).collect();
-    let s_qk_pre: Vec<f32> = calib.qk_pre.iter().map(|&v| v.max(1e-6) * HEADROOM / 32767.0).collect();
-    let s_gate: Vec<f32> = calib.gate.iter().map(|&v| v.max(1e-6) * HEADROOM / 32767.0).collect();
-    let s_up: Vec<f32> = calib.up.iter().map(|&v| v.max(1e-6) * HEADROOM / 32767.0).collect();
-    let s_v: Vec<f32> = calib.v.iter().map(|&v| v.max(1e-6) * HEADROOM / 32767.0).collect();
+    let s_qk: Vec<f32> =
+        calib.qk.iter().zip(&calib.qk_h).map(|(&v, h)| amax_or_pctl(v, h) * HEADROOM / 16384.0).collect();
+    let s_qk_pre: Vec<f32> =
+        calib.qk_pre.iter().zip(&calib.qk_pre_h).map(|(&v, h)| amax_or_pctl(v, h) * HEADROOM / 32767.0).collect();
+    let s_gate: Vec<f32> =
+        calib.gate.iter().zip(&calib.gate_h).map(|(&v, h)| amax_or_pctl(v, h) * HEADROOM / 32767.0).collect();
+    let s_up: Vec<f32> =
+        calib.up.iter().zip(&calib.up_h).map(|(&v, h)| amax_or_pctl(v, h) * HEADROOM / 32767.0).collect();
+    let s_v: Vec<f32> =
+        calib.v.iter().zip(&calib.v_h).map(|(&v, h)| amax_or_pctl(v, h) * HEADROOM / 32767.0).collect();
 
 
 

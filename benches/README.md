@@ -41,8 +41,8 @@ level; this alone cut commitment cost ~1.7×).
 
 | metric | value |
 |---|---|
-| integer decode (`qwen_demo`) | **27.6 tok/s** (NEON smlal + persistent pool; was 14.8 with naive kernels) |
-| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s — **gap 3.7×** (was 6.8×) |
+| integer decode (`qwen_demo`) | **~32 tok/s** (NEON smlal + persistent pool + fused blocked GEMV; was 14.8 naive → 27.6 → 32) |
+| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s — **gap 3.1×** (was 6.8×) |
 | llama.cpp Q8_0, `-ngl 0` (Accelerate/AMX BLAS) | 109 tok/s |
 | commitment, sequential | 1.6 ms/token ≈ 4.5% of compute (dirty set grew with i16 V/probs) |
 | commitment, **pipelined** (hasher thread) | **0–3% wall-clock** (run-noise dominated; 0.00% measured on the earlier config; roots bit-identical, asserted) |
@@ -54,11 +54,18 @@ Two separable claims, now measured:
    bit-exact at any kernel speed (associativity), and hashing hides
    entirely behind compute when pipelined. This holds on GPU for the same
    reasons (integer kernels + on-device keccak / pipelining).
-2. **Kernel parity with llama.cpp is unfinished**: ~6× gap, fully
-   accounted for by naive scalar dot loops + per-projection thread spawns
-   vs years of NEON/AMX tuning. Known path: persistent thread pool, NEON
-   `sdot`/`smlal` kernels, fused projection batches. The protocol is
-   indifferent to this — any bit-exact kernel is admissible (§9.1).
+2. **Kernel parity with llama.cpp is unfinished**: 3.1× gap. The ROOT
+   CAUSE is now precise and fundamental to the quality choice: our i16
+   activations force `vmlal_s16` (4 MACs/instruction); llama.cpp's Q8 path
+   quantizes activations to i8 and uses `sdot` (16 MACs/instruction) —
+   4× the MAC density. The i16 width is exactly what the quality campaign
+   required (i8 activations destroyed Qwen3's outlier range). Closing the
+   gap therefore needs either a multi-limb `sdot` decomposition of the i16
+   dot (bit-exact but overflow-careful) or per-block *dynamic* i8
+   activations (llama's design, a quality re-derivation). The fused
+   blocked GEMV (this round, +16%) reclaimed the per-block-reduction
+   overhead; the rest is the MAC-density wall. The protocol is indifferent
+   — any bit-exact kernel is admissible (§9.1).
 
 ## MEASURED: the full trustless-verification chain at Qwen scale
 
@@ -129,12 +136,30 @@ number. The integer ladder, in causal order:
 α sweep: {0.25: 18.7k, **0.5: 16.3k**, 0.75: 26.4k}. Final config ≈ 400,
 an ~11× distribution gap to the bar (logit noise ~1.3 vs needed ~0.2).
 
-Named next steps, in expected-value order: **percentile calibration**
-(max-based calibration provably degrades with MORE data — measured),
-blocked q/k + attention-path scales, A-bits beyond 16 per block on the
-worst sites, and ultimately FW-6 (deterministic float semantics = exact
-parity by construction). Diagnosis machinery (probe + diag + this
-harness) reduces each step to a ~4-minute measured iteration.
+**Percentile calibration — tried, measured, REJECTED (night-3).** The
+hypothesis was that max-based activation scales waste range on rare
+outliers; a high-percentile clip should reclaim resolution. Wired a
+log2-histogram per activation site (`QCAL_PCTL` env) and swept:
+
+| activation-scale source | int PPL |
+|---|---|
+| **max (default)** | **421** |
+| percentile 0.9999 | 1,220 |
+| percentile 0.999 | 1,031 |
+
+Clipping HURTS — decisively. The large q/k/gate/up/v activations are
+*signal*, not noise: attention logits ride on the largest q·k components
+and SwiGLU gates on their tail, so a tighter (saturating) scale destroys
+real information. This rules out the lever and re-points the diagnosis:
+the gap is logit **resolution (bits)**, not outlier clipping. The
+histogram code stays (env-gated, off) for reproducibility.
+
+Named next steps, in expected-value order: **more activation bits on the
+worst sites** (the resolution finding above — e.g. i32 activations on the
+gate/down path), blocked q/k + attention-path scales, and ultimately FW-6
+(deterministic float semantics = exact parity by construction). Diagnosis
+machinery (probe + diag + this harness) reduces each step to a ~4-minute
+measured iteration.
 
 ## Levers, in priority order
 
