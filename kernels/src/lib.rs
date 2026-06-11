@@ -282,6 +282,68 @@ pub fn gemv_blocked_bytes(
     gemv_w8_x16_blocked(pool, bytes_as_i8(w), bytes_as_i16(x), rows, cols, m_blocks, shift, out)
 }
 
+/// One blocked-GEMV job in a fused group. `out` is a raw pointer to `rows`
+/// disjoint i64 slots (caller owns the allocation and guarantees disjointness
+/// across jobs in the group).
+pub struct BlockedJob<'a> {
+    pub w: &'a [u8],
+    pub x: &'a [u8],
+    pub m: &'a [i32],
+    pub shift: u8,
+    pub rows: usize,
+    pub cols: usize,
+    pub out: *mut i64,
+}
+// SAFETY: each job's `out` points to a disjoint, caller-owned region.
+unsafe impl Send for BlockedJob<'_> {}
+unsafe impl Sync for BlockedJob<'_> {}
+
+/// Fused group of independent blocked GEMVs under ONE pool dispatch — the
+/// q/k/v projections (all read xn) and gate/up (both read xn2) are
+/// data-independent, so batching them *could* remove pool barriers.
+///
+/// MEASURED SLOWER (night-3): wiring this into the Qwen forward dropped
+/// 32→29.6 tok/s. The persistent pool's ack barrier is cheap, so little was
+/// saved, while the per-row job lookup + indirection cost more. Conclusion:
+/// barriers are NOT the bottleneck — i16 `vmlal` MAC density is. Kept
+/// (tested, bit-exact) as the recorded negative result; the forward uses
+/// separate `gemv_blocked_bytes` calls. Bit-identical to running each job
+/// via `gemv_blocked_bytes`: the per-row math is unchanged.
+pub fn gemv_blocked_group(pool: &Pool, jobs: &[BlockedJob]) {
+    let mut prefix = Vec::with_capacity(jobs.len() + 1);
+    prefix.push(0usize);
+    for j in jobs {
+        prefix.push(prefix.last().unwrap() + j.rows);
+    }
+    let total = *prefix.last().unwrap();
+    if total == 0 {
+        return;
+    }
+    pool.run(total, 16, &move |start, end| {
+        for g in start..end {
+            // Which job owns global row g? (small linear scan — jobs.len() ≤ 3)
+            let mut j = 0;
+            while prefix[j + 1] <= g {
+                j += 1;
+            }
+            let job = &jobs[j];
+            let r = g - prefix[j];
+            let wi = bytes_as_i8(job.w);
+            let xi = bytes_as_i16(job.x);
+            let blocks = job.cols / 64;
+            let wrow = &wi[r * job.cols..(r + 1) * job.cols];
+            let mrow = &job.m[r * blocks..(r + 1) * blocks];
+            let mut acc = 0i64;
+            for b in 0..blocks {
+                let p = block_partial(&wrow[b * 64..(b + 1) * 64], &xi[b * 64..(b + 1) * 64]);
+                acc = acc.wrapping_add(p.wrapping_mul(mrow[b] as i64));
+            }
+            // SAFETY: disjoint per-job output regions, distinct local rows.
+            unsafe { *job.out.add(r) = rnd(acc, job.shift) };
+        }
+    });
+}
+
 /// Row-parallel projection: out[r] = rnd(dot(w_row_r, x) · m[r], shift).
 #[allow(clippy::too_many_arguments)]
 pub fn gemv_w8_x16(
@@ -392,6 +454,50 @@ mod tests {
                 acc = acc.wrapping_add(p.wrapping_mul(m[r * blocks + b] as i64));
             }
             assert_eq!(out[r], rnd(acc, 20), "row {r}");
+        }
+    }
+
+    #[test]
+    fn blocked_group_equals_separate() {
+        // The fused q/k/v-style group must equal running each job alone.
+        let pool = Pool::new(8);
+        let mut s = 99u64;
+        let cols = 1024usize;
+        let blocks = cols / 64;
+        let x: Vec<i16> = (0..cols).map(|_| xorshift(&mut s) as i16).collect();
+        let xb: Vec<u8> = x.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let specs = [2048usize, 1024, 1024]; // nh*dh, nkv*dh, nkv*dh
+        let mut ws = vec![];
+        let mut ms = vec![];
+        let mut want = vec![];
+        for &rows in &specs {
+            let w: Vec<i8> = (0..rows * cols).map(|_| xorshift(&mut s) as i8).collect();
+            let m: Vec<i32> =
+                (0..rows * blocks).map(|_| (xorshift(&mut s) % (1 << 24)) as i32 + 1).collect();
+            let mut sep = vec![0i64; rows];
+            gemv_w8_x16_blocked(&pool, &w, &x, rows, cols, &m, 20, &mut sep);
+            want.push(sep);
+            ws.push(w.iter().map(|&v| v as u8).collect::<Vec<u8>>());
+            ms.push(m);
+        }
+        let mut outs: Vec<Vec<i64>> = specs.iter().map(|&r| vec![0i64; r]).collect();
+        {
+            let mut jobs = vec![];
+            for (i, &rows) in specs.iter().enumerate() {
+                jobs.push(BlockedJob {
+                    w: &ws[i],
+                    x: &xb,
+                    m: &ms[i],
+                    shift: 20,
+                    rows,
+                    cols,
+                    out: outs[i].as_mut_ptr(),
+                });
+            }
+            gemv_blocked_group(&pool, &jobs);
+        }
+        for (g, w) in outs.iter().zip(&want) {
+            assert_eq!(g, w);
         }
     }
 

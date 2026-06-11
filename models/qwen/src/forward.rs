@@ -208,6 +208,9 @@ impl<'a> Native<'a> {
             let a = &lay.layers[l];
             self.rmsnorm_to_i16(mem, lay.x, lay.xn, &lw.norm1, h);
             // QKV projections (row-parallel), stores single-threaded.
+            // NOTE: fusing q/k/v into one pool dispatch was measured SLOWER
+            // (barriers aren't the bottleneck — MAC throughput is); separate
+            // dispatches win. See kernels::gemv_blocked_group.
             let qv = self.proj_b(mem, a.wq, &lw.mq, nh * dh, h, lay.xn);
             for (r, v) in qv.iter().enumerate() {
                 mem.w16(lay.q + 2 * r as u64, sat16(*v) as u16);
