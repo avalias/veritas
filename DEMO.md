@@ -9,9 +9,11 @@ disputable down to one micro-op, with the chain as the only referee.*
 ## 1. The product in one paragraph
 
 Anyone creates a market: a question, a resolution date, and a **judge
-spec** (a committed model + prompt template + decode policy). People
-trade YES/NO shares against an AMM. After the date, an open **evidence
-window** lets anyone submit evidence (bonded, hash-committed). Then any
+spec** (a committed model + prompt template + decode policy + source
+policy). People trade YES/NO shares against an AMM. After the date, an
+open **evidence window** lets anyone submit evidence — admissible ONLY
+with a cryptographic provenance proof chaining to the committed source
+policy (signed content from real publishers; no free text). Then any
 **resolver** runs the judge — deterministically, on the committed evidence
 — and asserts the verdict with a bond. Anyone can recompute and
 challenge; fraud loses a bisection game that ends in one micro-op executed
@@ -29,7 +31,8 @@ permissionless because being wrong is provable.**
     │  dates, fees) ──┼──────────────────┼───────────────────┼────────────────┤
     │                 │       [resolution date passes]       │                │
     │                 │                  │ submit_evidence   │                │
-    │                 │                  │ (bond + bytes)    │                │
+    │                 │                  │ (bytes + PROOF of │                │
+    │                 │                  │  provenance)      │                │
     │                 │       [evidence window closes]       │                │
     │                 │                  │                   │ run judge      │
     │                 │                  │                   │ assert_verdict │
@@ -43,22 +46,57 @@ permissionless because being wrong is provable.**
 
 ## 3. The hard questions, answered
 
-### 3.1 What exactly does the judge read? (the evidence problem)
+### 3.1 What exactly does the judge read? — PROVENANCE-GATED EVIDENCE
 
-The LLM is deterministic; the attack surface is its *input*. Design:
+**Rejected design (v0): bonded free-text submission.** Anyone could
+submit any paragraph; the "evidence set" degenerates into voting with
+prose — the same human-discretion hole (UMA/Polymarket-style social
+resolution) this system exists to close. Killed.
 
-- **The judge input is assembled by a committed rule, not by the
-  resolver.** Input = `template(question, evidence_1..evidence_k)` where
-  the template is part of the judge spec and the evidence set is exactly
-  the bonded submissions accepted during the evidence window, **ordered
-  deterministically** (by submission hash), **truncated deterministically**
-  (committed token budget, oldest-hash-first).
-- **Cherry-picking is defeated by permissionlessness, not by trust**: a
-  resolver cannot exclude counter-evidence (anyone could submit it) and
-  cannot inject unseen evidence (only window submissions count). Spam is
-  priced by the per-submission bond (returned unless the market creator's
-  committed relevance rule — v1: none, budget-limited — rejects it).
-- The market question itself is evidence item 0.
+**The design: evidence is admissible ONLY with a cryptographic
+provenance proof.** The market's judge spec commits a **source policy** —
+a set of trust anchors — and a submission enters the evidence set iff it
+carries a machine-verifiable attestation chaining to one of them:
+
+| attestation class | what it proves | trust root | verification |
+|---|---|---|---|
+| **C2PA / Content Credentials** (BBC-style signed content) | "publisher P created/published these exact bytes" | publisher cert on the C2PA trust list, pinned in the registry | X.509/ECDSA signature + hash-binding to content — native curve ops on Sui |
+| **zkTLS / web proofs** (TLSNotary/Reclaim class) | "https://domain/... served these bytes at time T" | the site's TLS identity (+ the proof system's stated assumptions, pinned) | proof verification on-chain or in the dispute game |
+| **DKIM-signed mail** (zkEmail class) | "domain D's mail server sent these bytes" (e.g., Reuters/AP breaking-news alerts) | the publisher's DNS-published DKIM key, pinned at market creation | RSA/Ed25519 signature verify |
+| **on-chain facts** | prices, events, balances | the chain itself | free |
+
+Properties this buys:
+
+- **Nobody can submit "whatever they want."** The admissible universe is
+  exactly *what committed publishers actually published*, cryptographically.
+  Submission stays permissionless — but permissionless within truth:
+  anyone may bring any genuinely-published BBC/Reuters/AP item; no one
+  can bring an invented one.
+- **Selection attacks are symmetric and bounded**: an adversary can only
+  choose *among real published items*; the other side can always submit
+  the rest of the published record. The judge weighs real reporting, not
+  fabrications.
+- **Verification is itself fraud-provable.** Signature checks use Sui's
+  native crypto where possible; anything heavier (manifest parsing,
+  content-hash binding, proof verification) is a committed deterministic
+  computation — exactly the class of thing our VM + bisection already
+  adjudicates. Long-term unification: **the entire resolution function —
+  verify attestations → extract text → assemble input → run the LLM →
+  decision token — is ONE committed deterministic program**, disputable
+  down to a single micro-op. The LLM is just the largest stage of a
+  fully-verified pipeline. That is the product: an oracle with no oracle
+  in it.
+- The market question is evidence item 0; ordering/truncation of admitted
+  items stays deterministic (by attestation hash, committed token budget).
+
+**Source-policy registry**: market creators choose from registered
+anchor sets (e.g., "C2PA news tier-1: BBC, AP, Reuters, AFP" — each entry
+pins certificates/keys + the attestation format version). Anchors are
+data, not trustees: they never act, sign nothing per-market, and cannot
+censor a market — the worst a captured publisher can do is publish
+falsehoods under its own cryptographic identity, which is exactly the
+real-world trust people already place in a byline, now made explicit and
+auditable.
 
 ### 3.2 The tokenization gap (named honestly)
 
@@ -129,8 +167,10 @@ Scenario walk, end to end on localnet, one command:
    hash, decision table, tokenizer hash) → market "Will it rain in Paris
    tomorrow?" with dates and fees. AMM seeded.
 2. **Trade**: three simulated traders move the price (CPMM swaps).
-3. **Evidence**: two submissions (a forecast paragraph; a contrarian
-   paragraph) — bonded, ordered, committed.
+3. **Evidence**: two submissions with REAL provenance proofs (per the
+   research-selected attestation classes — target: a genuine DKIM-signed
+   news alert and/or a C2PA-signed asset and/or a zkTLS-proven page about
+   a real PAST event), verified at submission, ordered, committed.
 4. **Resolve (honest)**: resolver runs the judge (native predictor for
    the answer + committed run for roots), inserts input on-chain,
    asserts YES with bond; window passes; market settles; winners redeem;
