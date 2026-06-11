@@ -16,6 +16,7 @@ pub mod hash;
 pub mod isa;
 pub mod merkle;
 pub mod onestep;
+pub mod softfloat;
 pub mod state;
 pub mod trace;
 
