@@ -10,10 +10,9 @@
 //! same final value, in the same order.
 #![allow(clippy::float_arithmetic)] // FW-6: floats are the committed semantics
 
-use crate::flayout::{FLayout, FMAX_SEQ};
+use crate::flayout::FLayout;
 use crate::fmath::cexp;
 use crate::fmodel::FModel;
-use kernels::fkernels::bf16_to_f32;
 use toy_model::forward::FlatMem;
 
 fn rf(mem: &FlatMem, at: u64) -> f32 {
@@ -56,7 +55,7 @@ fn cexp_committed(mem: &mut FlatMem, lay: &FLayout) -> f32 {
     wf(mem, lay.t1, r);
     // two_k via integer ops into t3
     let ki = kf as i32;
-    let two_k_bits = (((ki + 127) as u32) << 23) as u32;
+    let two_k_bits = ((ki + 127) as u32) << 23;
     mem.w32(lay.t3, two_k_bits);
     // poly in t2 (Horner, 6 mul/add pairs after the seed)
     let mut p = 1.0f32 / 720.0;
@@ -85,6 +84,7 @@ fn gemv_row(mem: &FlatMem, w_base: u64, row: u64, cols: u64, x: &[f32]) -> f32 {
     kernels::fkernels::fdot_row(&w16, x)
 }
 
+#[allow(clippy::needless_range_loop)] // mirrors the compiler's K1 loop literally
 fn rmsnorm_committed(
     mem: &mut FlatMem,
     lay: &FLayout,
@@ -118,7 +118,10 @@ fn rmsnorm_committed(
 }
 
 /// One committed position. Mirrors compiler/src/fqwen.rs block-for-block.
+/// `· -1.0` retained literally: it IS the committed negation op (FOP mul by
+/// c_neg1f), not a style choice.
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::neg_multiply)]
 pub fn fc_position(
     m: &FModel,
     lay: &FLayout,

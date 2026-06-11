@@ -115,10 +115,22 @@ measured the same day:
 Mechanics: bf16-resident weights (exact f32 widening), a pinned
 16-lane/64-block fma reduction tree (float adds don't associate, so the
 tree IS part of the spec), committed polynomial exp (~2 ulp, identical
-bits everywhere), zero libm at runtime, frozen-artifact rope tables. The
-protocol layers are arithmetic-agnostic and carry over; remaining FW-6
-protocol work is the float one-step verifier in Move (softfloat for one
-disputed op) and the float-ISA compiler.
+bits everywhere), zero libm at runtime, frozen-artifact rope tables.
+
+**And the FW-6 protocol chain is COMPLETE** (same-day continuation):
+
+| step | artifact | proof |
+|---|---|---|
+| fp32 in pure integers | `vm/src/softfloat.rs` + `dispute/sources/softfloat.move` | 8M-case fuzz bit-identical to IEEE hardware; 544 Move cross-vectors |
+| float micro-ops | `FDOT` (committed block dot) + `FOP` (scalar ops incl. fgt) in all three twins | conformance + fuzz + on-chain verify_step vectors |
+| float compiler | `compiler/src/fqwen.rs` — full committed-float Qwen, 21,609 instrs, 32.3M micro-ops per judgment | probe-walked static step prediction |
+| **C-14 FLOAT** | `fqwen_c14` | **hardware-float native run == pure-integer-softfloat VM oracle, memory roots bit-identical at every boundary** |
+| float fraud game | `fqwen_dispute` | one flipped bf16 weight bit isolated by bisection; the FDOT StepProof convicted by the Sui Move verifier (`fqwen_conviction.move`) |
+
+The judged model IS the published model (PPL 34.60), and every one of its
+float micro-ops is adjudicable by a few-hundred-line L1 contract. No
+other system offers this (see §7 / PRIOR_ART §6: EigenAI commits only the
+final output hash and disputes by whole-inference TEE re-execution).
 
 The integer-path findings below are retained as the historical record of
 why approximation was abandoned.

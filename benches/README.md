@@ -114,10 +114,21 @@ Mechanics: bf16 weights stay resident in published form (widening to f32
 is exact); dots run in a committed 16-lane/64-block fma tree (the shape is
 part of the spec — float adds don't associate); exp is a committed
 polynomial (~2 ulp, same bits everywhere); **no libm in any committed
-path**; rope tables are frozen artifacts. The protocol layers (Merkle,
-bisection, dispute) are arithmetic-agnostic and carry over unchanged; the
-remaining FW-6 protocol work is the float one-step verifier in Move
-(softfloat for ONE disputed op) and the float-ISA compiler.
+path**; rope tables are frozen artifacts.
+
+**The FW-6 protocol chain is now COMPLETE and measured:**
+
+| artifact | result |
+|---|---|
+| softfloat fp32 (Rust + **Sui Move**) | mul/add/fma/div/sqrt/floor/ftoi/itof/fgt in pure integers; **8M-case fuzz bit-identical to IEEE hardware**; 544 Move cross-vectors + committed block dots green |
+| float ISA `FDOT` (0x1A) + `FOP` (0x1B) | the committed block dot + scalar float ops as micro-ops, in all three twins, with on-chain verify_step vectors |
+| float compiler (`compiler/src/fqwen.rs`) | the FULL committed-float Qwen → 21,609 instrs / **32.3M float micro-ops** per 2+1-token judgment |
+| **C-14 FLOAT** (`fqwen_c14`) | native committed run (hardware floats) == VM oracle (pure-integer softfloat): **memory roots bit-identical at every boundary** |
+| float fraud game (`fqwen_dispute`) | one flipped bf16 weight bit isolated by bisection and convicted; the FDOT StepProof emitted as a Move test the Sui verifier convicts |
+
+So the same model that scores the published bar (PPL 34.60) is now a
+committed program whose every float micro-op a ~600-line Move contract can
+re-execute and judge.
 
 Speed at equal precision (2 bytes/weight, ~1.5 GB streamed/token, same
 machine):
