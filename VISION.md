@@ -37,35 +37,65 @@ node *and* threshold signers, each trusting the others. We collapse the
 disputed as one object:**
 
 ```
-verify provenance (C2PA / DKIM / zkTLS sigs) → extract text → tokenize
-        → run the model → decision/output
-└──────────────────── one committed deterministic program ───────────────┘
-        every stage = micro-ops; a single bisection covers ALL of it
+  [native Sui: verify each corpus item's attestation — C2PA/DKIM/zkTLS/TEE]
+                              │  (cheap, one-shot, off the trace)
+                              ▼
+   committed attested corpus  →  deterministic Agent (search · reason ·
+        synthesize over the corpus)  →  decision / output
+   └──────────── one committed deterministic program, bisectable ─────────┘
 ```
 
-The signature check and the matmul are **the same kind of thing**: lines
-of the trace. Lie about a signature's validity → the bisection lands on
-the signature-check micro-op. Lie about the matmul → it lands there. Same
-machinery, **no module boundaries, no inter-component trust.** ECDSA-P256
-/ RSA-modexp / hash verification are integer field arithmetic — they
-compile into the exact ISA where we already proved IEEE-754 softfloat and
-a full Qwen forward pass. A signature is ~thousands of micro-ops against
-the model's billions: **authenticated I/O in the trace is essentially
-free.**
+Attestation verification is native-chain and one-shot (NOT micro-ops —
+Sui does it cheaper). What lives in the fraud-proven trace is the part
+that genuinely cannot be trusted to a node: the agent's reasoning over the
+corpus, and the deterministic completeness check. Lie about the reasoning
+→ bisection lands on a model/control micro-op; omit a decision-relevant
+attested item → the augmentation game flips and slashes. **No trusted
+module boundaries inside the answer.**
 
-## 3. The genuinely new idea: authenticated I/O as a VM primitive
+## 3. The genuinely new idea: a deterministic agent over an attested corpus
 
-Every verifiable-compute system (zkVM, optimistic VM) proves `f(x) = y`
-but treats **"x is real"** as out of scope — someone trusted supplies x.
-That is the gap every oracle falls into. We make *"this input is
-admissible because attestation A by a committed anchor over these exact
-bytes verifies"* part of the verified statement itself.
+NOT "verify signatures inside the VM" — Sui checks signatures natively,
+so doing it as micro-ops is strictly worse (same trust, more gas, no
+benefit). A thing belongs inside the deterministic VM only if it CANNOT
+be done trustlessly outside. Signature verification fails that test. Two
+things pass it, and they are the contribution:
 
-The committed program **includes** its input-authentication. There is no
-separate trusted "evidence layer": evidence admissibility is just the
-opening micro-ops of the same trace that runs the model. Verifying the
-computation and authenticating its inputs become **one** fraud-provable
-object. That fusion is the contribution.
+**(a) The agentic reasoning.** "Deep research" naively means the model
+fetches live web content — non-deterministic I/O (pages change, geo-vary,
+rate-limit; the challenger can't reproduce the runner's bytes), which is
+unbisectable. We flip it: the answer is a deterministic function
+
+    answer = Agent(question, committed_attested_corpus, model)
+
+The corpus is a set of evidence items each carrying a provenance
+attestation, grown PERMISSIONLESSLY (anyone may add any genuinely-attested
+item in the window). The Agent — the LLM doing the research-grade
+reasoning, searching the corpus, following citations within it, weighing
+sources, synthesizing — runs DETERMINISTICALLY (the part we proved
+bit-exact). No fetch inside the deterministic core: "research" becomes
+reasoning over a large authenticated pool, which is where the intelligence
+actually lives. THIS is the in-VM win nobody else has — opML proves the
+compute but not the reasoning's inputs; zkTLS-oracles authenticate one
+fetch but the LLM step is a trusted node.
+
+**(b) Completeness by adversarial augmentation.** The unsolved hole in
+every research oracle — "did the searcher search honestly/completely?" —
+is not a cryptographic property and cannot be proven directly. We do not
+prove it. We make OMITTING a decision-relevant attested fact a
+publicly-triggerable slashing condition: anyone may submit an additional
+attested item; if re-running the deterministic Agent with it included
+FLIPS the answer, the resolver is slashed and the answer corrected. "Does
+adding E change the output" is itself deterministic and fraud-provable.
+The resolver is forced to comprehensiveness by the threat that anyone can
+expose a missing source — the adversarial logic of the dispute, applied to
+the search. Griefing is priced (an item that doesn't flip costs the
+submitter their bond).
+
+Attestation verification itself stays where it belongs — NATIVE on Sui
+(`ecdsa_r1` for C2PA/ES256, `groth16` for zkEmail/zkTLS,
+`nitro_attestation` for TEE), one cheap check per corpus item, NOT in the
+VM trace.
 
 ## 4. What makes it general (the axes)
 
@@ -114,17 +144,31 @@ byline already carries, now explicit).
 
 What turns the built market into the general substrate:
 
-1. **In-VM provenance verifiers** — ECDSA-P256 first (also a Sui-native
-   dispute fast-path), then RSA-modexp / Groth16-wrapped DKIM. New
-   committed *programs*, no new mechanism — exactly how softfloat was
-   added.
-2. **A `Claim` object** generalizing the market `Fact`:
-   `assert(program_root, authenticated_inputs, output)` settled by the
-   same bisection → one-micro-op verifier.
-3. **Composition** — a claim's output may be another claim's authenticated
+1. **Attested-corpus I/O.** A `Corpus` object: provenance-attested items,
+   grown permissionlessly in a window; each attestation verified NATIVELY
+   on Sui at submission (no VM burden, no committee where the source
+   signs). The deterministic Agent reads only the committed corpus — I/O
+   non-determinism eliminated.
+2. **The deterministic Agent** = the committed program: searches/reasons
+   over the corpus to an answer, bit-exact (the float/integer judges
+   already proven; the agent loop is bounded control flow over them).
+3. **Two games over one `Claim`** generalizing the market `Fact`:
+   compute-correctness (bisection → one micro-op) AND completeness
+   (adversarial augmentation → deterministic "does E flip it" → slash).
+4. **Composition** — a claim's output may be another claim's attested
    input, yielding a *verifiable computation graph*: cheap to assert,
-   cheap to check optimistically, expensive only to a liar, and the thing
-   that makes this a platform rather than a feature.
+   cheap to check optimistically, expensive only to a liar.
+
+**Trust menu for corpus items (cleanest first):** (i) publisher signs
+natively (C2PA/DKIM/signed feed) — the publisher's own key, NO committee,
+native verify; (ii) TEE-attested fetch for unsigned pages (AWS Nitro,
+`sui::nitro_attestation` native) — hardware root, no committee;
+(iii) zkTLS (Reclaim, live Sui verifier) — notary committee, last resort,
+assumption priced. Irreducible truth: the open web does not authenticate
+its own content (TLS leaves no transferable proof — why zkTLS needs a
+witness), so fully-trustless fetch of UNSIGNED content is impossible for
+anyone; we win by biasing the corpus toward natively-signed sources where
+there is no committee at all.
 
 ## 8. One line
 
