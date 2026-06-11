@@ -747,7 +747,7 @@ fn fop_all_selectors_and_traps() {
     let a_bits = 0x4048_F5C3u32; // 3.14
     let b_bits = 0x4015_5555u32; // 2.333
     let c_bits = 0xBF80_0000u32; // -1.0
-    for k in 0u8..8 {
+    for k in 0u8..9 {
         let mut m = mk(vec![Instr {
             k,
             a: Operand::at(0),
@@ -767,12 +767,13 @@ fn fop_all_selectors_and_traps() {
             4 => sf::fsqrt(a_bits),
             5 => sf::ffloor(a_bits),
             6 => sf::ftoi(a_bits) as u32,
-            _ => sf::itof(a_bits as i32),
+            7 => sf::itof(a_bits as i32),
+            _ => sf::fgt(a_bits, b_bits),
         };
         assert_eq!(m.mem.read_u32(8), want, "k={k}");
     }
     // T6: selector out of range; T7: FDOT wrong imm; T3: misalignment.
-    assert_traps(mk(vec![Instr { k: 8, a: Operand::at(0), b: Operand::at(4), w: Operand::at(8), ..Instr::op(Opcode::Fop) }]));
+    assert_traps(mk(vec![Instr { k: 9, a: Operand::at(0), b: Operand::at(4), w: Operand::at(8), ..Instr::op(Opcode::Fop) }]));
     assert_traps(mk(vec![Instr { imm: 32, a: Operand::at(0), b: Operand::at(256), w: Operand::at(512), ..Instr::op(Opcode::Fdot) }]));
     assert_traps(mk(vec![Instr { imm: 64, a: Operand::at(64), b: Operand::at(256), w: Operand::at(512), ..Instr::op(Opcode::Fdot) }]));
     assert_traps(mk(vec![Instr { imm: 64, a: Operand::at(0), b: Operand::at(128), w: Operand::at(512), ..Instr::op(Opcode::Fdot) }]));

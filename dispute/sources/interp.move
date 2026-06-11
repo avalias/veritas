@@ -304,14 +304,14 @@ public fun verify_step(
         write_bytes = u32_le(out);
     } else if (op == OP_FOP) {
         // FW-6 scalar float op, k-selected: 0 add, 1 mul, 2 fma (W read),
-        // 3 div, 4 sqrt, 5 floor, 6 ftoi, 7 itof. T6 beyond.
-        if (k > 7) {
+        // 3 div, 4 sqrt, 5 floor, 6 ftoi, 7 itof, 8 fgt. T6 beyond.
+        if (k > 8) {
             return verdict(&mem_root, &trap_regs(&pre), claimed_post)
         };
         let ea_a = ea(&pre, &instr, F_OPA);
         let ea_b = ea(&pre, &instr, F_OPB);
         let ea_w = ea(&pre, &instr, F_OPW);
-        let binary = k <= 3;
+        let binary = k <= 3 || k == 8;
         if (!ok_access(ea_a, 4, mem_bytes)
             || (binary && !ok_access(ea_b, 4, mem_bytes))
             || !ok_access(ea_w, 4, mem_bytes)) {
@@ -319,12 +319,13 @@ public fun verify_step(
         };
         check_open(&page_a, &sibs_a, ea_a / PAGE, d, &mem_root);
         let a = ble::u32_at(&page_a, ea_a % PAGE) as u32;
-        let out = if (k == 0 || k == 1 || k == 3) {
+        let out = if (k == 0 || k == 1 || k == 3 || k == 8) {
             check_open(&page_b, &sibs_b, ea_b / PAGE, d, &mem_root);
             let b = ble::u32_at(&page_b, ea_b % PAGE) as u32;
             if (k == 0) { sf::fadd(a, b) }
             else if (k == 1) { sf::fmul(a, b) }
-            else { sf::fdiv(a, b) }
+            else if (k == 3) { sf::fdiv(a, b) }
+            else { sf::fgt(a, b) }
         } else if (k == 2) {
             check_open(&page_b, &sibs_b, ea_b / PAGE, d, &mem_root);
             let b = ble::u32_at(&page_b, ea_b % PAGE) as u32;

@@ -449,3 +449,29 @@ public fun itof(v: u32): u32 {
     let e = EOFF + 190 - lz; // round_pack offset frame
     round_pack(if (neg) { 1 } else { 0 }, e, sig)
 }
+
+/// Committed float greater-than: 1 if a > b (IEEE; NaN false; -0 == +0).
+public fun fgt(a: u32, b: u32): u32 {
+    if (is_nan(a) || is_nan(b)) {
+        return 0
+    };
+    let za = is_zero(a);
+    let zb = is_zero(b);
+    if (za && zb) {
+        return 0
+    };
+    let sa = sign_of(a);
+    let sb = sign_of(b);
+    // Treat ±0 as sign 0 magnitude 0 (handled above when both).
+    if (sa != sb) {
+        // positive > negative, unless the positive side is zero vs -0 case
+        // already excluded; a > b iff a is the positive one.
+        return if (sa == 0) { 1 } else { 0 }
+    };
+    let (ma, mb) = (a & 0x7FFFFFFF, b & 0x7FFFFFFF);
+    if (sa == 0) {
+        if (ma > mb) { 1 } else { 0 }
+    } else {
+        if (ma < mb) { 1 } else { 0 }
+    }
+}

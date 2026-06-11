@@ -275,12 +275,12 @@ pub fn verify_step(
             write = Some((ea_w, out.to_le_bytes().to_vec()));
         }
         Opcode::Fop => {
-            if instr.k > 7 {
+            if instr.k > 8 {
                 return trap(&regs); // T6
             }
             let (ea_a, ea_b, ea_w) =
                 (ea(&regs, &instr.a), ea(&regs, &instr.b), ea(&regs, &instr.w));
-            let binary = instr.k <= 3;
+            let binary = instr.k <= 3 || instr.k == 8;
             if !ok_access(ea_a, 4, mem_bytes)
                 || (binary && !ok_access(ea_b, 4, mem_bytes))
                 || !ok_access(ea_w, 4, mem_bytes)
@@ -291,13 +291,14 @@ pub fn verify_step(
             let a = read_u32_at(pa, ea_a);
             use crate::softfloat as sf;
             let out = match instr.k {
-                0 | 1 | 3 => {
+                0 | 1 | 3 | 8 => {
                     let pb = open(&proof.open_b, page_of(ea_b), judge.d, &proof.mem_root)?;
                     let b = read_u32_at(pb, ea_b);
                     match instr.k {
                         0 => sf::fadd(a, b),
                         1 => sf::fmul(a, b),
-                        _ => sf::fdiv(a, b),
+                        3 => sf::fdiv(a, b),
+                        _ => sf::fgt(a, b),
                     }
                 }
                 2 => {
@@ -598,8 +599,8 @@ pub fn build_step_proof(m: &crate::exec::Machine, prog_tree: &ProgramTree) -> St
             }
         }
         Opcode::Fop => {
-            let binary = instr.k <= 3;
-            if instr.k <= 7
+            let binary = instr.k <= 3 || instr.k == 8;
+            if instr.k <= 8
                 && ok_access(ea_a, 4, mem_bytes)
                 && (!binary || ok_access(ea_b, 4, mem_bytes))
                 && ok_access(ea_w, 4, mem_bytes)

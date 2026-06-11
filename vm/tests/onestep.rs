@@ -239,7 +239,9 @@ fn step_proof_size_is_bounded() {
             + 32 * proof.instr_siblings.len()
             + 45
             + 32;
-        assert!(bytes <= 2 * (1024 + 32 * D as usize) + 96 + 32 * P as usize + 77 + 64);
+        // Up to THREE page openings since the float ops (FDOT reads A, B
+        // and read-modify-writes W; FOP fma reads A, B, W).
+        assert!(bytes <= 3 * (1024 + 32 * D as usize) + 96 + 32 * P as usize + 77 + 64);
         assert!(proof.open_b.is_none() || proof.open_w.is_none(), "never B-read AND write");
     }
 }

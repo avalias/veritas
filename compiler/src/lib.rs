@@ -7,6 +7,7 @@
 //! whole program is a compile-time fact. `Compiled::total_steps` is that
 //! prediction, and the equivalence test asserts the VM agrees exactly.
 
+pub mod fqwen;
 pub mod qwen;
 
 use toy_model::layout::Layout;

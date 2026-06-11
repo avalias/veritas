@@ -9,6 +9,8 @@
 pub mod config;
 pub mod fmath;
 pub mod fmodel;
+pub mod flayout;
+pub mod fc;
 pub mod forward;
 pub mod image;
 pub mod layout;

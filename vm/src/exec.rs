@@ -456,12 +456,12 @@ impl Machine {
             Opcode::Fop => {
                 // FW-6 scalar float op on 4-byte cells, k-selected:
                 // 0 add, 1 mul, 2 fma (W read+write), 3 div, 4 sqrt,
-                // 5 floor, 6 ftoi, 7 itof. T6 beyond.
-                if instr.k > 7 {
+                // 5 floor, 6 ftoi, 7 itof, 8 fgt (1/0 flag). T6 beyond.
+                if instr.k > 8 {
                     return Ok(self.trap());
                 }
                 let (ea_a, ea_b, ea_w) = (self.ea(&instr.a), self.ea(&instr.b), self.ea(&instr.w));
-                let binary = instr.k <= 3;
+                let binary = instr.k <= 3 || instr.k == 8;
                 if !self.ok_access(ea_a, 4)
                     || (binary && !self.ok_access(ea_b, 4))
                     || !self.ok_access(ea_w, 4)
@@ -478,7 +478,8 @@ impl Machine {
                     4 => sf::fsqrt(a),
                     5 => sf::ffloor(a),
                     6 => sf::ftoi(a) as u32,
-                    _ => sf::itof(a as i32),
+                    7 => sf::itof(a as i32),
+                    _ => sf::fgt(a, self.mem.read_u32(ea_b)),
                 };
                 self.mem.write(ea_w, &out.to_le_bytes());
             }

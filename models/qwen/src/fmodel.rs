@@ -112,28 +112,16 @@ impl FState {
     }
 }
 
-/// Committed f32×f32 sum-of-products: SAME 16-lane/64-block tree as the
-/// bf16 GEMV (fkernels), for activation·activation dots (norm sums, scores).
-#[allow(clippy::needless_range_loop)] // spec-literal lane indices
+/// Committed f32×f32 sum-of-products for the SMALL dots (norm sums over h,
+/// attention scores over dh): a SEQUENTIAL fused-fma chain — one FOP fma
+/// micro-op per element in the VM, the simplest possible committed shape.
+/// (The big GEMVs keep the 16-lane tree via FDOT; these dots are ≤1024
+/// elements and not performance-relevant.)
 fn fdot32(a: &[f32], b: &[f32]) -> f32 {
     debug_assert_eq!(a.len(), b.len());
-    debug_assert!(a.len().is_multiple_of(64));
     let mut acc = 0f32;
-    for (ab, bb) in a.chunks_exact(64).zip(b.chunks_exact(64)) {
-        let mut lane = [[0f32; 4]; 4];
-        for i in 0..4 {
-            for k in 0..4 {
-                for l in 0..4 {
-                    let j = 16 * i + 4 * k + l;
-                    lane[k][l] = ab[j].mul_add(bb[j], lane[k][l]);
-                }
-            }
-        }
-        let mut s = [0f32; 4];
-        for l in 0..4 {
-            s[l] = (lane[0][l] + lane[1][l]) + (lane[2][l] + lane[3][l]);
-        }
-        acc += (s[0] + s[1]) + (s[2] + s[3]);
+    for (x, y) in a.iter().zip(b) {
+        acc = x.mul_add(*y, acc);
     }
     acc
 }

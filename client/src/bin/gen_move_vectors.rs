@@ -435,7 +435,7 @@ fn cases() -> Vec<VsCase> {
 /// committed 64-block dot.
 #[allow(clippy::needless_range_loop)] // spec-literal lane indices
 fn emit_softfloat_vectors() {
-    use vm::softfloat::{fadd, fdiv, ffloor, ffma, fmul, fsqrt, ftoi, itof};
+    use vm::softfloat::{fadd, fdiv, ffloor, ffma, fgt, fmul, fsqrt, ftoi, itof};
     let mut s = 0x50F7_F107u64;
     let mut rng = move || {
         s ^= s << 13;
@@ -503,6 +503,7 @@ fn emit_softfloat_vectors() {
     let mut sqrt_w = Vec::new();
     let mut floor_w = Vec::new();
     let mut ftoi_w = Vec::new();
+    let mut fgt_w = Vec::new();
     let mut itof_in = Vec::new();
     let mut itof_w = Vec::new();
     for i in 0..a_v.len() {
@@ -513,6 +514,7 @@ fn emit_softfloat_vectors() {
         sqrt_w.push(fsqrt(a_v[i]));
         floor_w.push(ffloor(a_v[i]));
         ftoi_w.push(ftoi(a_v[i]) as u32);
+        fgt_w.push(fgt(a_v[i], b_v[i]));
         let v = (a_v[i] ^ b_v[i]) as i32;
         itof_in.push(v as u32);
         itof_w.push(itof(v));
@@ -548,6 +550,7 @@ fun rust_softfloat_unary_div_cvt_vectors() {{
     let ftoiw: vector<u32> = vector[{ftoiw}];
     let itofi: vector<u32> = vector[{itofi}];
     let itofw: vector<u32> = vector[{itofw}];
+    let fgtw: vector<u32> = vector[{fgtw}];
     let mut i = 0u64;
     while (i < a.length()) {{
         assert!(sf::fdiv(a[i], b[i]) == divw[i], i);
@@ -555,6 +558,7 @@ fun rust_softfloat_unary_div_cvt_vectors() {{
         assert!(sf::ffloor(a[i]) == floorw[i], 20000 + i);
         assert!(sf::ftoi(a[i]) == ftoiw[i], 30000 + i);
         assert!(sf::itof(itofi[i]) == itofw[i], 40000 + i);
+        assert!(sf::fgt(a[i], b[i]) == fgtw[i], 50000 + i);
         i = i + 1;
     }};
 }}
@@ -573,6 +577,7 @@ fun rust_softfloat_unary_div_cvt_vectors() {{
         ftoiw = u32s(&ftoi_w),
         itofi = u32s(&itof_in),
         itofw = u32s(&itof_w),
+        fgtw = u32s(&fgt_w),
     )
     .unwrap();
     // Committed block dots (finite inputs — honest-trace domain).

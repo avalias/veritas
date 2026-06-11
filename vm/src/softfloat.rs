@@ -449,6 +449,24 @@ pub fn itof(v: i32) -> u32 {
 }
 
 
+/// Committed float greater-than: 1 if a > b (IEEE ordering), else 0 —
+/// NaN compares false either side (honest traces are NaN-free; this just
+/// keeps the rule total). −0 == +0 (not greater).
+pub fn fgt(a: u32, b: u32) -> u32 {
+    if is_nan(a) || is_nan(b) {
+        return 0;
+    }
+    // Map to monotone signed keys: positive floats order as integers;
+    // negative floats order reversed.
+    let key = |x: u32| -> i64 {
+        if is_zero(x) {
+            return 0; // ±0 equal
+        }
+        if x >> 31 == 0 { x as i64 } else { -((x & 0x7FFF_FFFF) as i64) }
+    };
+    u32::from(key(a) > key(b))
+}
+
 /// The committed 64-element block dot over bf16 weights × f32 activations
 /// (the fkernels tree, bit-for-bit): 16 virtual fma lanes (lane kk takes
 /// j = 16·i + kk), pinned combine s[l] = (a0+a1)+(a2+a3), pinned horizontal
@@ -580,6 +598,16 @@ mod tests {
             assert_eq!(itof(v), (v as f32).to_bits(), "itof i={i} v={v}");
         }
     }
+    #[test]
+    fn fgt_matches_hardware() {
+        let mut s = 0x66F7u64;
+        for i in 0..2_000_000u64 {
+            let (a, b) = (rand_f32_bits(&mut s), rand_f32_bits(&mut s));
+            let want = u32::from(f32::from_bits(a) > f32::from_bits(b));
+            assert_eq!(fgt(a, b), want, "i={i} a={a:08x} b={b:08x}");
+        }
+    }
+
     /// The committed 64-block dot (fkernels tree), replayed entirely in
     /// softfloat, must equal the hardware kernel bit-for-bit — this is the
     /// exact computation the Move one-step verifier performs for a DOTF op.
