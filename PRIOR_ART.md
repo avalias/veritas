@@ -123,3 +123,51 @@ survey: [Equilibrium Labs — State of Verifiable Inference](https://equilibrium
 
 **Net: no structural change to SPEC.md.** Two future-work rows added and
 informative citations wired into §8.6/§9.2.
+
+---
+
+## 6. June 2026 refresh: fastest engines + the determinism/verification landscape
+
+*(Researched 2026-06-11 with sources; informs the FW-6 backend strategy:
+"rely on their tech for speed, add the missing piece — adjudication.")*
+
+### Fastest engines (batch-1 decode is bandwidth-bound everywhere)
+
+| platform | fastest today | notes |
+|---|---|---|
+| CPU | llama.cpp (de-facto reference); ik_llama.cpp fork up to 1.5–2.1× on x86 quants | every desktop stack wraps it |
+| Apple Silicon GPU | **MLX** ≈1.4–1.8× llama.cpp-Metal on small dense models; Ollama switched to MLX (v0.19) | llama.cpp still wins long-context |
+| CUDA bs=1 | llama.cpp-CUDA / ExLlama for quantized small models; TRT-LLM ~+8% over vLLM at concurrency 1 | RTX 4090 ~189 t/s @7B Q4 (ggml #15013) |
+
+### Deterministic-inference offerings — and how each VERIFIES correctness
+
+| system | pins | overhead | verification |
+|---|---|---|---|
+| Thinking Machines `batch_invariant_ops` | batch invariance (fixed tiles/splits) | ~1.6× (PoC) | **none** — reproducibility only |
+| SGLang deterministic mode | TML kernels + 3 attention backends + seeded sampling | 24–55% | **none** — own test suite |
+| vLLM `VLLM_BATCH_INVARIANT=1` | FlexAttention + op substitution | unpublished | **none** |
+| **EigenAI** (arXiv 2602.00182, mainnet 2026-01) | llama.cpp-CUDA fork: fixed block mapping, warp tree reductions, no FP atomics, pinned driver/container, one GPU SKU per pool | **≈1.8% E2E** | **optimistic re-execution by a TEE committee** (EigenLayer restaking, ≥2/3 vote); commits the FINAL OUTPUT HASH ONLY; a dispute re-runs the ENTIRE inference inside attested TEEs |
+
+The survey's key sentence, verbatim: *"none of the four offerings commits
+intermediate state, so none supports O(1)/logarithmic on-chain fraud
+proofs of a single wrong operation … I found no published system in this
+space offering per-operation challengeable commitments as of June 2026."*
+
+### What this means for us
+
+1. **Determinism is commodity** — EigenAI proves deterministic CUDA at
+   ~1.8% overhead on llama.cpp's own kernels. We ADOPT that lineage (our
+   committed reduction tree is exactly the pinned-kernel idea), we do not
+   claim it.
+2. **Adjudication is the open lane.** EigenAI's trust root is a staked
+   TEE committee re-running the whole inference; ours is a few-hundred-
+   line L1 contract executing ONE micro-op from a Merkle opening. Their
+   challenge costs a full re-execution + committee vote; ours costs
+   ~log₂(N) bisection txs + one minimum-gas `verify_step` — and we hold
+   the on-chain artifacts to prove it (qwen_conviction.move for the
+   integer path; softfloat.move block_dot for the float path).
+3. **Backend adoption path:** pin the committed float tree to match the
+   reduction shapes the fast engines already use (EigenAI's warp trees on
+   CUDA; MLX/Metal with fast-math off — measured on M4), so *their*
+   kernels become *our* predictor with ~zero overhead, and our protocol
+   adds the missing property: cheap on-chain falsifiability.
