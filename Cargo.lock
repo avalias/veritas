@@ -66,6 +66,7 @@ name = "benches"
 version = "0.1.0"
 dependencies = [
  "game",
+ "kernels",
  "sha3",
  "toy-model",
  "vm",

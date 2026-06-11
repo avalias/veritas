@@ -41,8 +41,8 @@ level; this alone cut commitment cost ~1.7×).
 
 | metric | value |
 |---|---|
-| integer decode (`qwen_demo`) | **~32 tok/s** (NEON smlal + persistent pool + fused blocked GEMV; was 14.8 naive → 27.6 → 32) |
-| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s — **gap 3.1×** (was 6.8×) |
+| integer decode (`qwen_demo`) | **~28 tok/s** (NEON smlal + persistent pool; was 14.8 naive. ±20% thermal drift between runs — see the controlled A/B below for the real kernel deltas) |
+| llama.cpp Q8_0, same machine, `-dev none` (pure CPU) | 101 tok/s — **gap ~3.6×** (was 6.8×) |
 | llama.cpp Q8_0, `-ngl 0` (Accelerate/AMX BLAS) | 109 tok/s |
 | commitment, sequential | 1.6 ms/token ≈ 4.5% of compute (dirty set grew with i16 V/probs) |
 | commitment, **pipelined** (hasher thread) | **0–3% wall-clock** (run-noise dominated; 0.00% measured on the earlier config; roots bit-identical, asserted) |
@@ -54,18 +54,34 @@ Two separable claims, now measured:
    bit-exact at any kernel speed (associativity), and hashing hides
    entirely behind compute when pipelined. This holds on GPU for the same
    reasons (integer kernels + on-device keccak / pipelining).
-2. **Kernel parity with llama.cpp is unfinished**: 3.1× gap. The ROOT
-   CAUSE is now precise and fundamental to the quality choice: our i16
+2. **Kernel parity with llama.cpp is unfinished**: ~3.6× gap. The ROOT
+   CAUSE is precise and fundamental to the quality choice: our i16
    activations force `vmlal_s16` (4 MACs/instruction); llama.cpp's Q8 path
    quantizes activations to i8 and uses `sdot` (16 MACs/instruction) —
    4× the MAC density. The i16 width is exactly what the quality campaign
-   required (i8 activations destroyed Qwen3's outlier range). Closing the
-   gap therefore needs either a multi-limb `sdot` decomposition of the i16
-   dot (bit-exact but overflow-careful) or per-block *dynamic* i8
-   activations (llama's design, a quality re-derivation). The fused
-   blocked GEMV (this round, +16%) reclaimed the per-block-reduction
-   overhead; the rest is the MAC-density wall. The protocol is indifferent
-   — any bit-exact kernel is admissible (§9.1).
+   required (i8 activations destroyed Qwen3's outlier range).
+
+   **Controlled A/B (`benches/kernel_ab`, thermal-robust ratio of medians,
+   3072×1024 GEMV).** Single-run tok/s drifts ±20% with thermals, so kernel
+   deltas are measured as same-process ratios, not wall-clock tok/s:
+
+   | blocked-GEMV kernel | ns/GEMV | vs legacy |
+   |---|---|---|
+   | legacy `dot_w8_x16` per 64-block | 46,010 | 1.00× |
+   | fused `block_partial` (one reduction/block) | 44,333 | **1.03×** |
+   | `sdot` two-limb decomposition (via `asm!`) | 60,890 | **0.75×** |
+
+   Two measured negatives this round: (a) the `sdot` two-limb trick is
+   bit-exact and issues 4× fewer MAC instructions, but `asm!` is opaque to
+   the scheduler so it can't pipeline block N+1's loads behind block N's
+   `sdot`s — net SLOWER. The theoretical win needs nightly `vdotq_s32`
+   intrinsics (free scheduling) or a hand-pipelined whole-row asm loop.
+   (b) fusing q/k/v into one pool dispatch was also slower (barriers
+   aren't the bottleneck). The fused `block_partial` (+3%) is the only
+   kept change. The residual gap is the i16-vmlal MAC-density wall; the
+   real levers are nightly DotProd intrinsics or per-block *dynamic* i8
+   activations (llama's design, a quality re-derivation). The protocol is
+   indifferent — any bit-exact kernel is admissible (§9.1).
 
 ## MEASURED: the full trustless-verification chain at Qwen scale
 

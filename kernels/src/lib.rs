@@ -268,6 +268,206 @@ pub fn gemv_w8_x16_blocked(
     });
 }
 
+// ---------------------------------------------------------------------------
+// sdot two-limb path (ARMv8.2 DotProd): 4× the MAC density of vmlal_s16.
+//
+// `sdot` does i8×i8 → i32 (16 MACs/instruction) but our activations are i16.
+// Decompose each i16 x into two i8 limbs:  x = 256·xh + xl,  with
+//   xh = (x + 128) >> 8   ∈ [-128, 128]   (rounded high limb)
+//   xl = x - 256·xh        ∈ [-128, 127]   (fits i8 exactly)
+// Then  w·x = 256·(w·xh) + (w·xl)  — two sdot passes. The lone overflow is
+// xh = 128 (only when x = 32767): store xh clamped to 127 and add the per-row
+// correction +256·w at that lane. Bit-identical to the scalar i64 dot.
+// ---------------------------------------------------------------------------
+
+/// Preprocess an i16 activation vector into the two i8 limb arrays + the list
+/// of clamped lane indices per 64-block. Done ONCE per GEMV (shared by all
+/// rows). `clamp` holds, per block, the local lane indices where xh == 128.
+#[cfg(target_arch = "aarch64")]
+fn split_limbs(x: &[i16]) -> (Vec<i8>, Vec<i8>, Vec<Vec<u8>>) {
+    let cols = x.len();
+    let blocks = cols / 64;
+    let mut xl = vec![0i8; cols];
+    let mut xh = vec![0i8; cols];
+    let mut clamp = vec![Vec::new(); blocks];
+    for i in 0..cols {
+        let xi = x[i] as i32;
+        let h = (xi + 128) >> 8; // ∈ [-128, 128]
+        let l = xi - 256 * h; // ∈ [-128, 127]
+        xl[i] = l as i8;
+        if h == 128 {
+            xh[i] = 127;
+            clamp[i / 64].push((i % 64) as u8);
+        } else {
+            xh[i] = h as i8;
+        }
+    }
+    (xl, xh, clamp)
+}
+
+/// One 64-element block: returns (Σ w·xl, Σ w·xh) as i32 via eight `sdot`
+/// instructions (16 MACs each). `vdotq_s32` is unstable on stable Rust, so
+/// the DotProd instruction is issued through inline `asm!`. Lane sums ≤
+/// 64·127·128 < 2^21, well within i32. Pointers must address 64 valid bytes.
+#[cfg(target_arch = "aarch64")]
+#[inline]
+unsafe fn block_dot_sdot(w: *const i8, xl: *const i8, xh: *const i8) -> (i32, i32) {
+    let sum_l: u64;
+    let sum_h: u64;
+    core::arch::asm!(
+        "movi v0.4s, #0",
+        "movi v1.4s, #0",
+        "ldp q2, q3, [{w}]",
+        "ldp q4, q5, [{w}, #32]",
+        "ldp q6, q7, [{xl}]",
+        "ldp q16, q17, [{xl}, #32]",
+        "sdot v0.4s, v2.16b, v6.16b",
+        "sdot v0.4s, v3.16b, v7.16b",
+        "sdot v0.4s, v4.16b, v16.16b",
+        "sdot v0.4s, v5.16b, v17.16b",
+        "ldp q6, q7, [{xh}]",
+        "ldp q16, q17, [{xh}, #32]",
+        "sdot v1.4s, v2.16b, v6.16b",
+        "sdot v1.4s, v3.16b, v7.16b",
+        "sdot v1.4s, v4.16b, v16.16b",
+        "sdot v1.4s, v5.16b, v17.16b",
+        "addv s0, v0.4s",
+        "addv s1, v1.4s",
+        "fmov {sl:w}, s0",
+        "fmov {sh:w}, s1",
+        w = in(reg) w,
+        xl = in(reg) xl,
+        xh = in(reg) xh,
+        sl = out(reg) sum_l,
+        sh = out(reg) sum_h,
+        out("v0") _, out("v1") _, out("v2") _, out("v3") _, out("v4") _,
+        out("v5") _, out("v6") _, out("v7") _, out("v16") _, out("v17") _,
+        options(nostack, readonly),
+    );
+    (sum_l as u32 as i32, sum_h as u32 as i32)
+}
+
+/// One 64-element block partial via the two-limb sdot decomposition, with the
+/// xh==128 overflow correction. Bit-identical to the scalar i64 dot.
+#[cfg(target_arch = "aarch64")]
+#[inline]
+unsafe fn block_partial_sdot(w: &[i8], xl: &[i8], xh: &[i8], clamp: &[u8]) -> i64 {
+    let (sl, sh) = block_dot_sdot(w.as_ptr(), xl.as_ptr(), xh.as_ptr());
+    let mut p = sl as i64 + 256 * (sh as i64);
+    for &ci in clamp {
+        p += 256 * (w[ci as usize] as i64); // xh was 128, stored 127
+    }
+    p
+}
+
+/// Blocked GEMV via the sdot two-limb path. Falls back to the vmlal kernel if
+/// DotProd is unavailable. Bit-identical to `gemv_w8_x16_blocked`.
+#[allow(clippy::too_many_arguments)]
+pub fn gemv_w8_x16_blocked_dot(
+    pool: &Pool,
+    w: &[i8],
+    x: &[i16],
+    rows: usize,
+    cols: usize,
+    m_blocks: &[i32],
+    shift: u8,
+    out: &mut [i64],
+) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        if std::arch::is_aarch64_feature_detected!("dotprod") {
+            let blocks = cols / 64;
+            let (xl, xh, clamp) = split_limbs(x);
+            let out_addr = SendPtr(out.as_mut_ptr());
+            let (xl, xh, clamp) = (&xl, &xh, &clamp);
+            pool.run(rows, 16, &move |start, end| {
+                let out_ptr = out_addr;
+                for r in start..end {
+                    let wrow = &w[r * cols..(r + 1) * cols];
+                    let mrow = &m_blocks[r * blocks..(r + 1) * blocks];
+                    let mut acc = 0i64;
+                    for b in 0..blocks {
+                        let p = unsafe {
+                            block_partial_sdot(
+                                &wrow[b * 64..(b + 1) * 64],
+                                &xl[b * 64..(b + 1) * 64],
+                                &xh[b * 64..(b + 1) * 64],
+                                &clamp[b],
+                            )
+                        };
+                        acc = acc.wrapping_add(p.wrapping_mul(mrow[b] as i64));
+                    }
+                    unsafe { *out_ptr.0.add(r) = rnd(acc, shift) };
+                }
+            });
+            return;
+        }
+    }
+    gemv_w8_x16_blocked(pool, w, x, rows, cols, m_blocks, shift, out);
+}
+
+/// LEGACY blocked GEMV: calls the generic `dot_w8_x16` (256-drain path) once
+/// per 64-block. Kept ONLY for the thermal-robust A/B that justified the
+/// fused `block_partial` (which does one reduction per block instead of the
+/// generic path's four). Not used in production.
+#[allow(clippy::too_many_arguments)]
+pub fn gemv_w8_x16_blocked_legacy(
+    pool: &Pool,
+    w: &[i8],
+    x: &[i16],
+    rows: usize,
+    cols: usize,
+    m_blocks: &[i32],
+    shift: u8,
+    out: &mut [i64],
+) {
+    let blocks = cols / 64;
+    let out_addr = SendPtr(out.as_mut_ptr());
+    pool.run(rows, 16, &move |start, end| {
+        let out_ptr = out_addr;
+        for r in start..end {
+            let wrow = &w[r * cols..(r + 1) * cols];
+            let mrow = &m_blocks[r * blocks..(r + 1) * blocks];
+            let mut acc = 0i64;
+            for b in 0..blocks {
+                let p = dot_w8_x16(&wrow[b * 64..(b + 1) * 64], &x[b * 64..(b + 1) * 64]);
+                acc = acc.wrapping_add(p.wrapping_mul(mrow[b] as i64));
+            }
+            unsafe { *out_ptr.0.add(r) = rnd(acc, shift) };
+        }
+    });
+}
+
+/// Bytes wrapper for the legacy blocked path (A/B only).
+#[allow(clippy::too_many_arguments)]
+pub fn gemv_blocked_legacy_bytes(
+    pool: &Pool,
+    w: &[u8],
+    x: &[u8],
+    rows: usize,
+    cols: usize,
+    m_blocks: &[i32],
+    shift: u8,
+    out: &mut [i64],
+) {
+    gemv_w8_x16_blocked_legacy(pool, bytes_as_i8(w), bytes_as_i16(x), rows, cols, m_blocks, shift, out)
+}
+
+/// Bytes wrapper for the sdot blocked path.
+#[allow(clippy::too_many_arguments)]
+pub fn gemv_blocked_dot_bytes(
+    pool: &Pool,
+    w: &[u8],
+    x: &[u8],
+    rows: usize,
+    cols: usize,
+    m_blocks: &[i32],
+    shift: u8,
+    out: &mut [i64],
+) {
+    gemv_w8_x16_blocked_dot(pool, bytes_as_i8(w), bytes_as_i16(x), rows, cols, m_blocks, shift, out)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn gemv_blocked_bytes(
     pool: &Pool,
@@ -444,6 +644,40 @@ mod tests {
         let m: Vec<i32> = (0..rows * blocks).map(|_| (xorshift(&mut s) % (1 << 24)) as i32 + 1).collect();
         let mut out = vec![0i64; rows];
         gemv_w8_x16_blocked(&pool, &w, &x, rows, cols, &m, 20, &mut out);
+        for r in 0..rows {
+            let mut acc = 0i64;
+            for b in 0..blocks {
+                let p = dot_w8_x16_scalar(
+                    &w[r * cols + b * 64..r * cols + (b + 1) * 64],
+                    &x[b * 64..(b + 1) * 64],
+                );
+                acc = acc.wrapping_add(p.wrapping_mul(m[r * blocks + b] as i64));
+            }
+            assert_eq!(out[r], rnd(acc, 20), "row {r}");
+        }
+    }
+
+    #[test]
+    fn blocked_sdot_equals_scalar() {
+        // The sdot two-limb path must equal the scalar definition EXACTLY,
+        // including the xh==128 (x==32767) overflow-correction edge.
+        let pool = Pool::new(8);
+        let mut s = 0xDEAD_BEEFu64;
+        let (rows, cols) = (131, 1024);
+        let blocks = cols / 64;
+        let w: Vec<i8> = (0..rows * cols).map(|_| xorshift(&mut s) as i8).collect();
+        // Force many extreme activations (32767/-32768) to exercise limbs.
+        let x: Vec<i16> = (0..cols)
+            .map(|_| match xorshift(&mut s) % 8 {
+                0 => 32767,
+                1 => -32768,
+                2 => 32766,
+                _ => xorshift(&mut s) as i16,
+            })
+            .collect();
+        let m: Vec<i32> = (0..rows * blocks).map(|_| (xorshift(&mut s) % (1 << 24)) as i32 + 1).collect();
+        let mut out = vec![0i64; rows];
+        gemv_w8_x16_blocked_dot(&pool, &w, &x, rows, cols, &m, 20, &mut out);
         for r in 0..rows {
             let mut acc = 0i64;
             for b in 0..blocks {
