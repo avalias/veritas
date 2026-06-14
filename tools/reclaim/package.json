@@ -1,0 +1,1 @@
+{"name":"reclaim-proof-gen","version":"1.0.0","type":"module","dependencies":{"@reclaimprotocol/attestor-core":"^5.0.7","@reclaimprotocol/js-sdk":"^5.5.0","@reclaimprotocol/zk-fetch":"^1.0.0"}}
