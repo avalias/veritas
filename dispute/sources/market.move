@@ -36,7 +36,6 @@ use sui::balance::Balance;
 use sui::coin::{Self, Coin};
 use sui::sui::SUI;
 use sui::clock::Clock;
-use sui::ed25519;
 use sui::event;
 use sui::hash;
 
@@ -83,6 +82,7 @@ const E_K_UNSATISFIABLE: u64 = 17;
 const E_BAD_TIME: u64 = 18;
 const E_TOO_MANY_EVIDENCE: u64 = 19;
 const E_NOT_LP: u64 = 20;
+const E_BAD_SCHEME: u64 = 21;
 
 /// An admitted piece of evidence: a signed claim by a pinned issuer. Stored
 /// so resolution is a transparent, recomputable function of on-chain bytes.
@@ -118,7 +118,8 @@ public struct Market has key {
     judge_program_root: vector<u8>, // which model+prompt extracts claims
     judge_depth: u8,
     // -- source policy (EVIDENCE.md §2): who may be heard, and how counted -
-    issuer_keys: vector<vector<u8>>, // pinned ed25519 pubkeys (32 bytes, distinct)
+    issuer_keys: vector<vector<u8>>, // pinned pubkeys (distinct)
+    issuer_schemes: vector<u8>, // issuer_idx → credential scheme (ed25519 | ES256/C2PA)
     issuer_groups: vector<u64>, // issuer_idx → trust group id
     k: u64, // confirmations required, counted at the GROUP level
     burden: u8, // BURDEN_OCCURRENCE | BURDEN_STATE
@@ -165,6 +166,7 @@ public fun create_market(
     judge_program_root: vector<u8>,
     judge_depth: u8,
     issuer_keys: vector<vector<u8>>,
+    issuer_schemes: vector<u8>,
     issuer_groups: vector<u64>,
     k: u64,
     burden: u8,
@@ -176,19 +178,21 @@ public fun create_market(
     ctx: &mut TxContext,
 ): address {
     let n = issuer_keys.length();
-    assert!(n > 0 && issuer_groups.length() == n, E_BAD_PARAMS);
+    assert!(n > 0 && issuer_groups.length() == n && issuer_schemes.length() == n, E_BAD_PARAMS);
     assert!(burden == BURDEN_OCCURRENCE || burden == BURDEN_STATE, E_BAD_PARAMS);
     assert!(evidence_window_ms > 0 && fee_bps < 10000, E_BAD_PARAMS);
     let now = clock.timestamp_ms();
     // there must be a real trading phase before evidence opens
     assert!(resolve_after_ms > now, E_BAD_TIME);
 
-    // each issuer key is a 32-byte ed25519 key, and keys must be DISTINCT —
-    // otherwise one key placed in two groups would forge "independence".
+    // each issuer key must be a natively-verifiable Web Credential key, and
+    // keys must be DISTINCT — otherwise one key placed in two groups would
+    // forge "independence".
     let mut distinct_groups = vector<u64>[];
     let mut i = 0;
     while (i < n) {
-        assert!(issuer_keys[i].length() == 32, E_BAD_PARAMS);
+        assert!(dispute::credential::is_native(issuer_schemes[i]), E_BAD_SCHEME);
+        assert!(valid_key_len(issuer_schemes[i], issuer_keys[i].length()), E_BAD_PARAMS);
         let mut j = i + 1;
         while (j < n) { assert!(issuer_keys[i] != issuer_keys[j], E_DUP_KEY); j = j + 1; };
         push_unique(&mut distinct_groups, issuer_groups[i]);
@@ -211,6 +215,7 @@ public fun create_market(
         judge_program_root,
         judge_depth,
         issuer_keys,
+        issuer_schemes,
         issuer_groups,
         k,
         burden,
@@ -246,6 +251,7 @@ public fun create_market_entry(
     judge_program_root: vector<u8>,
     judge_depth: u8,
     issuer_keys: vector<vector<u8>>,
+    issuer_schemes: vector<u8>,
     issuer_groups: vector<u64>,
     k: u64,
     burden: u8,
@@ -257,7 +263,7 @@ public fun create_market_entry(
     ctx: &mut TxContext,
 ) {
     let _ = create_market(
-        question, judge_program_root, judge_depth, issuer_keys, issuer_groups,
+        question, judge_program_root, judge_depth, issuer_keys, issuer_schemes, issuer_groups,
         k, burden, resolve_after_ms, evidence_window_ms, fee_bps, seed, clock, ctx,
     );
 }
@@ -345,7 +351,9 @@ public fun submit_evidence(
     assert!(!m.seen.contains(content_hash), E_DUPLICATE_EVIDENCE);
 
     let msg = canonical_message(m.id.to_address(), claim, &content_hash, signed_ms);
-    let ok = ed25519::ed25519_verify(&signature, &m.issuer_keys[issuer_idx], &msg);
+    let ok = dispute::credential::verify(
+        m.issuer_schemes[issuer_idx], &m.issuer_keys[issuer_idx], &msg, &signature,
+    );
     assert!(ok, E_BAD_SIGNATURE);
 
     admit_core(m, issuer_idx, claim, content_hash, signed_ms, ctx.sender());
@@ -492,6 +500,14 @@ fun u64_le(mut x: u64): vector<u8> {
 
 fun ensure_position(m: &mut Market, who: address) {
     if (!m.positions.contains(who)) { m.positions.add(who, Position { yes: 0, no: 0, paid: 0 }); };
+}
+
+/// Expected pubkey length for a credential scheme (ed25519 = 32, ES256
+/// compressed P-256 = 33).
+fun valid_key_len(scheme: u8, len: u64): bool {
+    if (scheme == dispute::credential::scheme_ed25519()) { len == 32 }
+    else if (scheme == dispute::credential::scheme_es256()) { len == 33 }
+    else { false }
 }
 
 fun push_unique(v: &mut vector<u64>, x: u64) {

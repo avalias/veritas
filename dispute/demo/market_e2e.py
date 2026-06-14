@@ -143,6 +143,7 @@ def main():
         "0xaabbccdd",        # judge program root (placeholder)
         "12",                # judge depth
         keys_json,           # issuer_keys  vector<vector<u8>>
+        "[0,0]",             # issuer_schemes: both ed25519 (scheme 0)
         "[0,1]",             # issuer_groups
         "2",                 # k
         "0",                 # burden = OCCURRENCE

@@ -39,6 +39,7 @@ fun fresh_market(s: &mut ts::Scenario, clock: &clock::Clock, k: u64, burden: u8)
         x"aabbccdd",
         12,
         mk_keys(),
+        vector[0, 0, 0, 0], // all ed25519 (scheme 0)
         vector[0, 0, 1, 1], // issuers 0,1 share group 0; issuers 2,3 share group 1
         k,
         burden,
@@ -306,7 +307,7 @@ fun create_rejects_unsatisfiable_k() {
     ts::next_tx(&mut s, ADMIN);
     let seed = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut s));
     market::create_market(
-        b"q", x"aa", 12, mk_keys(), vector[0, 0, 0, 0], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+        b"q", x"aa", 12, mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 0, 0], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
     abort 99
 }
@@ -322,7 +323,7 @@ fun create_rejects_duplicate_keys() {
     *&mut keys[1] = keys[0]; // duplicate key in a different group
     let seed = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut s));
     market::create_market(
-        b"q", x"aa", 12, keys, vector[0, 1, 2, 3], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+        b"q", x"aa", 12, keys, vector[0, 0, 0, 0], vector[0, 1, 2, 3], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
     abort 99
 }
