@@ -51,6 +51,8 @@ The world already signs its facts. This is the machine that computes over those 
 
 ## Status
 
+**Live now on Sui devnet** — a real wallet dApp (trade, submit zkTLS evidence, resolve, create markets) over a deployed package, 10 seeded markets. See [DEVNET.md](DEVNET.md) to run and test it.
+
 This is built, not a sketch. The on-chain market — trading on a solvent
 market maker, signed-evidence admission, rule-based resolution, payouts,
 full-stake refunds on a void, and liquidity settlement — is one Sui Move
