@@ -1,0 +1,20 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch(); const p = await b.newPage();
+const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+await p.goto('http://127.0.0.1:8777/app.html');
+await p.waitForSelector('.mcard',{timeout:15000});
+const res = await p.evaluate(async ()=>{
+  const { SuiClient } = await import('https://esm.sh/@mysten/sui@1.36.0/client');
+  const { Transaction } = await import('https://esm.sh/@mysten/sui@1.36.0/transactions');
+  const client = new SuiClient({ url:'https://fullnode.devnet.sui.io:443' });
+  const admin='0xb01503bef9a3acaab095a9269d21a5a8def0069478d5d4f8c5fbc6b0a4a650c9';
+  const tx=new Transaction();
+  tx.moveCall({target:''.replace('PKG','')||('0xd2b2a9493f91dc61d4dcc9f20f973600f39cb1e1cce1a155fe93ac16ec4a86f7')+'::market::position_of',arguments:[tx.object('0x4c967900fe8c6122ad20e4dd62e5f92eba6bf6e9fa59c6596031ee6fba4ff425'),tx.pure.address(admin)]});
+  const r=await client.devInspectTransactionBlock({transactionBlock:tx,sender:admin});
+  const rv=r.results?.[0]?.returnValues;
+  const u64=(bs)=>{let n=0n;for(let i=bs.length-1;i>=0;i--)n=(n<<8n)|BigInt(bs[i]);return Number(n);};
+  return rv? {yes:u64(rv[0][0]),no:u64(rv[1][0]),paid:u64(rv[2][0])} : 'no returnValues';
+});
+console.log('position_of(admin):', JSON.stringify(res));
+console.log('errors:', errs.join('|')||'none');
+await b.close();

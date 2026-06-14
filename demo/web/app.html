@@ -165,6 +165,19 @@ async function sign(tx,label){
   }catch(e){toast(label+' failed: '+(e.message||e),false);return null;}
 }
 
+// ---- read the connected wallet's position (read-only devInspect) ----
+async function myPosition(marketId){
+  if(!account) return null;
+  try{
+    const tx=new Transaction();
+    tx.moveCall({target:`${PKG}::market::position_of`,arguments:[tx.object(marketId),tx.pure.address(account.address)]});
+    const r=await client.devInspectTransactionBlock({transactionBlock:tx,sender:account.address});
+    const rv=r.results?.[0]?.returnValues; if(!rv) return null;
+    const u64=(b)=>{let n=0n;for(let i=b.length-1;i>=0;i--)n=(n<<8n)|BigInt(b[i]);return Number(n);};
+    return {yes:u64(rv[0][0]),no:u64(rv[1][0]),paid:u64(rv[2][0])};
+  }catch(e){return null;}
+}
+
 // ---- read market state ----
 async function loadMarket(id){
   const o=await client.getObject({id,options:{showContent:true}});
@@ -234,6 +247,7 @@ async function openMarket(id,kind){
       <div class="seg"><div class="s yes on" id="sy">YES</div><div class="s no" id="sn">NO</div></div>
       <input type="number" id="amt" value="0.05" step="0.01" min="0.01" />
       <button class="btn primary" id="buyBtn" style="width:100%;margin-top:10px">Buy <span id="buyside">YES</span> for <span id="buyamt">0.05</span> SUI</button>
+      <div id="mypos" class="mono" style="font-size:12px;color:var(--teal);margin-top:8px"></div>
       <div class="note">Buying shares is a bet, not a vote. Your money never decides the outcome — it only prices it. Winners redeem 1 SUI per share; every YES+NO pair is backed 1:1, so the market can't go insolvent.</div>`:''}
     ${evHtml}
     ${st.phase===2?`<button class="btn primary" id="redeemBtn" style="width:100%;margin-top:12px">Redeem winnings</button>`:''}`;
@@ -244,7 +258,8 @@ async function openMarket(id,kind){
   if(sy){sy.onclick=()=>{side='yes';sy.classList.add('on');sn.classList.remove('on');document.getElementById('buyside').textContent='YES';};
          sn.onclick=()=>{side='no';sn.classList.add('on');sy.classList.remove('on');document.getElementById('buyside').textContent='NO';};
          const amt=document.getElementById('amt'); amt.oninput=()=>document.getElementById('buyamt').textContent=amt.value;
-         document.getElementById('buyBtn').onclick=()=>buy(id,side,parseFloat(amt.value));}
+         document.getElementById('buyBtn').onclick=()=>buy(id,side,parseFloat(amt.value));
+         myPosition(id).then(p=>{const el=document.getElementById('mypos'); if(el&&p&&(p.yes||p.no)) el.textContent='your position: '+(p.yes/1e9).toFixed(3)+' YES · '+(p.no/1e9).toFixed(3)+' NO';});}
   const se=document.getElementById('submitEv'); if(se) se.onclick=()=>submitEvidence(id,m.proof);
   const re=document.getElementById('resolveEv'); if(re) re.onclick=()=>resolveMarket(id);
   const fb=document.getElementById('fakeBtn'); if(fb) fb.onclick=()=>{
