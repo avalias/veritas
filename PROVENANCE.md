@@ -44,34 +44,42 @@ They authenticate different things; we use the right tool per source:
   (`sui::groth16` is native) because naive 2048-bit modexp in Move is
   gas-prohibitive — `credential::verify` aborts on raw RSA rather than
   silently passing, forcing the Groth16 path.
-- **A source that does NOT sign** (an arbitrary web page, a score on a
-  site) → this is the only place **zkTLS** earns its keep. Reclaim has a
-  **live Sui mainnet verifier** (`client::verify_proof`), so a Reclaim web
-  proof is a drop-in evidence tier. But zkTLS carries an **attestor trust
-  assumption** (WEBPROOFS §1): the prover holds the TLS session key, so a
-  colluding attestor can fabricate content. So in the source policy it is
-  the **last-resort tier, capped below k** (EVIDENCE.md §3): it can
-  corroborate, never carry a verdict alone, and all proofs sharing an
-  attestor count as one trust group.
+- **A source that does NOT sign** (BBC, Reuters, AP, any web page) → this
+  is the workhorse, because **most real news content is unsigned**. The
+  only trustless way to read it is **zkTLS**: a Reclaim attestor witnesses
+  the TLS session and signs the extracted claim. **BUILT and tested
+  on-chain** — [reclaim.move](dispute/sources/reclaim.move) reproduces
+  Reclaim's verification natively (keccak identifier → EIP-191 →
+  `ecdsa_k1::secp256k1_ecrecover` → pinned attestor), proven against a real
+  attestor signature; [market.move](dispute/sources/market.move)
+  `submit_web_proof` admits it as an evidence class. zkTLS carries an
+  **attestor trust assumption** (WEBPROOFS §1): the prover holds the TLS
+  session key, so a colluding attestor can fabricate content. So in the
+  source policy it is a **capped tier** (EVIDENCE.md §3): the attestor set
+  is ONE trust group; it corroborates across independent *sources* but the
+  attestor is the residual root. Proof GENERATION is a client step (the
+  Reclaim app/SDK does the witnessed fetch); the chain half is ours.
 
-So: **not "ed25519 or zkTLS" — both, ranked.** Publisher-signed first
-(strongest, no committee), zkTLS only for unsigned sources (weakest,
-priced). The buzz is zkTLS; the substance is the signed-publisher tiers.
+So: **not "ed25519 or zkTLS" — both.** For sources that sign (media via
+C2PA/ES256), use the signature, no committee. For the unsigned web (most
+news), zkTLS is the real workhorse — now built and verified on Sui. Pin
+Reclaim's real attestor (`0xDa11C9Da04Ab02C4AF9374B27A5E727944D3E1dD`) in
+production.
 
-Wiring a Reclaim proof is the same shape as the table above — one more
-`scheme` whose `verify` calls Reclaim's on-chain verifier — and is the
-next credential to add. It needs a real proof from Reclaim's attestor
-network to test end to end, which is why it is documented here rather than
-shipped tonight.
+## A Nitro TEE / Sui Nautilus as a second layer? Yes — defense in depth
 
-## Should the judge also run in a Nitro TEE? Yes — as a second layer
+The Sui-blessed way to do TEE compute is **Nautilus** (Mysten's verifiable
+offchain-computation framework) — and Nautilus runs on **AWS Nitro
+Enclaves with on-chain PCR attestation**, so "Nautilus" and "Nitro" are the
+same hardware root, just the framework name. [tee.move](dispute/sources/tee.move)
+is exactly the on-chain verification side of it.
 
-Built: [tee.move](dispute/sources/tee.move). The fraud proof is the **hard
-guarantee** (the judge ran correctly, no hardware trust, a liar is
-slashed). The TEE is **defense in depth**, not a replacement:
+The fraud proof is the **hard guarantee** (the judge ran correctly, no
+hardware trust, a liar is slashed). The Nautilus/TEE layer is **defense in
+depth**, not a replacement:
 
-- A runner runs the committed judge image inside an **AWS Nitro enclave**
-  and produces an attestation. Sui's **native** `nitro_attestation`
+- A runner runs the committed judge image inside a **Nautilus (AWS Nitro)
+  enclave** and produces an attestation. Sui's **native** `nitro_attestation`
   verifies the COSE signature + the full AWS Nitro cert chain on-chain;
   `tee::verify_judge_enclave` then binds **PCR0** (the enclave image
   measurement) to the **exact judge build the market committed**.
@@ -91,16 +99,18 @@ not in `sui move test`.
 ## The layered picture
 
 ```
-strongest, no committee  ┌─ C2PA / ES256        (native, BUILT, tested)
-                         ├─ DKIM / RS256-JWT     (Groth16, native verifier)
-                         ├─ signed feeds/ed25519 (native, BUILT, tested)
-                         ├─ TEE-attested fetch   (nitro, BUILT: tee.move)
-weakest, priced, capped  └─ zkTLS / Reclaim      (live Sui verifier, next)
+ signed sources          ┌─ C2PA / ES256        (native, BUILT, tested)
+ (no committee)          ├─ signed feeds/ed25519 (native, BUILT, tested)
+                         └─ DKIM / RS256-JWT     (Groth16, native verifier)
+ unsigned web            ┌─ zkTLS / Reclaim      (BUILT, tested: reclaim.move
+ (the workhorse,         │                        + submit_web_proof; ecrecover)
+  capped tier)           └─ Nautilus/TEE fetch   (BUILT: tee.move)
                                   │
-                                  ▼
-        credential::verify(scheme, key, msg, sig)  ── one gate ──▶ market admission
+            ┌─────────────────────┴──────────────────────┐
+   credential::verify(scheme,key,msg,sig)      reclaim::verify(claim,sig,attestor)
+            └─────────────── market admission ────────────┘
                                   │
-        + judge runs (optionally TEE-attested) and is fraud-provable to one micro-op
+        + judge runs (optionally Nautilus-attested) and is fraud-provable to one micro-op
 ```
 
 Every layer is either a publisher's own signature (no new trust) or a

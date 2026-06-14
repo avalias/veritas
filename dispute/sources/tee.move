@@ -1,4 +1,10 @@
-/// tee.move — the optional SECOND security layer for the judge.
+/// tee.move — the optional SECOND security layer for the judge (Sui Nautilus).
+///
+/// This is the on-chain verification side of Sui **Nautilus**, Mysten's
+/// framework for verifiable offchain computation: run the committed judge
+/// inside an AWS Nitro enclave, and verify its attestation on-chain by its
+/// PCR measurements. (Nautilus IS Nitro-based — it is the Sui-blessed way
+/// to do TEE compute, and this module is exactly its attestation check.)
 ///
 /// Defense in depth. The fraud proof (dispute::dispute) is the HARD
 /// guarantee: it proves the committed judge ran CORRECTLY, byte-for-byte,
