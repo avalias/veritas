@@ -190,6 +190,29 @@ public fun create_market(
     market_addr
 }
 
+/// CLI/PTB-friendly creation: shares the market and drops the returned
+/// address (clients recover it from the MarketCreated event / object changes).
+public fun create_market_entry(
+    question: vector<u8>,
+    judge_program_root: vector<u8>,
+    judge_depth: u8,
+    issuer_keys: vector<vector<u8>>,
+    issuer_groups: vector<u64>,
+    k: u64,
+    burden: u8,
+    resolve_after_ms: u64,
+    evidence_window_ms: u64,
+    fee_bps: u64,
+    seed: Coin<SUI>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let _ = create_market(
+        question, judge_program_root, judge_depth, issuer_keys, issuer_groups,
+        k, burden, resolve_after_ms, evidence_window_ms, fee_bps, seed, clock, ctx,
+    );
+}
+
 // =========================================================================
 // TRADING — a solvent complete-set CPMM.
 //
@@ -390,6 +413,13 @@ public fun redeem(m: &mut Market, ctx: &mut TxContext): Coin<SUI> {
     assert!(payout > 0, E_NOTHING_TO_REDEEM);
     event::emit(Redeemed { market: m.id.to_address(), who, payout });
     coin::from_balance(m.collateral.split(payout), ctx)
+}
+
+/// CLI/PTB-friendly redeem: sends the payout coin to the caller.
+#[allow(lint(self_transfer))]
+public fun redeem_to_sender(m: &mut Market, ctx: &mut TxContext) {
+    let c = redeem(m, ctx);
+    transfer::public_transfer(c, ctx.sender());
 }
 
 // =========================================================================
