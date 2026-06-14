@@ -73,6 +73,9 @@
   .kvs{font-family:var(--mono);font-size:11.5px;color:var(--dim);display:flex;flex-direction:column;gap:4px}
   .kvs b{color:var(--tx);font-weight:500}
   footer{padding:36px 0 60px;border-top:1px solid var(--border);margin-top:30px;color:var(--faint);font-size:13px}
+  @keyframes shimmer{0%{opacity:.4}50%{opacity:.8}100%{opacity:.4}}
+  .skel{animation:shimmer 1.3s ease-in-out infinite}
+  @media(max-width:520px){.ct{display:none}.hero h1{font-size:24px}.why{grid-template-columns:1fr!important}}
 </style>
 </head>
 <body>
@@ -80,7 +83,7 @@
   <div class="brand"><span class="dot"></span> Veritas</div>
   <div class="navright">
     <span class="netpill">● Sui devnet · live</span>
-    <button class="btn" id="createBtn"><i class="ti ti-plus"></i> Create market</button>
+    <button class="btn" id="createBtn"><i class="ti ti-plus"></i> <span class="ct">Create market</span></button>
     <button class="btn" id="walletBtn">Connect wallet</button>
   </div>
 </div></nav>
