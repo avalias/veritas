@@ -1,0 +1,59 @@
+{
+  "package": "0xd2b2a9493f91dc61d4dcc9f20f973600f39cb1e1cce1a155fe93ac16ec4a86f7",
+  "network": "devnet",
+  "rpc": "https://fullnode.devnet.sui.io:443",
+  "clock": "0x6",
+  "attestors": [
+    "0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025",
+    "0xda11c9da04ab02c4af9374b27a5e727944d3e1dd",
+    "0x2222222222222222222222222222222222222222"
+  ],
+  "markets": [
+    {
+      "id": "0x9a0326ad75cb8814fcf67e5875a19bb9f6471ed5bb6c8524cee3813e56b98296",
+      "emoji": "\ud83d\ude80",
+      "question": "Will SpaceX's Starship reach orbit before October 1, 2026?",
+      "category": "Space"
+    },
+    {
+      "id": "0x233ea93c4fa03d2d08d7462d60540ed736aaa267a650e8011aada20ea346487a",
+      "emoji": "\ud83e\udd16",
+      "question": "Will OpenAI release a model it calls GPT-6 before 2027?",
+      "category": "AI"
+    },
+    {
+      "id": "0x1a0be332c443f1d9015b4fff69260a713745488097a3df9f3b769462067911dc",
+      "emoji": "\ud83d\udcc8",
+      "question": "Will Bitcoin trade above $150,000 before 2027?",
+      "category": "Markets"
+    },
+    {
+      "id": "0x1a7e04b8c20a4e01e108d91d8b0361ed11c28c10e14df5be6c6e6b8b50bb5a83",
+      "emoji": "\ud83c\udfdb\ufe0f",
+      "question": "Will the US Federal Reserve cut rates at its next meeting?",
+      "category": "Macro"
+    }
+  ],
+  "evidence_market": {
+    "id": "0xa3ada46fe6cb1bfa4fe816571d30ac7308d7ab7a0149f7ab624fa6db3fe95140",
+    "emoji": "\ud83d\udef0\ufe0f",
+    "question": "Did Starship reach orbit, as reported by the wires?",
+    "category": "Space \u00b7 evidence window",
+    "phase": "evidence",
+    "resolve_after": 1781475622088,
+    "window": 3600000,
+    "proof": {
+      "attestor_idx": 0,
+      "claim": 1,
+      "provider": "0x68747470",
+      "parameters": "0x7b2275726c223a2268747470733a2f2f7777772e6262632e636f6d2f6e657773222c226d6574686f64223a22474554222c22726573706f6e73654d617463686573223a5b7b2274797065223a22636f6e7461696e73222c2276616c7565223a2253746172736869702072656163686573206f72626974227d5d7d",
+      "context": "0x7b22657874726163746564506172616d6574657273223a7b22686561646c696e65223a225370616365582053746172736869702072656163686573206f72626974227d2c2270726f766964657248617368223a2230786262632d6c697665227d",
+      "owner": "0x307831376335313835313637343031656430306366356635623266633937643962626664623764303235",
+      "timestamp_s": 1781475802,
+      "epoch": 1,
+      "signature": "0x5f7836b701d0d928baa88fc89e8eaa10e6f4c95982c280aa35e931289f9a37b03c37b05ad41522a9bad4a743d4f61203d8b9825104bf5c30323ccc98ea5fd7a51b",
+      "source": "bbc.com",
+      "headline": "SpaceX Starship reaches orbit"
+    }
+  }
+}
