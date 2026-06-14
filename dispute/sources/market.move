@@ -60,6 +60,10 @@ const PHASE_RESOLVED: u8 = 2;
 const CLAIM_YES: u8 = 1;
 const CLAIM_NO: u8 = 2;
 
+// zkTLS (Reclaim) evidence class: the issuer "key" is a 20-byte pinned
+// attestor address, admitted via submit_web_proof (dispute::reclaim).
+const SCHEME_RECLAIM: u8 = 3;
+
 /// Cap on admitted evidence items: bounds the resolve() loop's gas and
 /// stops a captured issuer from flooding the market (EVIDENCE.md §4 row 7).
 /// Per-trust-group quotas are the production refinement.
@@ -191,7 +195,7 @@ public fun create_market(
     let mut distinct_groups = vector<u64>[];
     let mut i = 0;
     while (i < n) {
-        assert!(dispute::credential::is_native(issuer_schemes[i]), E_BAD_SCHEME);
+        assert!(scheme_admissible(issuer_schemes[i]), E_BAD_SCHEME);
         assert!(valid_key_len(issuer_schemes[i], issuer_keys[i].length()), E_BAD_PARAMS);
         let mut j = i + 1;
         while (j < n) { assert!(issuer_keys[i] != issuer_keys[j], E_DUP_KEY); j = j + 1; };
@@ -359,6 +363,55 @@ public fun submit_evidence(
     admit_core(m, issuer_idx, claim, content_hash, signed_ms, ctx.sender());
 }
 
+/// zkTLS admission: a Reclaim web proof that a site (which doesn't sign its
+/// content — BBC, Reuters, any URL) served the claimed value, witnessed and
+/// signed by a PINNED attestor. This is how the market hears unsigned web
+/// sources without a bespoke oracle. `attestor_idx` selects a pinned
+/// SCHEME_RECLAIM issuer whose key is the 20-byte attestor address.
+public fun submit_web_proof(
+    m: &mut Market,
+    attestor_idx: u64,
+    claim: u8, // the YES/NO the proof's content supports (judge-checkable)
+    provider: vector<u8>,
+    parameters: vector<u8>,
+    context: vector<u8>,
+    owner: vector<u8>,
+    timestamp_s: u64,
+    epoch: u64,
+    signature: vector<u8>,
+    clock: &Clock,
+    ctx: &TxContext,
+) {
+    assert!(phase_now(m, clock) == PHASE_EVIDENCE, E_WRONG_PHASE);
+    assert!(claim == CLAIM_YES || claim == CLAIM_NO, E_BAD_CLAIM);
+    assert!(attestor_idx < m.issuer_keys.length(), E_BAD_ISSUER);
+    assert!(m.issuer_schemes[attestor_idx] == SCHEME_RECLAIM, E_BAD_SCHEME);
+    assert!(m.evidence.length() < MAX_EVIDENCE, E_TOO_MANY_EVIDENCE);
+    // the witnessed time must fall inside this market's evidence window
+    let signed_ms = timestamp_s * 1000;
+    assert!(signed_ms >= m.resolve_after_ms, E_OUT_OF_WINDOW);
+    assert!(signed_ms < m.resolve_after_ms + m.evidence_window_ms, E_OUT_OF_WINDOW);
+
+    // verify the attestor's signature exactly as Reclaim does (Sui-native).
+    // Aborts unless the PINNED attestor signed this exact claim.
+    let proof = dispute::reclaim::verify(
+        provider, parameters, context, owner, timestamp_s, epoch, signature,
+        m.issuer_keys[attestor_idx],
+    );
+
+    // dedup id = the proof's claim identity (provider+params+context)
+    let content_hash = sui::hash::keccak256(&claim_bytes(&proof));
+    assert!(!m.seen.contains(content_hash), E_DUPLICATE_EVIDENCE);
+    admit_core(m, attestor_idx, claim, content_hash, signed_ms, ctx.sender());
+}
+
+fun claim_bytes(p: &dispute::reclaim::WebProof): vector<u8> {
+    let mut b = dispute::reclaim::provider(p);
+    b.append(dispute::reclaim::parameters(p));
+    b.append(dispute::reclaim::context(p));
+    b
+}
+
 /// Record an admitted item (after all validation incl. the signature).
 fun admit_core(m: &mut Market, issuer_idx: u64, claim: u8, content_hash: vector<u8>, signed_ms: u64, who: address) {
     let group = m.issuer_groups[issuer_idx];
@@ -502,11 +555,17 @@ fun ensure_position(m: &mut Market, who: address) {
     if (!m.positions.contains(who)) { m.positions.add(who, Position { yes: 0, no: 0, paid: 0 }); };
 }
 
-/// Expected pubkey length for a credential scheme (ed25519 = 32, ES256
-/// compressed P-256 = 33).
+/// A scheme a market may pin: a native signature credential, or zkTLS.
+fun scheme_admissible(scheme: u8): bool {
+    dispute::credential::is_native(scheme) || scheme == SCHEME_RECLAIM
+}
+
+/// Expected key length per scheme (ed25519 = 32, ES256 compressed P-256 =
+/// 33, Reclaim attestor address = 20).
 fun valid_key_len(scheme: u8, len: u64): bool {
     if (scheme == dispute::credential::scheme_ed25519()) { len == 32 }
     else if (scheme == dispute::credential::scheme_es256()) { len == 33 }
+    else if (scheme == SCHEME_RECLAIM) { len == 20 }
     else { false }
 }
 
