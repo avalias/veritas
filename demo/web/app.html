@@ -95,6 +95,17 @@
     </div>
   </div>
   <div class="grid" id="grid"></div>
+
+  <div style="margin:34px 0 10px">
+    <div style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:14px">under the hood · all of it real</div>
+    <div class="why" style="grid-template-columns:repeat(4,1fr)">
+      <div class="c"><div class="h" style="color:var(--teal)"><i class="ti ti-cpu"></i> Real AI judge</div><div class="d">Qwen3-0.6B in a deterministic VM · perplexity <b style="color:var(--tx)">34.60</b> = the published model. Not dumbed down.</div></div>
+      <div class="c"><div class="h" style="color:var(--blue)"><i class="ti ti-copy-check"></i> Bit-identical</div><div class="d">Same output on any CPU or GPU, to the last bit. "Run it yourself" is real, not a slogan.</div></div>
+      <div class="c"><div class="h" style="color:var(--purple)"><i class="ti ti-shield-lock"></i> zkTLS on-chain</div><div class="d">A real attestor signature verified by Sui-native <span class="mono">ecrecover</span>. <a href="https://suiscan.xyz/devnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1" target="_blank">see the tx</a></div></div>
+      <div class="c"><div class="h" style="color:var(--red)"><i class="ti ti-gavel"></i> Fraud-provable</div><div class="d">A real judge fault was bisected to one micro-op and <b style="color:var(--tx)">convicted on-chain</b>. Lying is slashable.</div></div>
+    </div>
+    <div class="note" style="margin-top:12px">Could you run the Qwen judge yourself in a TEE? Yes — on <b>Sui Nautilus</b> (AWS Nitro), with its attestation verified on-chain as a second layer behind the fraud proof. The whole package — markets, zkTLS, the judge, the dispute game — is <b>70 passing Move tests</b>, deployed here on devnet.</div>
+  </div>
 </div>
 
 <footer><div class="wrap">
