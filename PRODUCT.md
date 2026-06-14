@@ -54,11 +54,19 @@ The world already signs its facts. This is the machine that computes over those 
 This is built, not a sketch. The on-chain market — trading on a solvent
 market maker, signed-evidence admission, rule-based resolution, payouts,
 full-stake refunds on a void, and liquidity settlement — is one Sui Move
-package with 63 passing tests. It has been driven through its entire
+package with 66 passing tests. It has been driven through its entire
 lifecycle live on a local Sui network, including real publisher signatures
 verified on-chain. The AI judge, its bit-for-bit determinism, and the
 fraud-proof that slashes a liar are each independently proven. The economics
-and admission logic were hardened against an adversarial security review
-before this writeup.
+and admission logic were hardened against an adversarial security review.
+
+Evidence provenance is real and multi-scheme (see [PROVENANCE.md](PROVENANCE.md)):
+`ed25519` for signed feeds and native `ES256` for C2PA Content Credentials
+(the news-photo signing standard), with a real ES256 signature verified
+on-chain; DKIM/zkTLS plug in via `groth16` and Reclaim's live Sui verifier.
+An optional AWS Nitro TEE second layer (`tee.move`) attests the judge ran
+in a measured enclave, as defense in depth behind the fraud proof. A
+polished, self-contained walkthrough lives in [demo/web](demo/web) — open
+`index.html` to try the whole thing in a browser.
 
 *Deeper reading: [VISION.md](VISION.md) (the general system), [EVIDENCE.md](EVIDENCE.md) (how evidence is chosen and the judge is hardened), [DEMO.md](DEMO.md) (the working demo).*
