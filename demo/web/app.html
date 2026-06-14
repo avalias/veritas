@@ -108,8 +108,8 @@
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.1.0/dist/tabler-icons.min.css">
 <script type="module">
-import { SuiClient } from 'https://esm.sh/@mysten/sui@2.17.0/client';
-import { Transaction } from 'https://esm.sh/@mysten/sui@2.17.0/transactions';
+import { SuiClient } from 'https://esm.sh/@mysten/sui@1.36.0/client';
+import { Transaction } from 'https://esm.sh/@mysten/sui@1.36.0/transactions';
 import { getWallets } from 'https://esm.sh/@mysten/wallet-standard@0.20.3';
 
 const CFG = await (await fetch('./markets.json')).json();
@@ -159,7 +159,10 @@ async function loadMarket(id){
   const o=await client.getObject({id,options:{showContent:true}});
   const f=o.data.content.fields;
   const ry=Number(f.reserve_yes), rn=Number(f.reserve_no);
-  return {id,f,ry,rn,priceYes:Math.round(rn/(ry+rn)*100),phase:Number(f.phase),outcome:Number(f.outcome),
+  const ra=Number(f.resolve_after_ms), win=Number(f.evidence_window_ms), now=Date.now(), stored=Number(f.phase);
+  // effective phase from the clock: 0 trading · 1 evidence · 2 resolved · 3 window closed (awaiting resolve)
+  let ephase = stored===2 ? 2 : now<ra ? 0 : now<ra+win ? 1 : 3;
+  return {id,f,ry,rn,priceYes:Math.round(rn/(ry+rn)*100),phase:ephase,stored,outcome:Number(f.outcome),
     question:bytesToStr(f.question),evidence:(f.evidence||[]),collateral:Number(f.collateral)};
 }
 
@@ -180,9 +183,10 @@ async function renderGrid(){
     document.getElementById('pn-'+m.id).textContent=(100-st.priceYes)+'¢ NO';
     document.getElementById('by-'+m.id).style.width=st.priceYes+'%';
     document.getElementById('bn-'+m.id).style.width=(100-st.priceYes)+'%';
-    const ph=['trading','evidence','resolved'][st.phase]||'trading';
-    const el=document.getElementById('ph-'+m.id); el.className='phase '+ph;
-    el.textContent= st.phase===2 ? ('resolved · '+['','YES','NO','VOID'][st.outcome]) : ph;
+    const names=['trading','evidence','resolved','awaiting resolve'];
+    const cls=['trading','evidence','resolved','evidence'][st.phase];
+    const el=document.getElementById('ph-'+m.id); el.className='phase '+cls;
+    el.textContent= st.phase===2 ? ('resolved · '+['','YES','NO','VOID'][st.outcome]) : names[st.phase];
   }).catch(()=>{}); }
 }
 
@@ -195,11 +199,19 @@ async function openMarket(id,kind){
   let evHtml='';
   if(kind==='evidence'){
     const items=(st.evidence||[]).map(e=>{const ef=e.fields||e;return `<div class="ev"><div class="ico">zk</div><div class="b"><div class="s">zkTLS web proof <span class="badge"><i class="ti ti-shield-check"></i> ecrecover verified</span></div><div class="m">attestor group ${ef.group} · claim ${ef.claim==1?'YES':'NO'}</div></div></div>`;}).join('')||'<div class="dim" style="font-size:13px">No evidence admitted yet.</div>';
-    evHtml=`<h3>Evidence — zkTLS, not opinions</h3>
-      <div class="kvs" style="margin-bottom:10px"><span>source: <b>${m.proof.source}</b> · "${m.proof.headline}"</span><span>attestor: <b>${CFG.attestors[0].slice(0,10)}…</b> (pinned)</span></div>
+    evHtml=`<h3>Evidence — zkTLS proofs, not opinions</h3>
+      <div class="kvs" style="margin-bottom:10px"><span>real proof: <b>${m.proof.source}</b> served "${m.proof.headline}"</span><span>witnessed by pinned attestor <b>${CFG.attestors[0].slice(0,10)}…</b></span></div>
       ${items}
-      <button class="btn primary" id="submitEv" style="margin-top:8px"><i class="ti ti-shield-check"></i> Submit this zkTLS proof on-chain</button>
-      <div class="note">This is the anti-voting mechanism. You are not asserting an outcome — you are submitting a <b>cryptographic proof of what ${m.proof.source} actually served</b>, witnessed by a pinned attestor and verified by Sui's native <span class="mono">ecrecover</span>. You could never forge it, and the AI judge reads the real content.</div>`;
+      ${st.phase===1?`<button class="btn primary" id="submitEv" style="margin-top:4px"><i class="ti ti-shield-check"></i> Submit this zkTLS proof (YES) on-chain</button>`
+        : st.phase===3?`<button class="btn primary" id="resolveEv" style="margin-top:4px"><i class="ti ti-gavel"></i> Resolve — apply the committed rule</button>`
+        : `<div class="note" style="margin-top:4px">Evidence window opens shortly (a short trading buffer is enforced at creation).</div>`}
+      <h3 style="margin-top:18px">…now try to vote the other way</h3>
+      <div class="seg" style="margin-bottom:8px">
+        <input type="text" id="fakeClaim" placeholder="type a claim that it's NO…" style="flex:1;background:var(--inset);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--tx);font-size:14px" />
+        <button class="btn" id="fakeBtn">Submit as NO</button>
+      </div>
+      <div id="fakeOut"></div>
+      <div class="note">This is exactly how we avoid becoming a token vote. You <b>cannot</b> submit an opinion. The only admissible evidence is a zkTLS proof of what a <b>pinned source actually served</b> — verified on-chain by native <span class="mono">ecrecover</span>. There is no proof of a source saying NO, so there is nothing to submit. And copies don't add up: confirmations are counted <b>per independent source</b>, never per submission. The AI judge reads the real content; nobody votes the result.</div>`;
   }
   modal.innerHTML=`<span class="x" id="closeX">✕</span>
     <div class="cat mono dim">${m.category}</div>
@@ -223,6 +235,12 @@ async function openMarket(id,kind){
          const amt=document.getElementById('amt'); amt.oninput=()=>document.getElementById('buyamt').textContent=amt.value;
          document.getElementById('buyBtn').onclick=()=>buy(id,side,parseFloat(amt.value));}
   const se=document.getElementById('submitEv'); if(se) se.onclick=()=>submitEvidence(id,m.proof);
+  const re=document.getElementById('resolveEv'); if(re) re.onclick=()=>resolveMarket(id);
+  const fb=document.getElementById('fakeBtn'); if(fb) fb.onclick=()=>{
+    const v=(document.getElementById('fakeClaim').value||'').trim();
+    document.getElementById('fakeOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill)"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-ban"></i></div><div class="b"><div class="s" style="color:var(--red)">Refused — no proof exists</div><div class="m" style="color:var(--dim)">${v?('"'+v.slice(0,48)+'" ')+'is an opinion. ':''}There is no zkTLS proof that a pinned source reported NO, so it cannot be submitted. You can't vote — you can only prove what a source served.</div></div></div>`;
+    document.getElementById('fakeClaim').value='';
+  };
   const rb=document.getElementById('redeemBtn'); if(rb) rb.onclick=()=>redeem(id);
 }
 
@@ -247,6 +265,11 @@ async function redeem(id){
   const tx=new Transaction();
   tx.moveCall({target:`${PKG}::market::redeem_to_sender`,arguments:[tx.object(id)]});
   await sign(tx,'Redeemed');
+}
+async function resolveMarket(id){
+  const tx=new Transaction();
+  tx.moveCall({target:`${PKG}::market::resolve`,arguments:[tx.object(id),tx.object(CLOCK)]});
+  const r=await sign(tx,'Resolved by the committed rule'); if(r){setTimeout(()=>{openMarket(id,'evidence');renderGrid();},1500);}
 }
 
 renderGrid();
