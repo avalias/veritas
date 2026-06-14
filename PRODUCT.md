@@ -4,13 +4,18 @@
 
 ## The problem with prediction markets today
 
-In March 2025, Polymarket ran a market: would Ukraine sign a rare-earth mineral deal with the Trump administration by March 31?
+On token-vote oracles, a market's outcome is settled by a vote *after* the
+money is already on the table. That has gone wrong in public: a large token
+holder, voting across several accounts, controlled about a quarter of a
+dispute round and forced a multi-million-dollar market to the wrong answer.
+The losing side was told it "wasn't a market failure," so there were no
+refunds.
 
-No deal was signed. The market should have resolved NO.
-
-Instead, one large token holder, voting across three accounts, controlled about 25% of the dispute round and forced the answer to YES. Roughly $7 million settled the wrong way. Polymarket said this "wasn't a market failure," so there were no refunds.
-
-Here is the actual flaw, and it is not specific to Polymarket. On these platforms, the question "did it really happen?" gets decided *after* the money is already on the table, by people who hold positions. Resolution becomes a contest of power — whoever controls the most tokens or the most committee seats controls the outcome — instead of a question of fact. The bet you make is not the bet that gets settled.
+Here is the actual flaw, and it is not specific to any one platform. The
+question "did it really happen?" gets decided after the bet, by people who
+hold positions. Resolution becomes a contest of power — whoever controls the
+most tokens or committee seats controls the outcome — instead of a question
+of fact. The bet you make is not the bet that gets settled.
 
 ## How it works
 
@@ -56,8 +61,7 @@ The world already signs its facts. This is the machine that computes over those 
 This is built, not a sketch. The on-chain market — trading on a solvent
 market maker, signed-evidence admission, rule-based resolution, payouts,
 full-stake refunds on a void, and liquidity settlement — is one Sui Move
-package with 66 passing tests. It has been driven through its entire
-lifecycle live on a local Sui network, including real publisher signatures
+package with 70 passing tests. It has been driven through its entire lifecycle live on Sui devnet (a real public network), including real publisher signatures
 verified on-chain. The AI judge, its bit-for-bit determinism, and the
 fraud-proof that slashes a liar are each independently proven. The economics
 and admission logic were hardened against an adversarial security review.
