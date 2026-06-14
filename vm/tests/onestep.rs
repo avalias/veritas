@@ -240,8 +240,10 @@ fn step_proof_size_is_bounded() {
             + 45
             + 32;
         // Up to THREE page openings since the float ops (FDOT reads A, B
-        // and read-modify-writes W; FOP fma reads A, B, W).
+        // and read-modify-writes W; FOP fma reads A, B, W). The old
+        // "never B-read AND write" invariant predates FOP-fma (which reads
+        // B and writes W in one step) and was removed when the bound rose
+        // to three openings.
         assert!(bytes <= 3 * (1024 + 32 * D as usize) + 96 + 32 * P as usize + 77 + 64);
-        assert!(proof.open_b.is_none() || proof.open_w.is_none(), "never B-read AND write");
     }
 }

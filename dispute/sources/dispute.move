@@ -289,10 +289,30 @@ fun settle(f: &mut Fact, resolver_wins: bool, ctx: &mut TxContext) {
     };
 }
 
-// -- read-only helpers for clients/tests --
+// -- read-only helpers for clients/tests + the market layer (§ market.move) --
 
 public fun status(f: &Fact): u8 { f.status }
 
 public fun interval(f: &Fact): (u64, u64) { (f.lo, f.hi) }
 
 public fun pot_value(f: &Fact): u64 { f.pot.value() }
+
+/// The verdict bytes the resolver optimistically committed (and which the
+/// bisection game protects). The market reads this once the Fact stands.
+public fun output(f: &Fact): vector<u8> { f.output }
+
+/// Judge identity: a market binds itself to (program_root, genesis_root)
+/// so a Fact can only resolve it if it ran THIS judge on THIS input.
+public fun program_root(f: &Fact): vector<u8> { f.program_root }
+
+public fun genesis_root(f: &Fact): vector<u8> { f.genesis_root }
+
+public fun depth(f: &Fact): u8 { f.d }
+
+public fun n_steps(f: &Fact): u64 { f.n }
+
+/// True once the claim has stood (unchallenged finalize, or challenger lost).
+public fun is_finalized(f: &Fact): bool { f.status == STATUS_FINALIZED }
+
+/// True once a challenger has proven the claim fraudulent.
+public fun is_rejected(f: &Fact): bool { f.status == STATUS_REJECTED }
