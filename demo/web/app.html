@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Veritas — live on Sui devnet</title>
+<style>
+  :root{
+    --bg:#0B0E13;--surface:#141922;--surface2:#1C2430;--inset:#10151D;
+    --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.16);
+    --tx:#E8ECF2;--dim:#94A0B3;--faint:#6B7689;
+    --teal:#2DD4A8;--teal-deep:#14B891;--teal-fill:rgba(45,212,168,.12);
+    --red:#FF6B6B;--red-fill:rgba(255,107,107,.12);--amber:#F0B132;
+    --blue:#5B9DF9;--blue-fill:rgba(91,157,249,.12);--purple:#9B8CFF;
+    --mono:'SF Mono','JetBrains Mono',ui-monospace,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 22px}
+  a{color:var(--blue);text-decoration:none}
+  .mono{font-family:var(--mono)} .dim{color:var(--dim)} .faint{color:var(--faint)}
+  nav{position:sticky;top:0;z-index:50;background:rgba(11,14,19,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:62px;gap:12px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:18px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--teal);box-shadow:0 0 12px var(--teal)}
+  .navright{display:flex;align-items:center;gap:10px}
+  .netpill{font-family:var(--mono);font-size:11px;color:var(--teal);border:1px solid var(--teal-deep);background:var(--teal-fill);padding:5px 10px;border-radius:20px}
+  .btn{font-family:var(--sans);font-size:14px;font-weight:500;border-radius:10px;padding:10px 16px;border:1px solid var(--border2);background:var(--surface2);color:var(--tx);cursor:pointer;transition:.15s}
+  .btn:hover{background:#222c3a}
+  .btn.primary{background:var(--teal);color:#04231b;border-color:var(--teal);font-weight:600}
+  .btn.primary:hover{background:#3ee0b6}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sm{padding:7px 12px;font-size:13px}
+  .hero{padding:40px 0 22px}
+  .hero h1{font-size:30px;font-weight:600;letter-spacing:-.02em;margin-bottom:8px}
+  .hero p{font-size:16px;color:var(--dim);max-width:680px}
+  .why{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:22px 0 8px}
+  @media(max-width:760px){.why{grid-template-columns:1fr}}
+  .why .c{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+  .why .c .h{font-size:14px;font-weight:600;display:flex;gap:8px;align-items:center;margin-bottom:4px}
+  .why .c .d{font-size:13px;color:var(--dim)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin:18px 0}
+  .mcard{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;cursor:pointer;transition:.15s}
+  .mcard:hover{border-color:var(--border2);transform:translateY(-2px)}
+  .mcard .cat{font-family:var(--mono);font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  .mcard .q{font-size:15px;font-weight:600;margin:6px 0 12px;min-height:42px}
+  .mcard .emoji{font-size:22px}
+  .pbar{height:8px;border-radius:5px;background:var(--inset);overflow:hidden;display:flex;border:1px solid var(--border);margin-top:8px}
+  .pbar .y{background:var(--teal)} .pbar .n{background:var(--blue)}
+  .prow{display:flex;justify-content:space-between;font-size:13px;font-weight:500}
+  .prow .y{color:var(--teal)} .prow .n{color:var(--blue)}
+  .phase{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:20px;margin-left:8px}
+  .phase.trading{color:var(--teal);background:var(--teal-fill)}
+  .phase.evidence{color:var(--amber);background:rgba(240,177,50,.13)}
+  .phase.resolved{color:var(--blue);background:var(--blue-fill)}
+  .modalbg{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:100;display:none;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
+  .modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px;max-width:620px;width:100%;padding:24px}
+  .modal .x{float:right;cursor:pointer;color:var(--faint);font-size:20px}
+  .seg{display:flex;gap:8px;margin:14px 0}
+  .seg .s{flex:1;text-align:center;padding:10px;border-radius:10px;border:1px solid var(--border);cursor:pointer;font-weight:600;font-size:15px}
+  .seg .s.yes.on{background:var(--teal-fill);border-color:var(--teal);color:var(--teal)}
+  .seg .s.no.on{background:var(--blue-fill);border-color:var(--blue);color:var(--blue)}
+  input[type=number]{width:100%;background:var(--inset);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--tx);font-family:var(--mono);font-size:15px}
+  .ev{display:flex;gap:11px;align-items:center;padding:11px 13px;border:1px solid var(--border);border-radius:11px;background:var(--inset);margin-bottom:8px}
+  .ev .ico{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;font-weight:600;font-size:12px;background:var(--teal-fill);color:var(--teal);flex-shrink:0}
+  .ev .b{flex:1;min-width:0}
+  .ev .s{font-weight:600;font-size:13px} .ev .m{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .badge{font-family:var(--mono);font-size:10px;font-weight:500;padding:3px 8px;border-radius:20px;color:var(--teal);background:var(--teal-fill);border:1px solid var(--teal-deep)}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border2);border-radius:12px;padding:12px 18px;font-size:14px;z-index:200;display:none;max-width:90%}
+  .note{font-size:13px;color:var(--dim);background:var(--inset);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:12px;line-height:1.6}
+  h3{font-size:15px;font-weight:600;margin:18px 0 8px}
+  .kvs{font-family:var(--mono);font-size:11.5px;color:var(--dim);display:flex;flex-direction:column;gap:4px}
+  .kvs b{color:var(--tx);font-weight:500}
+  footer{padding:36px 0 60px;border-top:1px solid var(--border);margin-top:30px;color:var(--faint);font-size:13px}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <div class="brand"><span class="dot"></span> Veritas</div>
+  <div class="navright">
+    <span class="netpill">● Sui devnet · live</span>
+    <button class="btn" id="walletBtn">Connect wallet</button>
+  </div>
+</div></nav>
+
+<div class="wrap">
+  <div class="hero">
+    <h1>Bet on the real world. The truth is decided by proof, not a vote.</h1>
+    <p>These are real markets, live on Sui devnet. Connect a wallet and trade. When a market comes due, it resolves on what BBC, Reuters and AP actually published — proven with zkTLS and read by a fraud-provable AI judge. Nobody votes the outcome.</p>
+    <div class="why">
+      <div class="c"><div class="h"><i class="ti ti-ban" style="color:var(--red)"></i> You can't vote the result</div><div class="d">Evidence isn't an opinion. It's a zkTLS proof of what a pinned source actually served. You cannot forge what BBC published.</div></div>
+      <div class="c"><div class="h"><i class="ti ti-users-group" style="color:var(--amber)"></i> Counted per source</div><div class="d">1,000 copies of one article = one source. k independent sources must agree — submissions don't add up to a vote.</div></div>
+      <div class="c"><div class="h"><i class="ti ti-gavel" style="color:var(--teal)"></i> The AI reads it, not you</div><div class="d">A fixed public model reads the real content and extracts the answer. A wrong verdict is provable on-chain and slashes the liar.</div></div>
+    </div>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<footer><div class="wrap">
+  Package <a id="pkglink" class="mono" target="_blank">…</a> on Sui devnet · 70 Move tests · fraud-provable AI judge ·
+  <a href="index.html">the walkthrough</a> · <a href="../../PRODUCT.md">how it works</a>
+  <div style="margin-top:8px" class="faint">This is the anti-UMA: in a token-vote oracle, whoever holds the most tokens decides the outcome after the fact. Here the outcome is a function of zkTLS-proven sources + a deterministic AI — no amount of money changes a secp256k1 verification or a fraud proof.</div>
+</div></footer>
+
+<div class="modalbg" id="modalbg"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.1.0/dist/tabler-icons.min.css">
+<script type="module">
+import { SuiClient } from 'https://esm.sh/@mysten/sui@2.17.0/client';
+import { Transaction } from 'https://esm.sh/@mysten/sui@2.17.0/transactions';
+import { getWallets } from 'https://esm.sh/@mysten/wallet-standard@0.20.3';
+
+const CFG = await (await fetch('./markets.json')).json();
+const client = new SuiClient({ url: CFG.rpc });
+const CLOCK = '0x6';
+const PKG = CFG.package;
+document.getElementById('pkglink').textContent = PKG.slice(0,10)+'…'+PKG.slice(-4);
+document.getElementById('pkglink').href = `https://suiscan.xyz/devnet/object/${PKG}`;
+
+let wallet=null, account=null;
+const toast=(m,ok=true)=>{const t=document.getElementById('toast');t.innerHTML=m;t.style.display='block';t.style.borderColor=ok?'var(--teal-deep)':'var(--red)';setTimeout(()=>t.style.display='none',7000);};
+const hexToBytes=(h)=>{h=h.replace(/^0x/,'');const a=new Uint8Array(h.length/2);for(let i=0;i<a.length;i++)a[i]=parseInt(h.substr(i*2,2),16);return a;};
+const bytesToStr=(arr)=>{try{return new TextDecoder().decode(new Uint8Array(arr));}catch{return '';}};
+
+// ---- wallet (supports current + legacy wallet-standard features) ----
+function findWallet(){return getWallets().get().find(w=>w.features['standard:connect'] && (w.features['sui:signAndExecuteTransaction']||w.features['sui:signAndExecuteTransactionBlock']));}
+async function connect(){
+  wallet=findWallet();
+  if(!wallet){toast('No Sui wallet found. Install <a href="https://slush.app" target="_blank">Slush</a> and set it to devnet.',false);return;}
+  try{
+    const r=await wallet.features['standard:connect'].connect();
+    account=(r.accounts&&r.accounts[0])||wallet.accounts[0];
+    document.getElementById('walletBtn').textContent=account.address.slice(0,6)+'…'+account.address.slice(-4);
+    toast('Connected to '+wallet.name+'. Make sure it is on <b>devnet</b>.');
+  }catch(e){toast('Connect failed: '+e.message,false);}
+}
+document.getElementById('walletBtn').onclick=connect;
+
+async function sign(tx,label){
+  if(!account){await connect(); if(!account)return null;}
+  tx.setSenderIfNotSet(account.address);
+  try{
+    let res;
+    if(wallet.features['sui:signAndExecuteTransaction']){
+      res=await wallet.features['sui:signAndExecuteTransaction'].signAndExecuteTransaction({transaction:tx,account,chain:'sui:devnet'});
+    }else{ // legacy
+      const bytes=await tx.build({client});
+      res=await wallet.features['sui:signAndExecuteTransactionBlock'].signAndExecuteTransactionBlock({transactionBlock:tx,account,chain:'sui:devnet'});
+    }
+    toast(label+' ✓ <a href="https://suiscan.xyz/devnet/tx/'+(res.digest||res.effectsDigest)+'" target="_blank">view tx</a>');
+    return res;
+  }catch(e){toast(label+' failed: '+(e.message||e),false);return null;}
+}
+
+// ---- read market state ----
+async function loadMarket(id){
+  const o=await client.getObject({id,options:{showContent:true}});
+  const f=o.data.content.fields;
+  const ry=Number(f.reserve_yes), rn=Number(f.reserve_no);
+  return {id,f,ry,rn,priceYes:Math.round(rn/(ry+rn)*100),phase:Number(f.phase),outcome:Number(f.outcome),
+    question:bytesToStr(f.question),evidence:(f.evidence||[]),collateral:Number(f.collateral)};
+}
+
+// ---- render market grid ----
+async function renderGrid(){
+  const grid=document.getElementById('grid');
+  const all=[...CFG.markets.map(m=>({...m,kind:'trading'})), {...CFG.evidence_market,kind:'evidence'}];
+  grid.innerHTML=all.map(m=>`<div class="mcard" data-id="${m.id}" data-kind="${m.kind}">
+    <div class="cat">${m.category}</div>
+    <div class="q"><span class="emoji">${m.emoji}</span> ${m.question}</div>
+    <div class="prow"><span class="y" id="py-${m.id}">YES —</span><span class="n" id="pn-${m.id}">NO —</span></div>
+    <div class="pbar"><div class="y" id="by-${m.id}" style="width:50%"></div><div class="n" id="bn-${m.id}" style="width:50%"></div></div>
+    <div style="margin-top:10px"><span class="phase ${m.kind}" id="ph-${m.id}">…</span></div>
+  </div>`).join('');
+  grid.querySelectorAll('.mcard').forEach(el=>el.onclick=()=>openMarket(el.dataset.id,el.dataset.kind));
+  for(const m of all){ loadMarket(m.id).then(st=>{
+    document.getElementById('py-'+m.id).textContent='YES '+st.priceYes+'¢';
+    document.getElementById('pn-'+m.id).textContent=(100-st.priceYes)+'¢ NO';
+    document.getElementById('by-'+m.id).style.width=st.priceYes+'%';
+    document.getElementById('bn-'+m.id).style.width=(100-st.priceYes)+'%';
+    const ph=['trading','evidence','resolved'][st.phase]||'trading';
+    const el=document.getElementById('ph-'+m.id); el.className='phase '+ph;
+    el.textContent= st.phase===2 ? ('resolved · '+['','YES','NO','VOID'][st.outcome]) : ph;
+  }).catch(()=>{}); }
+}
+
+// ---- market detail modal ----
+let side='yes';
+async function openMarket(id,kind){
+  const st=await loadMarket(id);
+  const m=[...CFG.markets,CFG.evidence_market].find(x=>x.id===id);
+  const modal=document.getElementById('modal');
+  let evHtml='';
+  if(kind==='evidence'){
+    const items=(st.evidence||[]).map(e=>{const ef=e.fields||e;return `<div class="ev"><div class="ico">zk</div><div class="b"><div class="s">zkTLS web proof <span class="badge"><i class="ti ti-shield-check"></i> ecrecover verified</span></div><div class="m">attestor group ${ef.group} · claim ${ef.claim==1?'YES':'NO'}</div></div></div>`;}).join('')||'<div class="dim" style="font-size:13px">No evidence admitted yet.</div>';
+    evHtml=`<h3>Evidence — zkTLS, not opinions</h3>
+      <div class="kvs" style="margin-bottom:10px"><span>source: <b>${m.proof.source}</b> · "${m.proof.headline}"</span><span>attestor: <b>${CFG.attestors[0].slice(0,10)}…</b> (pinned)</span></div>
+      ${items}
+      <button class="btn primary" id="submitEv" style="margin-top:8px"><i class="ti ti-shield-check"></i> Submit this zkTLS proof on-chain</button>
+      <div class="note">This is the anti-voting mechanism. You are not asserting an outcome — you are submitting a <b>cryptographic proof of what ${m.proof.source} actually served</b>, witnessed by a pinned attestor and verified by Sui's native <span class="mono">ecrecover</span>. You could never forge it, and the AI judge reads the real content.</div>`;
+  }
+  modal.innerHTML=`<span class="x" id="closeX">✕</span>
+    <div class="cat mono dim">${m.category}</div>
+    <h2 style="font-size:20px;margin:6px 0 4px">${m.emoji} ${m.question}</h2>
+    <div class="prow" style="font-size:16px;margin-top:14px"><span class="y">YES ${st.priceYes}¢</span><span class="n">NO ${100-st.priceYes}¢</span></div>
+    <div class="pbar" style="height:10px"><div class="y" style="width:${st.priceYes}%"></div><div class="n" style="width:${100-st.priceYes}%"></div></div>
+    <div class="mono faint" style="font-size:11px;margin-top:6px">liquidity ${(st.collateral/1e9).toFixed(3)} SUI · phase ${['trading','evidence','resolved'][st.phase]}</div>
+    ${st.phase===0?`<h3>Take a position</h3>
+      <div class="seg"><div class="s yes on" id="sy">YES</div><div class="s no" id="sn">NO</div></div>
+      <input type="number" id="amt" value="0.05" step="0.01" min="0.01" />
+      <button class="btn primary" id="buyBtn" style="width:100%;margin-top:10px">Buy <span id="buyside">YES</span> for <span id="buyamt">0.05</span> SUI</button>
+      <div class="note">Buying shares is a bet, not a vote. Your money never decides the outcome — it only prices it. Winners redeem 1 SUI per share; every YES+NO pair is backed 1:1, so the market can't go insolvent.</div>`:''}
+    ${evHtml}
+    ${st.phase===2?`<button class="btn primary" id="redeemBtn" style="width:100%;margin-top:12px">Redeem winnings</button>`:''}`;
+  document.getElementById('modalbg').style.display='flex';
+  document.getElementById('closeX').onclick=()=>document.getElementById('modalbg').style.display='none';
+  side='yes';
+  const sy=document.getElementById('sy'),sn=document.getElementById('sn');
+  if(sy){sy.onclick=()=>{side='yes';sy.classList.add('on');sn.classList.remove('on');document.getElementById('buyside').textContent='YES';};
+         sn.onclick=()=>{side='no';sn.classList.add('on');sy.classList.remove('on');document.getElementById('buyside').textContent='NO';};
+         const amt=document.getElementById('amt'); amt.oninput=()=>document.getElementById('buyamt').textContent=amt.value;
+         document.getElementById('buyBtn').onclick=()=>buy(id,side,parseFloat(amt.value));}
+  const se=document.getElementById('submitEv'); if(se) se.onclick=()=>submitEvidence(id,m.proof);
+  const rb=document.getElementById('redeemBtn'); if(rb) rb.onclick=()=>redeem(id);
+}
+
+// ---- transactions ----
+async function buy(id,which,sui){
+  const amount=Math.floor(sui*1e9);
+  const tx=new Transaction();
+  const [coin]=tx.splitCoins(tx.gas,[amount]);
+  tx.moveCall({target:`${PKG}::market::${which==='yes'?'buy_yes':'buy_no'}`,arguments:[tx.object(id),coin,tx.object(CLOCK)]});
+  const r=await sign(tx,'Bought '+which.toUpperCase()); if(r){setTimeout(()=>{openMarket(id,'trading');renderGrid();},1500);}
+}
+async function submitEvidence(id,p){
+  const tx=new Transaction();
+  tx.moveCall({target:`${PKG}::market::submit_web_proof`,arguments:[
+    tx.object(id),tx.pure.u64(p.attestor_idx),tx.pure.u8(p.claim),
+    tx.pure.vector('u8',hexToBytes(p.provider)),tx.pure.vector('u8',hexToBytes(p.parameters)),
+    tx.pure.vector('u8',hexToBytes(p.context)),tx.pure.vector('u8',hexToBytes(p.owner)),
+    tx.pure.u64(p.timestamp_s),tx.pure.u64(p.epoch),tx.pure.vector('u8',hexToBytes(p.signature)),tx.object(CLOCK)]});
+  const r=await sign(tx,'zkTLS proof admitted'); if(r){setTimeout(()=>openMarket(id,'evidence'),1500);}
+}
+async function redeem(id){
+  const tx=new Transaction();
+  tx.moveCall({target:`${PKG}::market::redeem_to_sender`,arguments:[tx.object(id)]});
+  await sign(tx,'Redeemed');
+}
+
+renderGrid();
+</script>
+</body>
+</html>

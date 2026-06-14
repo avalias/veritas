@@ -1,39 +1,51 @@
-# Veritas — the human-facing demo
+# Veritas — live demo
 
-A single, self-contained web page that walks anyone through the whole
-product: a real market with locked rules, provenance-gated evidence (with
-live signed-source badges), the deterministic AI judge resolving it, the
-fraud-proof that slashes a liar, and the side-by-side contrast with the
-UMA token-vote that lost $7M on this exact question.
+Two things live here:
+
+- **`app.html`** — the real dApp. Connect a Sui wallet and trade on
+  **live markets deployed to Sui devnet**, submit a real zkTLS evidence
+  proof (verified on-chain), and redeem. Real transactions, real wallet
+  signing.
+- **`index.html`** — the guided walkthrough (no wallet needed) that
+  explains the whole system.
 
 ## Run it
 
-It is one static file with no build step and no dependencies.
+It's all static — no build step.
 
 ```
-open demo/web/index.html          # macOS: just double-click it
-# or serve it (any static server):
-python3 demo/web/serve.py         # → http://127.0.0.1:8777
+python3 demo/web/serve.py        # → http://127.0.0.1:8777/app.html
 ```
 
-Everything is interactive: tap YES/NO to move the price along the bonding
-curve, try submitting unsigned "evidence" and watch it get refused, press
-"run the judge" to resolve, and "challenge a dishonest verdict" to watch
-the dispute bisect a 29.5M-step trace down to one micro-op and slash the
-liar.
+(Open `app.html` over the local server, not `file://`, so it can fetch
+`markets.json`.)
 
-## What's real underneath
+## To actually trade (real on-chain)
 
-The page is a faithful simulation of the deployed system, which is real:
+1. Install the **[Slush](https://slush.app)** wallet (or any Sui
+   wallet-standard wallet).
+2. Switch the wallet network to **devnet**.
+3. Fund your address from the devnet faucet:
+   `curl -s -X POST https://faucet.devnet.sui.io/v2/gas -H 'Content-Type: application/json' -d '{"FixedAmountRequest":{"recipient":"<YOUR_ADDRESS>"}}'`
+4. Open `app.html`, click **Connect wallet**, pick a market, and buy YES/NO.
 
-- the on-chain market is `dispute/sources/market.move` (66 Move tests green);
-- evidence admission is `dispute/sources/credential.move` — `ed25519` and
-  native `ES256`/C2PA verification (the news-photo Content Credentials
-  standard), with a real ES256 vector proven on-chain;
-- the full lifecycle has been driven live on a Sui localnet by
-  `dispute/demo/market_e2e.py`, with publisher signatures verified
-  on-chain;
-- the judge fault conviction is `dispute/tests/fqwen_conviction.move`.
+## What's deployed
 
-See [PRODUCT.md](../../PRODUCT.md), [VISION.md](../../VISION.md), and
-[EVIDENCE.md](../../EVIDENCE.md).
+`demo/web/config.json` / `markets.json` hold the live devnet package and the
+seeded markets:
+
+- 4 open markets to trade (Starship, GPT-6, BTC $150k, Fed cut),
+- 1 market in its evidence window with a real zkTLS proof ready to submit.
+
+Package and markets are on a real public network — verify any transaction
+on [suiscan devnet](https://suiscan.xyz/devnet).
+
+## Why this isn't a vote (the UMA problem, solved)
+
+You can't submit an opinion as evidence. You can only submit a **zkTLS
+proof of what a pinned source actually served** — verified on-chain by
+Sui's native `ecrecover`. Confirmations are counted **per independent
+source**, not per submission, so spamming doesn't add up to a vote. A fixed
+public AI reads the real content and extracts the answer, and a wrong
+verdict is **provable on-chain and slashes the liar**. Money prices the
+market; it never decides the outcome.
