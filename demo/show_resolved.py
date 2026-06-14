@@ -20,7 +20,7 @@ def split(n):
     o=json.loads(sh(["sui","client","split-coin","--coin-id",gas(),"--amounts",str(n),"--gas-budget",GB,"--json"]).stdout)
     return next(c["objectId"] for c in o["objectChanges"] if c["type"]=="created" and "Coin" in c["objectType"])
 
-now=int(time.time()*1000); ra=now+60_000; win=60_000
+now=int(time.time()*1000); ra=now+90_000; win=90_000
 q="Did Starship reach orbit? (resolved showcase)"
 seed=split(500_000_000)
 o=json.loads(sh(["sui","client","call","--package",PKG,"--module","market","--function","create_market_entry","--gas-budget",GB,"--json",
@@ -28,12 +28,7 @@ o=json.loads(sh(["sui","client","call","--package",PKG,"--module","market","--fu
 mid=next(c["objectId"] for c in o["objectChanges"] if c["type"]=="created" and c.get("objectType","").endswith("::market::Market"))
 print("market",mid,"— waiting for evidence window…")
 
-# nudge a YES position so the resolved market shows a winning side to redeem
-while int(time.time()*1000) < ra-5000: time.sleep(3)
-# (still trading) take a YES bet from admin
-coin=split(120_000_000); sh(["sui","client","call","--package",PKG,"--module","market","--function","buy_yes","--gas-budget",GB,"--json","--args",mid,coin,CLOCK])
-
-while int(time.time()*1000) < ra+2000: time.sleep(3)
+while int(time.time()*1000) < ra+3000: time.sleep(3)
 # submit the real zkTLS proof inside the window
 acct=Account.from_key(b"\x42"*32); provider="http"
 parameters=json.dumps({"url":"https://www.reuters.com","method":"GET","responseMatches":[{"type":"contains","value":"Starship reached orbit"}]},separators=(",",":"))

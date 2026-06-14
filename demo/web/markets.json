@@ -72,6 +72,14 @@
       "category": "AI",
       "phase": "trading",
       "price_yes": 44
+    },
+    {
+      "id": "0x7d6db829c2b77bff648c1e6ef80ebc902f8074edddaef8b486cfe89f07f3bac7",
+      "emoji": "\ud83d\udef0\ufe0f",
+      "question": "Did Starship reach orbit?",
+      "category": "Resolved \u00b7 zkTLS",
+      "phase": "resolved",
+      "price_yes": 100
     }
   ],
   "evidence_market": {
