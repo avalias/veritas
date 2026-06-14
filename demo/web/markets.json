@@ -40,6 +40,38 @@
       "category": "Macro",
       "phase": "trading",
       "price_yes": 68
+    },
+    {
+      "id": "0x1ef0e1e595e7d913a1cde397984f52f5f6f23e7c62737118119993273ce6e4b0",
+      "emoji": "\u26bd",
+      "question": "Will Real Madrid reach the 2026 Champions League final?",
+      "category": "Sports",
+      "phase": "trading",
+      "price_yes": 58
+    },
+    {
+      "id": "0xcefb438b005fed15017f350b52e400b8e2c36eb9b7453a10e74c32770f9c02ef",
+      "emoji": "\ud83c\udfac",
+      "question": "Will the next Avatar film gross over $2B worldwide?",
+      "category": "Culture",
+      "phase": "trading",
+      "price_yes": 41
+    },
+    {
+      "id": "0xdf237c3b65ded0139810952648b8fcddf81c71c3b4562b42ed8af79d2da567f5",
+      "emoji": "\ud83c\udf21\ufe0f",
+      "question": "Will 2026 be confirmed the hottest year on record?",
+      "category": "Climate",
+      "phase": "trading",
+      "price_yes": 70
+    },
+    {
+      "id": "0x18b555cef0f1b6e8e90d189a90b4ec99a55e94caf213bc0b9fac5406a23406d5",
+      "emoji": "\ud83e\udde0",
+      "question": "Will an AI win a gold medal at the 2026 Math Olympiad?",
+      "category": "AI",
+      "phase": "trading",
+      "price_yes": 44
     }
   ],
   "evidence_market": {

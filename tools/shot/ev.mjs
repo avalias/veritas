@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const b=await chromium.launch();const p=await b.newPage({viewport:{width:720,height:1300}});
+await p.goto('http://127.0.0.1:8777/app.html');
+await p.waitForSelector('.mcard',{timeout:15000});await p.waitForTimeout(2500);
+await p.locator('.mcard').last().click();await p.waitForTimeout(1500);
+await p.screenshot({path:'/tmp/ev2.png'});
+const hasSubmit=await p.locator('#submitEv').count();
+const hasResolve=await p.locator('#resolveEv').count();
+const phaseTxt=await p.evaluate(()=>document.querySelector('.modal .mono.faint')?.innerText||'');
+console.log('submit btn:',hasSubmit,'resolve btn:',hasResolve,'| phase line:',phaseTxt);
+await b.close();
