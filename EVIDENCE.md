@@ -6,7 +6,7 @@ total failure and the best system in the world. This document grounds
 every design decision in the published literature and real incident
 post-mortems, then specifies a principled testing protocol. Companions:
 [DEMO.md](DEMO.md) §3.1 (provenance gating), [VISION.md](VISION.md) (Web
-Credentials), [WEBPROOFS.md](WEBPROOFS.md) (the zkTLS trust floor).*
+Credentials), [WEBPROOFS.md](WEBPROOFS.md) (the zkTLS trust floor), [PROVENANCE.md](PROVENANCE.md) (the credential layer as built).*
 
 ## 0. The case study that defines the failure mode
 

@@ -53,7 +53,7 @@ permissionless because being wrong is provable.**
 > accounting, zkTLS tiering, judge hardening against every published
 > attack class, the extraction+symbolic-aggregation decomposition, and
 > the pre-registered testing protocol — is in **[EVIDENCE.md](EVIDENCE.md)**.
-> This section is the summary.
+> This section is the summary. The credential layer is now BUILT: `dispute/sources/credential.move` (ed25519 + native ES256/C2PA, real vector verified on-chain) and `dispute/sources/tee.move` (Nitro second layer). See [PROVENANCE.md](PROVENANCE.md).
 
 **Rejected design (v0): bonded free-text submission.** Anyone could
 submit any paragraph; the "evidence set" degenerates into voting with

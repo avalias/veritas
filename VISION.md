@@ -6,7 +6,7 @@ it strictly generalizes (and beats) every alternative, the one genuinely
 new idea, and the honest boundary. Companions: [DEMO.md](DEMO.md) (the
 first instance), [ANALYSIS.md](ANALYSIS.md) (what is built+measured),
 [PRIOR_ART.md](PRIOR_ART.md) (the landscape + novelty check),
-[SPEC.md](SPEC.md) (normative).*
+[SPEC.md](SPEC.md) (normative), [PROVENANCE.md](PROVENANCE.md) (the credential layer as built).*
 
 ## 1. The thesis: the impossibility, and the maximal escape
 
