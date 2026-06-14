@@ -49,4 +49,16 @@ This is an oracle with no oracle inside it: a way to turn the world's already-si
 
 The world already signs its facts. This is the machine that computes over those signatures and makes the answer something nobody has to be trusted for.
 
+## Status
+
+This is built, not a sketch. The on-chain market — trading on a solvent
+market maker, signed-evidence admission, rule-based resolution, payouts,
+full-stake refunds on a void, and liquidity settlement — is one Sui Move
+package with 63 passing tests. It has been driven through its entire
+lifecycle live on a local Sui network, including real publisher signatures
+verified on-chain. The AI judge, its bit-for-bit determinism, and the
+fraud-proof that slashes a liar are each independently proven. The economics
+and admission logic were hardened against an adversarial security review
+before this writeup.
+
 *Deeper reading: [VISION.md](VISION.md) (the general system), [EVIDENCE.md](EVIDENCE.md) (how evidence is chosen and the judge is hardened), [DEMO.md](DEMO.md) (the working demo).*
