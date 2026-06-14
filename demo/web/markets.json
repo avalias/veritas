@@ -80,6 +80,14 @@
       "category": "Resolved \u00b7 zkTLS",
       "phase": "resolved",
       "price_yes": 100
+    },
+    {
+      "id": "0xeeb6c35e6b8009a010e6a4ca392e8c8cb9afdf2998c98b0ecea73d8bfa33a5e8",
+      "emoji": "\ud83d\udef0\ufe0f",
+      "question": "Wires confirm Starship orbit (2 independent sources)",
+      "category": "Resolved \u00b7 k=2 zkTLS",
+      "phase": "resolved",
+      "price_yes": 100
     }
   ],
   "evidence_market": {
