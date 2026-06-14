@@ -1,6 +1,7 @@
 /// market.move — "Polymarket of the future": a prediction market whose
 /// outcome is a PURE FUNCTION of provenance-verified evidence, decided by
-/// a committed rule, with the fraud-provable LLM judge as the backstop.
+/// a committed rule. The fraud-provable LLM judge is the per-item
+/// EXTRACTION layer (EVIDENCE.md §5).
 ///
 /// The whole product in one object. Lifecycle (all discretion is fixed at
 /// CREATION; nothing is decided by a human after money is at stake — see
@@ -13,16 +14,24 @@
 ///             claim; nobody can submit "whatever they want")
 ///   RESOLVE   resolve   (apply the COMMITTED decision rule to the count
 ///             of confirmations, counted at the trust-GROUP level)
-///   REDEEM    redeem   (winning shares pay 1 SUI each from collateral)
+///   REDEEM    redeem   (winning shares pay 1 SUI each; a void refunds the
+///             trader's full stake; the LP recovers the residual)
 ///
-/// The AI judge is the per-item EXTRACTION layer (EVIDENCE.md §5): each
-/// evidence item's YES/NO claim is the judge's deterministic reading of
-/// signed content, and a wrong reading is convicted by the bisection game
-/// (`dispute::Fact`). `challenge_item` wires that backstop in: an item
-/// whose extraction Fact was REJECTED is dropped from the count.
+/// NEXT MILESTONE — the on-chain extraction backstop. Each item's YES/NO
+/// claim is the judge's deterministic reading of signed content, and a
+/// wrong reading is convicted by the bisection game (proven independently:
+/// dispute/tests/fqwen_conviction.move). Auto-dropping a mis-extracted
+/// item on-chain soundly requires a FINALIZED counter-extraction `Fact`
+/// (positive proof the true extraction is D≠claim) bound to the item via
+/// on-chain GENESIS CONSTRUCTION from the signed content (SPEC §7.2,
+/// postponed). A `Fact` that is merely REJECTED proves only that its
+/// asserter lied about the final root — its `output` is attacker-chosen
+/// and says nothing about the true extraction — so it must NOT gate the
+/// count. v1 therefore counts every admitted item and leaves the on-chain
+/// auto-drop to that milestone; the extraction stays publicly checkable
+/// (the judge is public + deterministic over public signed content).
 module dispute::market;
 
-use dispute::dispute::Fact;
 use sui::balance::Balance;
 use sui::coin::{Self, Coin};
 use sui::sui::SUI;
@@ -30,13 +39,12 @@ use sui::clock::Clock;
 use sui::ed25519;
 use sui::event;
 use sui::hash;
-use std::u64;
 
 // -- outcomes --------------------------------------------------------------
 const OUTCOME_OPEN: u8 = 0; // not yet resolved
 const OUTCOME_YES: u8 = 1;
 const OUTCOME_NO: u8 = 2;
-const OUTCOME_UNRESOLVED: u8 = 3; // void → stakes refundable as complete sets
+const OUTCOME_UNRESOLVED: u8 = 3; // void → traders refunded their stake
 
 // -- burden of proof (committed per market; EVIDENCE.md §2) ----------------
 /// "Did X happen by T?" — YES needs ≥k group-confirmations; silence ⇒ NO.
@@ -53,6 +61,11 @@ const PHASE_RESOLVED: u8 = 2;
 const CLAIM_YES: u8 = 1;
 const CLAIM_NO: u8 = 2;
 
+/// Cap on admitted evidence items: bounds the resolve() loop's gas and
+/// stops a captured issuer from flooding the market (EVIDENCE.md §4 row 7).
+/// Per-trust-group quotas are the production refinement.
+const MAX_EVIDENCE: u64 = 256;
+
 // -- errors ----------------------------------------------------------------
 const E_BAD_PARAMS: u64 = 1;
 const E_WRONG_PHASE: u64 = 2;
@@ -65,27 +78,37 @@ const E_NOT_RESOLVED: u64 = 9;
 const E_NOTHING_TO_REDEEM: u64 = 10;
 const E_ZERO: u64 = 11;
 const E_OUT_OF_WINDOW: u64 = 12;
-const E_FACT_MISMATCH: u64 = 13;
-const E_NOT_REJECTED: u64 = 14;
-const E_ALREADY_FLAGGED: u64 = 15;
+const E_DUP_KEY: u64 = 16;
+const E_K_UNSATISFIABLE: u64 = 17;
+const E_BAD_TIME: u64 = 18;
+const E_TOO_MANY_EVIDENCE: u64 = 19;
+const E_NOT_LP: u64 = 20;
 
 /// An admitted piece of evidence: a signed claim by a pinned issuer. Stored
 /// so resolution is a transparent, recomputable function of on-chain bytes.
 public struct EvidenceItem has store {
-    issuer_idx: u64, // index into SourcePolicy.issuer_keys
+    issuer_idx: u64, // index into issuer_keys
     group: u64, // trust group of the issuer (independence accounting)
     claim: u8, // CLAIM_YES | CLAIM_NO (the judge's extraction)
     content_hash: vector<u8>, // 32-byte id of the signed content
     signed_ms: u64, // issuer-asserted timestamp (must fall in the window)
     submitter: address,
-    flagged: bool, // dropped from the count iff a REJECTED Fact proved the extraction wrong
 }
 
-/// A user's position. Solvency invariant: total YES == total NO ==
-/// collateral, because every share pair was minted from exactly 1 SUI.
+/// A user's position. `paid` is the gross SUI they put in, so a VOID can
+/// refund their exact stake even though the CPMM gives one-sided holdings.
 public struct Position has store {
     yes: u64,
     no: u64,
+    paid: u64,
+}
+
+/// Minted to the market creator: the right to recover the seed liquidity
+/// (on void) or the pool inventory + accrued fees (on a decisive outcome)
+/// once the market is resolved, never touching collateral owed to winners.
+public struct LPCap has key, store {
+    id: UID,
+    market: address,
 }
 
 public struct Market has key {
@@ -95,8 +118,8 @@ public struct Market has key {
     judge_program_root: vector<u8>, // which model+prompt extracts claims
     judge_depth: u8,
     // -- source policy (EVIDENCE.md §2): who may be heard, and how counted -
-    issuer_keys: vector<vector<u8>>, // pinned ed25519 pubkeys (32 bytes each)
-    issuer_groups: vector<u64>, // issuer_idx → trust group id (AP+syndicators share one)
+    issuer_keys: vector<vector<u8>>, // pinned ed25519 pubkeys (32 bytes, distinct)
+    issuer_groups: vector<u64>, // issuer_idx → trust group id
     k: u64, // confirmations required, counted at the GROUP level
     burden: u8, // BURDEN_OCCURRENCE | BURDEN_STATE
     // -- timing (immutable signed snapshots only; EVIDENCE.md §1) ----------
@@ -104,15 +127,20 @@ public struct Market has key {
     evidence_window_ms: u64, // length of the evidence window
     created_ms: u64,
     // -- AMM: a solvent complete-set CPMM ---------------------------------
-    collateral: Balance<SUI>, // == total YES == total NO outstanding
+    collateral: Balance<SUI>,
     reserve_yes: u64, // pool inventory (constant product with reserve_no)
     reserve_no: u64,
     fee_bps: u64,
     positions: sui::table::Table<address, Position>,
+    // liability tracking so the LP can withdraw only the TRUE residual,
+    // never collateral owed to un-redeemed winners.
+    user_yes: u64, // outstanding user-held YES shares
+    user_no: u64, // outstanding user-held NO shares
+    user_paid: u64, // outstanding user stake (for void refunds)
     // -- evidence + resolution --------------------------------------------
     seen: sui::table::Table<vector<u8>, bool>, // content_hash dedup set
     evidence: vector<EvidenceItem>,
-    yes_groups: vector<u64>, // distinct trust groups that asserted YES (deduped)
+    yes_groups: vector<u64>, // distinct trust groups that asserted YES
     no_groups: vector<u64>,
     phase: u8,
     outcome: u8,
@@ -124,13 +152,14 @@ public struct Traded has copy, drop { market: address, who: address, yes: bool, 
 public struct EvidenceAdmitted has copy, drop {
     market: address, issuer_idx: u64, group: u64, claim: u8, content_hash: vector<u8>,
 }
-public struct ItemFlagged has copy, drop { market: address, content_hash: vector<u8> }
 public struct Resolved has copy, drop { market: address, outcome: u8, yes_groups: u64, no_groups: u64 }
 public struct Redeemed has copy, drop { market: address, who: address, payout: u64 }
+public struct ResidualWithdrawn has copy, drop { market: address, amount: u64 }
 
 // =========================================================================
 // CREATION — every resolution parameter is fixed here, before any trade.
 // =========================================================================
+#[allow(lint(self_transfer))] // the creator IS the intended LPCap recipient
 public fun create_market(
     question: vector<u8>,
     judge_program_root: vector<u8>,
@@ -146,20 +175,35 @@ public fun create_market(
     clock: &Clock,
     ctx: &mut TxContext,
 ): address {
-    let n_issuers = issuer_keys.length();
-    assert!(n_issuers > 0 && issuer_groups.length() == n_issuers, E_BAD_PARAMS);
-    assert!(k > 0 && k <= n_issuers, E_BAD_PARAMS);
+    let n = issuer_keys.length();
+    assert!(n > 0 && issuer_groups.length() == n, E_BAD_PARAMS);
     assert!(burden == BURDEN_OCCURRENCE || burden == BURDEN_STATE, E_BAD_PARAMS);
     assert!(evidence_window_ms > 0 && fee_bps < 10000, E_BAD_PARAMS);
+    let now = clock.timestamp_ms();
+    // there must be a real trading phase before evidence opens
+    assert!(resolve_after_ms > now, E_BAD_TIME);
+
+    // each issuer key is a 32-byte ed25519 key, and keys must be DISTINCT —
+    // otherwise one key placed in two groups would forge "independence".
+    let mut distinct_groups = vector<u64>[];
+    let mut i = 0;
+    while (i < n) {
+        assert!(issuer_keys[i].length() == 32, E_BAD_PARAMS);
+        let mut j = i + 1;
+        while (j < n) { assert!(issuer_keys[i] != issuer_keys[j], E_DUP_KEY); j = j + 1; };
+        push_unique(&mut distinct_groups, issuer_groups[i]);
+        i = i + 1;
+    };
+    // k is counted at the GROUP level in resolve(), so it must be satisfiable
+    // by the number of DISTINCT groups, not merely the issuer count.
+    assert!(k > 0 && k <= distinct_groups.length(), E_K_UNSATISFIABLE);
+
     let l = seed.value();
     assert!(l > 0, E_ZERO);
-    // every issuer key is a 32-byte ed25519 public key
-    let mut i = 0;
-    while (i < n_issuers) { assert!(issuer_keys[i].length() == 32, E_BAD_PARAMS); i = i + 1; };
 
     let id = object::new(ctx);
     let market_addr = id.to_address();
-    // Seed L SUI ⇒ L complete sets into the pool: reserve_yes = reserve_no = L,
+    // Seed L SUI ⇒ L complete sets in the pool: reserve_yes = reserve_no = L,
     // collateral = L. Solvent by construction (total YES == total NO == L).
     let m = Market {
         id,
@@ -172,12 +216,15 @@ public fun create_market(
         burden,
         resolve_after_ms,
         evidence_window_ms,
-        created_ms: clock.timestamp_ms(),
+        created_ms: now,
         collateral: seed.into_balance(),
         reserve_yes: l,
         reserve_no: l,
         fee_bps,
         positions: sui::table::new(ctx),
+        user_yes: 0,
+        user_no: 0,
+        user_paid: 0,
         seen: sui::table::new(ctx),
         evidence: vector[],
         yes_groups: vector[],
@@ -185,13 +232,15 @@ public fun create_market(
         phase: PHASE_TRADING,
         outcome: OUTCOME_OPEN,
     };
+    // the creator/LP gets the right to recover their capital + fees later
+    transfer::public_transfer(LPCap { id: object::new(ctx), market: market_addr }, ctx.sender());
     event::emit(MarketCreated { market: market_addr, k, burden });
     transfer::share_object(m);
     market_addr
 }
 
-/// CLI/PTB-friendly creation: shares the market and drops the returned
-/// address (clients recover it from the MarketCreated event / object changes).
+/// CLI/PTB-friendly creation: shares the market, mints the LPCap to the
+/// caller, and drops the returned address (recover it from the event).
 public fun create_market_entry(
     question: vector<u8>,
     judge_program_root: vector<u8>,
@@ -217,10 +266,10 @@ public fun create_market_entry(
 // TRADING — a solvent complete-set CPMM.
 //
 // buy_yes(dS): mint dS complete sets to the buyer (collateral += dS), then
-// swap the buyer's dS NO into the pool for YES at constant product. Closed
-// form: yes_out = reserve_yes * dS / (reserve_no + dS). The buyer ends with
-// dS + yes_out YES and 0 NO. total_YES and total_NO each rise by exactly dS,
-// so total_YES == total_NO == collateral is preserved → always solvent.
+// swap the buyer's dS NO into the pool for YES at constant product:
+// yes_out = reserve_yes * dS / (reserve_no + dS). total_YES and total_NO
+// each rise by exactly dS, so total_YES == total_NO == collateral (minus
+// fees, which accrue to the LP) → always solvent.
 // =========================================================================
 public fun buy_yes(m: &mut Market, payment: Coin<SUI>, clock: &Clock, ctx: &mut TxContext) {
     let who = ctx.sender();
@@ -234,20 +283,19 @@ public fun buy_no(m: &mut Market, payment: Coin<SUI>, clock: &Clock, ctx: &mut T
     event::emit(Traded { market: m.id.to_address(), who, yes: false, paid, shares: shares_out });
 }
 
-/// Returns (shares_out, net_paid). Internal so buy_yes/buy_no share code.
+/// Returns (shares_out, complete_sets_minted). Internal so buy_yes/buy_no
+/// share code.
 fun trade(m: &mut Market, payment: Coin<SUI>, yes: bool, clock: &Clock, ctx: &TxContext): (u64, u64) {
     assert!(phase_now(m, clock) == PHASE_TRADING, E_WRONG_PHASE);
     let gross = payment.value();
     assert!(gross > 0, E_ZERO);
-    let fee = gross * m.fee_bps / 10000;
-    let ds = gross - fee; // complete sets minted (fee stays in collateral as PnL for LPs)
+    let fee = mul_div(gross, m.fee_bps, 10000); // u128 inside → no overflow
+    let ds = gross - fee; // complete sets minted (fee stays in collateral for the LP)
     assert!(ds > 0, E_ZERO);
     m.collateral.join(payment.into_balance());
 
-    // constant-product swap of the minted opposite-side shares into the pool
     let shares_out;
     if (yes) {
-        // yes_out = reserve_yes * ds / (reserve_no + ds); pool: +ds NO, -yes_out YES
         let yes_out = mul_div(m.reserve_yes, ds, m.reserve_no + ds);
         m.reserve_no = m.reserve_no + ds;
         m.reserve_yes = m.reserve_yes - yes_out;
@@ -262,18 +310,18 @@ fun trade(m: &mut Market, payment: Coin<SUI>, yes: bool, clock: &Clock, ctx: &Tx
     let who = ctx.sender();
     ensure_position(m, who);
     let p = &mut m.positions[who];
+    p.paid = p.paid + gross;
     if (yes) { p.yes = p.yes + shares_out } else { p.no = p.no + shares_out };
+    m.user_paid = m.user_paid + gross;
+    if (yes) { m.user_yes = m.user_yes + shares_out } else { m.user_no = m.user_no + shares_out };
     (shares_out, ds)
 }
 
 // =========================================================================
 // EVIDENCE — provenance-gated admission. The ONLY way bytes enter.
 //
-// A submission is admissible iff it carries a Web Credential: a native
-// ed25519 signature by a pinned issuer over the canonical message
-//   blake2b( market_addr || claim || content_hash || signed_ms_le ).
-// Nobody can submit "whatever they want": the admissible universe is
-// exactly what the pinned issuers actually signed.
+// Admissible iff it carries a Web Credential: a native ed25519 signature by
+// a pinned issuer over blake2b256(market || claim || content_hash || ms_le).
 // =========================================================================
 public fun submit_evidence(
     m: &mut Market,
@@ -289,13 +337,13 @@ public fun submit_evidence(
     assert!(claim == CLAIM_YES || claim == CLAIM_NO, E_BAD_CLAIM);
     assert!(issuer_idx < m.issuer_keys.length(), E_BAD_ISSUER);
     assert!(content_hash.length() == 32, E_BAD_PARAMS);
+    assert!(m.evidence.length() < MAX_EVIDENCE, E_TOO_MANY_EVIDENCE);
     // the signed timestamp must fall inside this market's evidence window
     assert!(signed_ms >= m.resolve_after_ms, E_OUT_OF_WINDOW);
     assert!(signed_ms < m.resolve_after_ms + m.evidence_window_ms, E_OUT_OF_WINDOW);
     // dedup: the same signed content counts once (majority-by-duplication killed)
     assert!(!m.seen.contains(content_hash), E_DUPLICATE_EVIDENCE);
 
-    // verify the issuer's signature over the canonical message
     let msg = canonical_message(m.id.to_address(), claim, &content_hash, signed_ms);
     let ok = ed25519::ed25519_verify(&signature, &m.issuer_keys[issuer_idx], &msg);
     assert!(ok, E_BAD_SIGNATURE);
@@ -303,84 +351,39 @@ public fun submit_evidence(
     admit_core(m, issuer_idx, claim, content_hash, signed_ms, ctx.sender());
 }
 
-/// Record an admitted item (after all validation incl. the signature). The
-/// trust-group is looked up here so independence accounting is centralized.
+/// Record an admitted item (after all validation incl. the signature).
 fun admit_core(m: &mut Market, issuer_idx: u64, claim: u8, content_hash: vector<u8>, signed_ms: u64, who: address) {
     let group = m.issuer_groups[issuer_idx];
     m.seen.add(content_hash, true);
-    m.evidence.push_back(EvidenceItem {
-        issuer_idx, group, claim, content_hash, signed_ms, submitter: who, flagged: false,
-    });
+    m.evidence.push_back(EvidenceItem { issuer_idx, group, claim, content_hash, signed_ms, submitter: who });
     event::emit(EvidenceAdmitted { market: m.id.to_address(), issuer_idx, group, claim, content_hash });
-}
-
-/// The fraud-proof backstop (EVIDENCE.md §4 row 2 / §5). If a judge
-/// EXTRACTION was wrong — the signed content does not actually assert what
-/// the item claims — anyone disputes it via the bisection game; once that
-/// `Fact` is REJECTED, the item is permanently dropped from the count.
-///
-/// The Fact must be the extraction run for THIS item (its `output` is the
-/// item's content_hash || claim) under THIS market's judge.
-public fun challenge_item(
-    m: &mut Market,
-    content_hash: vector<u8>,
-    extraction_fact: &Fact,
-    clock: &Clock,
-) {
-    assert!(phase_now(m, clock) != PHASE_RESOLVED, E_WRONG_PHASE);
-    assert!(dispute::dispute::is_rejected(extraction_fact), E_NOT_REJECTED);
-    // bind: the Fact must be the extraction of this item under this judge
-    assert!(dispute::dispute::program_root(extraction_fact) == m.judge_program_root, E_FACT_MISMATCH);
-    let mut i = 0;
-    let n = m.evidence.length();
-    while (i < n) {
-        let it = &mut m.evidence[i];
-        if (it.content_hash == content_hash) {
-            assert!(!it.flagged, E_ALREADY_FLAGGED);
-            // the Fact's committed output must name this exact item+claim
-            let mut want = content_hash;
-            want.push_back(it.claim);
-            assert!(dispute::dispute::output(extraction_fact) == want, E_FACT_MISMATCH);
-            it.flagged = true;
-            event::emit(ItemFlagged { market: m.id.to_address(), content_hash });
-            return
-        };
-        i = i + 1;
-    };
-    abort E_FACT_MISMATCH
 }
 
 // =========================================================================
 // RESOLVE — apply the COMMITTED decision rule. Pure function of the
-// admitted (unflagged) evidence, counted at the trust-GROUP level.
+// admitted evidence, counted at the trust-GROUP level.
 // =========================================================================
 public fun resolve(m: &mut Market, clock: &Clock) {
     let now = clock.timestamp_ms();
     assert!(m.phase != PHASE_RESOLVED, E_WRONG_PHASE);
     assert!(now >= m.resolve_after_ms + m.evidence_window_ms, E_TOO_EARLY);
 
-    // count DISTINCT trust groups asserting each side, ignoring flagged items
     let mut yes_groups = vector<u64>[];
     let mut no_groups = vector<u64>[];
     let mut i = 0;
     let n = m.evidence.length();
     while (i < n) {
         let it = &m.evidence[i];
-        if (!it.flagged) {
-            if (it.claim == CLAIM_YES) { push_unique(&mut yes_groups, it.group); }
-            else { push_unique(&mut no_groups, it.group); };
-        };
+        if (it.claim == CLAIM_YES) { push_unique(&mut yes_groups, it.group); }
+        else { push_unique(&mut no_groups, it.group); };
         i = i + 1;
     };
     let ny = yes_groups.length();
     let nn = no_groups.length();
 
-    // the committed rule (EVIDENCE.md §2)
     let outcome = if (m.burden == BURDEN_OCCURRENCE) {
-        // YES iff ≥k groups confirm the occurrence; silence ⇒ NO
         if (ny >= m.k) { OUTCOME_YES } else { OUTCOME_NO }
     } else {
-        // STATE: each side needs ≥k; ties / neither ⇒ UNRESOLVED (void)
         if (ny >= m.k && ny > nn) { OUTCOME_YES }
         else if (nn >= m.k && nn > ny) { OUTCOME_NO }
         else { OUTCOME_UNRESOLVED }
@@ -394,22 +397,30 @@ public fun resolve(m: &mut Market, clock: &Clock) {
 }
 
 // =========================================================================
-// REDEEM — winning shares pay 1 SUI each from collateral. On UNRESOLVED,
-// a complete set (min(yes,no)) refunds 1 SUI (stake returned).
+// REDEEM — winning shares pay 1 SUI each. On VOID, the trader's FULL stake
+// is refunded (not just matched complete sets) so a one-sided CPMM holder
+// is never locked out — the exact harm the design exists to remove.
 // =========================================================================
 public fun redeem(m: &mut Market, ctx: &mut TxContext): Coin<SUI> {
     assert!(m.phase == PHASE_RESOLVED, E_NOT_RESOLVED);
     let who = ctx.sender();
     assert!(m.positions.contains(who), E_NOTHING_TO_REDEEM);
     let p = &mut m.positions[who];
-    let payout = if (m.outcome == OUTCOME_YES) {
-        let v = p.yes; p.yes = 0; p.no = 0; v
+    let payout;
+    if (m.outcome == OUTCOME_YES) {
+        payout = p.yes;
+        m.user_yes = m.user_yes - p.yes;
     } else if (m.outcome == OUTCOME_NO) {
-        let v = p.no; p.yes = 0; p.no = 0; v
+        payout = p.no;
+        m.user_no = m.user_no - p.no;
     } else {
-        // UNRESOLVED: refund matched complete sets at 1 SUI each
-        let v = u64::min(p.yes, p.no); p.yes = p.yes - v; p.no = p.no - v; v
+        // VOID: refund the trader's full stake.
+        payout = p.paid;
+        m.user_paid = m.user_paid - p.paid;
     };
+    p.yes = 0;
+    p.no = 0;
+    p.paid = 0;
     assert!(payout > 0, E_NOTHING_TO_REDEEM);
     event::emit(Redeemed { market: m.id.to_address(), who, payout });
     coin::from_balance(m.collateral.split(payout), ctx)
@@ -423,11 +434,38 @@ public fun redeem_to_sender(m: &mut Market, ctx: &mut TxContext) {
 }
 
 // =========================================================================
+// LP SETTLEMENT — the creator recovers the residual collateral (seed on a
+// void; pool inventory + accrued fees on a decisive outcome) WITHOUT ever
+// touching collateral owed to un-redeemed winners. Solvency preserved:
+// collateral >= current winner liability at all times, so the residual is
+// exactly collateral − liability.
+// =========================================================================
+public fun withdraw_residual(m: &mut Market, cap: &LPCap, ctx: &mut TxContext): Coin<SUI> {
+    assert!(m.phase == PHASE_RESOLVED, E_NOT_RESOLVED);
+    assert!(cap.market == m.id.to_address(), E_NOT_LP);
+    let liability = current_liability(m);
+    let claimable = m.collateral.value() - liability;
+    assert!(claimable > 0, E_NOTHING_TO_REDEEM);
+    event::emit(ResidualWithdrawn { market: m.id.to_address(), amount: claimable });
+    coin::from_balance(m.collateral.split(claimable), ctx)
+}
+
+#[allow(lint(self_transfer))]
+public fun withdraw_residual_to_sender(m: &mut Market, cap: &LPCap, ctx: &mut TxContext) {
+    let c = withdraw_residual(m, cap, ctx);
+    transfer::public_transfer(c, ctx.sender());
+}
+
+/// Collateral still owed to un-redeemed winners (or, on void, traders).
+fun current_liability(m: &Market): u64 {
+    if (m.outcome == OUTCOME_YES) { m.user_yes }
+    else if (m.outcome == OUTCOME_NO) { m.user_no }
+    else { m.user_paid } // OUTCOME_UNRESOLVED
+}
+
+// =========================================================================
 // helpers
 // =========================================================================
-
-/// The phase implied by the clock (trading → evidence → resolved). Once
-/// `resolve` runs, the stored phase is PHASE_RESOLVED and wins.
 fun phase_now(m: &Market, clock: &Clock): u8 {
     if (m.phase == PHASE_RESOLVED) return PHASE_RESOLVED;
     let now = clock.timestamp_ms();
@@ -437,7 +475,6 @@ fun phase_now(m: &Market, clock: &Clock): u8 {
 }
 
 /// Canonical signed message: blake2b( market || claim || hash || ms_le ).
-/// A Web Credential is a signature by a pinned issuer over exactly this.
 fun canonical_message(market: address, claim: u8, content_hash: &vector<u8>, signed_ms: u64): vector<u8> {
     let mut pre = market.to_bytes();
     pre.push_back(claim);
@@ -454,7 +491,7 @@ fun u64_le(mut x: u64): vector<u8> {
 }
 
 fun ensure_position(m: &mut Market, who: address) {
-    if (!m.positions.contains(who)) { m.positions.add(who, Position { yes: 0, no: 0 }); };
+    if (!m.positions.contains(who)) { m.positions.add(who, Position { yes: 0, no: 0, paid: 0 }); };
 }
 
 fun push_unique(v: &mut vector<u64>, x: u64) {
@@ -464,7 +501,7 @@ fun push_unique(v: &mut vector<u64>, x: u64) {
     v.push_back(x);
 }
 
-/// floor(a * b / c) in u128 to avoid overflow on the CPMM product.
+/// floor(a * b / c) in u128 to avoid overflow on the CPMM product / fees.
 fun mul_div(a: u64, b: u64, c: u64): u64 {
     (((a as u128) * (b as u128)) / (c as u128)) as u64
 }
@@ -478,16 +515,16 @@ public fun reserves(m: &Market): (u64, u64) { (m.reserve_yes, m.reserve_no) }
 public fun price_yes_bps(m: &Market): u64 { mul_div(m.reserve_no, 10000, m.reserve_yes + m.reserve_no) }
 public fun evidence_count(m: &Market): u64 { m.evidence.length() }
 public fun group_counts(m: &Market): (u64, u64) { (m.yes_groups.length(), m.no_groups.length()) }
-public fun position_of(m: &Market, who: address): (u64, u64) {
-    if (!m.positions.contains(who)) return (0, 0);
+public fun position_of(m: &Market, who: address): (u64, u64, u64) {
+    if (!m.positions.contains(who)) return (0, 0, 0);
     let p = &m.positions[who];
-    (p.yes, p.no)
+    (p.yes, p.no, p.paid)
 }
 
-// -- test-only hooks (the real signed path is exercised on localnet) -------
+// -- test-only hooks (the real signed path runs on localnet) ---------------
 
 /// Admit an item bypassing ONLY the signature check (all other validation —
-/// phase, window, claim, issuer, dedup — is identical to submit_evidence).
+/// phase, window, claim, issuer, dedup, cap — is identical).
 #[test_only]
 public fun test_admit(
     m: &mut Market, issuer_idx: u64, claim: u8, content_hash: vector<u8>, signed_ms: u64,
@@ -497,13 +534,14 @@ public fun test_admit(
     assert!(claim == CLAIM_YES || claim == CLAIM_NO, E_BAD_CLAIM);
     assert!(issuer_idx < m.issuer_keys.length(), E_BAD_ISSUER);
     assert!(content_hash.length() == 32, E_BAD_PARAMS);
+    assert!(m.evidence.length() < MAX_EVIDENCE, E_TOO_MANY_EVIDENCE);
     assert!(signed_ms >= m.resolve_after_ms, E_OUT_OF_WINDOW);
     assert!(signed_ms < m.resolve_after_ms + m.evidence_window_ms, E_OUT_OF_WINDOW);
     assert!(!m.seen.contains(content_hash), E_DUPLICATE_EVIDENCE);
     admit_core(m, issuer_idx, claim, content_hash, signed_ms, ctx.sender());
 }
 
-/// Distinct unflagged trust groups per side, computed live (pre-resolve).
+/// Distinct trust groups per side, computed live (pre-resolve).
 #[test_only]
 public fun group_counts_live(m: &Market): (u64, u64) {
     let mut yg = vector<u64>[];
@@ -512,10 +550,8 @@ public fun group_counts_live(m: &Market): (u64, u64) {
     let n = m.evidence.length();
     while (i < n) {
         let it = &m.evidence[i];
-        if (!it.flagged) {
-            if (it.claim == CLAIM_YES) { push_unique(&mut yg, it.group); }
-            else { push_unique(&mut ng, it.group); };
-        };
+        if (it.claim == CLAIM_YES) { push_unique(&mut yg, it.group); }
+        else { push_unique(&mut ng, it.group); };
         i = i + 1;
     };
     (yg.length(), ng.length())
