@@ -12,5 +12,7 @@
     "provider_id": "",
     "attestor": "0xda11c9da04ab02c4af9374b27a5e727944d3e1dd"
   },
-  "resolver_url": "http://127.0.0.1:8899"
+  "resolver_url": "http://127.0.0.1:8899",
+  "gas_budget": 40000000,
+  "seed_liq": 70000000
 }
