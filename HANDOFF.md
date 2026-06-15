@@ -105,25 +105,26 @@ gen.mjs); copy the zk files into the client if missing (see tools/zktls/README.m
 
 ## The demos (web/)
 
-- `slashing.html` — the point. Re-run the one disputed micro-op on-chain and slash
-  a lying resolver. Comparison table vs opML/zkML/TEE.
+- `slashing.html` — the story: a resolver bonded a faked verdict; you run the real
+  deterministic judge, it disagrees, and you slash him on-chain. Comparison table
+  vs opML/zkML/TEE.
 - `judge.html` — the real Qwen3-1.7B reads evidence and types YES/NO/UNKNOWN with a
   reason; shows the exact prompt; free-text box proves it's live, not canned.
 - `evidence.html` — add a zkTLS proof (ecrecover). Two attacks shown failing:
   an opinion (no signature), and a forgery (the page runs the real ecrecover and
   the recovered address breaks when you change the claim).
+- `zktls.html` — pick a real API (Coinbase price, USD/EUR, a Hacker News headline,
+  a match result), generate a real zkTLS proof live through the attestor, see it
+  recover the pinned attestor, and the judge reads the proven value.
 - `market.html` — a market resolved by counting independent proofs, then paid out.
 - `app.html` — all of it combined, with a guided tour.
 
 ## Open threads / what's next
 
-1. **In-browser live zkTLS.** evidence.html submits pre-signed proofs; the real
-   attestor + gen.mjs work via CLI. Next: a small local endpoint (or the Reclaim
-   browser SDK in tools/reclaim/node_modules/@reclaimprotocol/js-sdk) so a user
-   generates their own proof in the page, like judge.html's free-text box.
-2. **Coinbase + football as UI markets.** The submit script proves both on-chain;
-   a dedicated page or staged markets in the grid is the remaining UI work.
-3. **On-chain evidence→Qwen binding** (the genesis-construction step, SPEC §7.2):
+1. **In-browser live zkTLS is DONE** (zktls.html + tools/reclaim/gen_server.mjs on
+   :8788). Next, if wanted: wire the same live-gen into evidence.html's market
+   submit so a user proves-and-submits a fresh proof to a real market in one flow.
+2. **On-chain evidence→Qwen binding** (the genesis-construction step, SPEC §7.2):
    makes a *wrong judge verdict* slashable at the market level. The Fraud Lab
    already proves the conviction machinery; binding live evidence to it is the
    remaining cryptographic build. This is the deepest open item.
