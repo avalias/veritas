@@ -32,6 +32,15 @@ if ! curl -s -m1 -o /dev/null http://127.0.0.1:8777/app.html 2>/dev/null; then
 fi
 echo "· dApp up (:8777)"
 
+# 2b. if the self-hosted zkTLS attestor is up (separate, Node 20/22), also start
+# the live-proof gen server so zktls.html works. The attestor itself is started
+# separately — see tools/zktls/README.md.
+if lsof -nP -iTCP:8001 -sTCP:LISTEN >/dev/null 2>&1 && ! lsof -nP -iTCP:8788 -sTCP:LISTEN >/dev/null 2>&1; then
+  ( source ~/.nvm/nvm.sh >/dev/null 2>&1; nvm use 22 >/dev/null 2>&1
+    cd tools/reclaim && nohup node gen_server.mjs >/tmp/genserver.log 2>&1 & )
+  echo "· zkTLS gen server up (:8788)"
+fi
+
 # 3. stage fresh markets + arm the Fraud Lab
 python3 demos/prediction-market/judge_setup.py
 

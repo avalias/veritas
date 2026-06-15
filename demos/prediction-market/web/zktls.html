@@ -51,9 +51,9 @@
     forex: { name: 'Exchange rates', sub: 'USD → EUR (ECB)', url: 'open.er-api.com/v6/latest/USD',
       q: 'Is one US dollar worth less than one euro?', ev: v => `1 US dollar is currently worth ${v} euros.` },
     news: { name: 'Hacker News', sub: 'a real story headline', url: 'hacker-news.firebaseio.com/v0/item/8863.json',
-      q: 'Does this headline announce a file-storage / cloud product?', ev: v => `Headline: "${v}".` },
+      q: 'Does this headline mention a product called Dropbox?', ev: v => `Headline: "${v}".` },
     football: { name: 'TheSportsDB', sub: 'a real match result', url: 'thesportsdb.com/.../lookupevent.php',
-      q: 'Does this name a football match between two teams?', ev: v => `Match: "${v}".` },
+      q: 'Does the report describe a football fixture?', ev: v => `A football results database lists this fixture: "${v}".` },
   };
 
   let current = 'coinbase';
