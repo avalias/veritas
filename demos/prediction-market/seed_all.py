@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """(Re)seed the curated devnet markets with HEALTHY liquidity and varied
 opening prices so the demo feels like a live market, plus a fresh evidence
-market with an unused zkTLS proof. Writes demo/web/markets.json.
+market with an unused zkTLS proof. Writes demos/prediction-market/web/markets.json.
 """
 import json, subprocess, sys, time
 from eth_account import Account
@@ -9,7 +9,7 @@ from eth_account.messages import encode_defunct
 from eth_hash.auto import keccak
 
 ROOT = subprocess.run(["git","rev-parse","--show-toplevel"],capture_output=True,text=True).stdout.strip()
-CFG = json.load(open(f"{ROOT}/demo/web/config.json"))
+CFG = json.load(open(f"{ROOT}/demos/prediction-market/web/config.json"))
 PKG, CLOCK, GB = CFG["package"], "0x6", "400000000"
 ATTESTORS = ["0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025",
              "0xda11c9da04ab02c4af9374b27a5e727944d3e1dd",
@@ -75,5 +75,5 @@ print("🛰️ evidence",mid[:12],"opens +90s")
 
 json.dump({"package":PKG,"network":"devnet","rpc":CFG["rpc"],"clock":CLOCK,
   "attestors":ATTESTORS,"markets":markets,"evidence_market":ev},
-  open(f"{ROOT}/demo/web/markets.json","w"),indent=2)
+  open(f"{ROOT}/demos/prediction-market/web/markets.json","w"),indent=2)
 print("wrote markets.json")

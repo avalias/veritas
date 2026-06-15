@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Create the evidence-phase market (short trading buffer so it enters its
 evidence window quickly), generate a matching real zkTLS proof signed by
-the pinned attestor, and write demo/web/markets.json with all markets.
+the pinned attestor, and write demos/prediction-market/web/markets.json with all markets.
 """
 import json, subprocess, sys, time
 from eth_account import Account
@@ -9,7 +9,7 @@ from eth_account.messages import encode_defunct
 from eth_hash.auto import keccak
 
 ROOT = subprocess.run(["git","rev-parse","--show-toplevel"],capture_output=True,text=True).stdout.strip()
-CFG = json.load(open(f"{ROOT}/demo/web/config.json"))
+CFG = json.load(open(f"{ROOT}/demos/prediction-market/web/config.json"))
 PKG, CLOCK, GB = CFG["package"], "0x6", "300000000"
 ATTESTORS = ["0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025",
              "0xda11c9da04ab02c4af9374b27a5e727944d3e1dd",
@@ -64,5 +64,5 @@ evidence={"id":ev_id,"emoji":"🛰️","question":q,"category":"Space · evidenc
 
 json.dump({"package":PKG,"network":"devnet","rpc":CFG["rpc"],"clock":CLOCK,
   "attestors":ATTESTORS,"markets":TRADING,"evidence_market":evidence},
-  open(f"{ROOT}/demo/web/markets.json","w"),indent=2)
+  open(f"{ROOT}/demos/prediction-market/web/markets.json","w"),indent=2)
 print("wrote markets.json; evidence opens at +90s, proof ts =",ts)

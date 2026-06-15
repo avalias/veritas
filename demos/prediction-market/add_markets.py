@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Append a few more curated markets to the live devnet set (keeps existing
-ones; nudges opening odds for variety). Updates demo/web/markets.json.
+ones; nudges opening odds for variety). Updates demos/prediction-market/web/markets.json.
 """
 import json, subprocess, sys, time
 ROOT=subprocess.run(["git","rev-parse","--show-toplevel"],capture_output=True,text=True).stdout.strip()
-CFG=json.load(open(f"{ROOT}/demo/web/config.json"))
-MK=json.load(open(f"{ROOT}/demo/web/markets.json"))
+CFG=json.load(open(f"{ROOT}/demos/prediction-market/web/config.json"))
+MK=json.load(open(f"{ROOT}/demos/prediction-market/web/markets.json"))
 PKG,CLOCK,GB="0x"+CFG["package"].replace("0x",""),"0x6","400000000"
 ATT=["0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025","0xda11c9da04ab02c4af9374b27a5e727944d3e1dd","0x2222222222222222222222222222222222222222"]
 JR="0x"+"a7"*32; DAY=86400*1000; LIQ=500_000_000
@@ -40,5 +40,5 @@ for emoji,q,cat,side,amt in MORE:
     mid=create(q); nudge(mid,side,amt); p=price(mid)
     MK["markets"].append({"id":mid,"emoji":emoji,"question":q,"category":cat,"phase":"trading","price_yes":p})
     print(f"{emoji} {mid[:12]} YES {p}%")
-json.dump(MK,open(f"{ROOT}/demo/web/markets.json","w"),indent=2)
+json.dump(MK,open(f"{ROOT}/demos/prediction-market/web/markets.json","w"),indent=2)
 print("total trading markets:",len(MK["markets"]))

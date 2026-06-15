@@ -10,7 +10,7 @@ from eth_account.messages import encode_defunct
 from eth_hash.auto import keccak
 
 ROOT = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
-CFG = json.load(open(f"{ROOT}/demo/web/config.json"))
+CFG = json.load(open(f"{ROOT}/demos/prediction-market/web/config.json"))
 PKG, CLOCK, GB = CFG["package"], "0x6", "400000000"
 # attestor[0] is the address of the demo signing key b"\x42"*32; [1],[2] add
 # independent trust groups. Resolution here uses one YES group (k=1 occurrence).
@@ -117,14 +117,14 @@ def now_ms():
 
 
 def load_markets():
-    return json.load(open(f"{ROOT}/demo/web/markets.json"))
+    return json.load(open(f"{ROOT}/demos/prediction-market/web/markets.json"))
 
 
 def save_markets(m):
     # atomic: write a temp file then rename, so the dApp (which polls this file
     # every 15s) never reads a half-written JSON during a re-stage.
     import os
-    path = f"{ROOT}/demo/web/markets.json"
+    path = f"{ROOT}/demos/prediction-market/web/markets.json"
     tmp = path + ".tmp"
     json.dump(m, open(tmp, "w"), indent=2)
     os.replace(tmp, path)
@@ -146,7 +146,7 @@ def object_fields(oid):
 def fact_status():
     """Status of the current Fraud-Lab Fact: 1=CHALLENGED (armed), 4=REJECTED (convicted)."""
     try:
-        d = json.load(open(f"{ROOT}/demo/web/dispute.json"))
+        d = json.load(open(f"{ROOT}/demos/prediction-market/web/dispute.json"))
         f = object_fields(d["fact"])
         return int(f["status"]) if f else None
     except Exception:

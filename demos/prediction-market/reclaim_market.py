@@ -5,7 +5,7 @@ submit_web_proof. Adds it to markets.json and a `reclaim` config block.
 """
 import json, subprocess, sys, time
 ROOT=subprocess.run(["git","rev-parse","--show-toplevel"],capture_output=True,text=True).stdout.strip()
-CFG=json.load(open(f"{ROOT}/demo/web/config.json")); MK=json.load(open(f"{ROOT}/demo/web/markets.json"))
+CFG=json.load(open(f"{ROOT}/demos/prediction-market/web/config.json")); MK=json.load(open(f"{ROOT}/demos/prediction-market/web/markets.json"))
 PKG,CLOCK,GB=CFG["package"],"0x6","400000000"
 # Reclaim's real attestor address (attestor-core); pin whichever your app uses.
 RECLAIM_ATTESTOR="0xda11c9da04ab02c4af9374b27a5e727944d3e1dd"
@@ -26,8 +26,8 @@ mid=next(c["objectId"] for c in o["objectChanges"] if c["type"]=="created" and c
 print("reclaim market",mid)
 MK["reclaim_market"]={"id":mid,"emoji":"🔗","question":q,"category":"zkTLS · prove it yourself",
   "phase":"evidence","resolve_after":ra,"window":win,"attestor":RECLAIM_ATTESTOR,"attestor_idx":0}
-json.dump(MK,open(f"{ROOT}/demo/web/markets.json","w"),indent=2)
+json.dump(MK,open(f"{ROOT}/demos/prediction-market/web/markets.json","w"),indent=2)
 # reclaim creds block (user fills app_id/secret/provider_id from dev.reclaimprotocol.org)
 CFG["reclaim"]={"app_id":"","app_secret":"","provider_id":"","attestor":RECLAIM_ATTESTOR}
-json.dump(CFG,open(f"{ROOT}/demo/web/config.json","w"),indent=2)
+json.dump(CFG,open(f"{ROOT}/demos/prediction-market/web/config.json","w"),indent=2)
 print("added reclaim_market + reclaim config block (fill app_id/secret/provider_id to enable in-app proofs)")

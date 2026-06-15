@@ -3,7 +3,7 @@
 the dApp shows real, on-chain markets people can trade and resolve.
 
 Creates 4 open (trading) markets + 1 in its evidence window (for the live
-zkTLS submission). Writes demo/web/markets.json for the front-end.
+zkTLS submission). Writes demos/prediction-market/web/markets.json for the front-end.
 
 Run after deploy.sh devnet (active env = devnet, address funded).
 """
@@ -13,7 +13,7 @@ import sys
 import time
 
 ROOT = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
-CFG = json.load(open(f"{ROOT}/demo/web/config.json"))
+CFG = json.load(open(f"{ROOT}/demos/prediction-market/web/config.json"))
 PKG = CFG["package"]
 CLOCK = "0x6"
 GB = "300000000"
@@ -100,8 +100,8 @@ def main():
 
     json.dump({"package": PKG, "network": "devnet", "rpc": CFG["rpc"],
                "clock": CLOCK, "attestors": ATTESTORS, "markets": markets},
-              open(f"{ROOT}/demo/web/markets.json", "w"), indent=2)
-    print(f"\nwrote demo/web/markets.json with {len(markets)} markets")
+              open(f"{ROOT}/demos/prediction-market/web/markets.json", "w"), indent=2)
+    print(f"\nwrote demos/prediction-market/web/markets.json with {len(markets)} markets")
 
 
 if __name__ == "__main__":

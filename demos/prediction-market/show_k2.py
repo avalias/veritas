@@ -9,7 +9,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from eth_hash.auto import keccak
 ROOT=subprocess.run(["git","rev-parse","--show-toplevel"],capture_output=True,text=True).stdout.strip()
-CFG=json.load(open(f"{ROOT}/demo/web/config.json")); MK=json.load(open(f"{ROOT}/demo/web/markets.json"))
+CFG=json.load(open(f"{ROOT}/demos/prediction-market/web/config.json")); MK=json.load(open(f"{ROOT}/demos/prediction-market/web/markets.json"))
 PKG,CLOCK,GB=CFG["package"],"0x6","400000000"
 # two INDEPENDENT attestors (distinct keys → distinct trust groups)
 A0=Account.from_key(b"\x42"*32); A1=Account.from_key(b"\x43"*32)
@@ -54,5 +54,5 @@ sh(["sui","client","call","--package",PKG,"--module","market","--function","reso
 f=json.loads(sh(["sui","client","object",mid,"--json"]).stdout)["content"]["fields"]
 print("RESOLVED:",["OPEN","YES","NO","VOID"][int(f["outcome"])],"· yes_groups",len(f["yes_groups"]))
 MK["markets"].append({"id":mid,"emoji":"🛰️","question":"Wires confirm Starship orbit (2 independent sources)","category":"Resolved · k=2 zkTLS","phase":"resolved","price_yes":100})
-json.dump(MK,open(f"{ROOT}/demo/web/markets.json","w"),indent=2)
+json.dump(MK,open(f"{ROOT}/demos/prediction-market/web/markets.json","w"),indent=2)
 print("appended k=2 showcase")

@@ -8,7 +8,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from eth_hash.auto import keccak
 ROOT=subprocess.run(["git","rev-parse","--show-toplevel"],capture_output=True,text=True).stdout.strip()
-CFG=json.load(open(f"{ROOT}/demo/web/config.json")); MK=json.load(open(f"{ROOT}/demo/web/markets.json"))
+CFG=json.load(open(f"{ROOT}/demos/prediction-market/web/config.json")); MK=json.load(open(f"{ROOT}/demos/prediction-market/web/markets.json"))
 PKG,CLOCK,GB=CFG["package"],"0x6","400000000"
 ATT=["0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025","0xda11c9da04ab02c4af9374b27a5e727944d3e1dd","0x2222222222222222222222222222222222222222"]
 def sh(a):
@@ -35,5 +35,5 @@ MK["evidence_market"]={"id":mid,"emoji":"🛰️","question":q,"category":"Space
   "proof":{"attestor_idx":0,"claim":1,"provider":"0x"+provider.encode().hex(),"parameters":"0x"+parameters.encode().hex(),
     "context":"0x"+context.encode().hex(),"owner":"0x"+owner.encode().hex(),"timestamp_s":ts,"epoch":1,
     "signature":"0x"+bytes(sig.signature).hex(),"source":"bbc.com","headline":"SpaceX Starship reaches orbit"}}
-json.dump(MK,open(f"{ROOT}/demo/web/markets.json","w"),indent=2)
+json.dump(MK,open(f"{ROOT}/demos/prediction-market/web/markets.json","w"),indent=2)
 print("re-seeded evidence market",mid,"(30-day window)")

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ONE command to make everything judge-ready and keep it fresh across judges.
-#   ./demo/go.sh
+#   ./demos/prediction-market/go.sh
 # Starts the AI-judge resolver + the dApp server (if not already up), stages
 # fresh ⚡/⚖️ markets + arms the Fraud Lab, launches the auto-replenisher, and
 # opens the dApp. Re-run any time to reset the board for the next judge.
@@ -20,17 +20,17 @@ curl -s -m2 http://127.0.0.1:8899/ >/dev/null 2>&1 && echo "· AI judge up (:889
 # 2. the dApp server on :8777
 if ! curl -s -m1 -o /dev/null http://127.0.0.1:8777/app.html 2>/dev/null; then
   echo "· starting the dApp server (:8777)…"
-  nohup python3 demo/web/serve.py >/tmp/serve.log 2>&1 &
+  nohup python3 demos/prediction-market/web/serve.py >/tmp/serve.log 2>&1 &
   sleep 2
 fi
 echo "· dApp up (:8777)"
 
 # 3. stage fresh markets + arm the Fraud Lab
-python3 demo/judge_setup.py
+python3 demos/prediction-market/judge_setup.py
 
 # 4. keep the board fresh across back-to-back judges
-pkill -f 'demo/replenish.py' 2>/dev/null || true
-nohup python3 demo/replenish.py >/tmp/replenish.log 2>&1 &
+pkill -f 'demos/prediction-market/replenish.py' 2>/dev/null || true
+nohup python3 demos/prediction-market/replenish.py >/tmp/replenish.log 2>&1 &
 echo "· auto-replenisher running (re-stages after each judge; log: /tmp/replenish.log)"
 
 echo ""

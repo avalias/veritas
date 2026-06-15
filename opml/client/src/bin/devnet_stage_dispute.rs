@@ -1,5 +1,5 @@
 //! Stage a REAL fraud-proof dispute on a live network (devnet), bisected
-//! down to the atomic interval, and emit demo/web/dispute.json so the dApp
+//! down to the atomic interval, and emit demos/prediction-market/web/dispute.json so the dApp
 //! can let a user deliver the final `verify_step` kill-shot from their
 //! wallet — convicting the liar and slashing the bond on-chain.
 //!
@@ -118,7 +118,7 @@ fn main() {
     });
     let root = std::process::Command::new("git").args(["rev-parse", "--show-toplevel"]).output().unwrap();
     let root = String::from_utf8(root.stdout).unwrap().trim().to_string();
-    let path = format!("{root}/demo/web/dispute.json");
+    let path = format!("{root}/demos/prediction-market/web/dispute.json");
     std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
     println!("wrote {path}");
     println!("fact {fact} staged at atomic interval [{lo},{hi}] — deliver verify_step to convict");

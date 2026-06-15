@@ -8,7 +8,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from eth_hash.auto import keccak
 ROOT=subprocess.run(["git","rev-parse","--show-toplevel"],capture_output=True,text=True).stdout.strip()
-CFG=json.load(open(f"{ROOT}/demo/web/config.json")); MK=json.load(open(f"{ROOT}/demo/web/markets.json"))
+CFG=json.load(open(f"{ROOT}/demos/prediction-market/web/config.json")); MK=json.load(open(f"{ROOT}/demos/prediction-market/web/markets.json"))
 PKG,CLOCK,GB=CFG["package"],"0x6","400000000"
 ATT=["0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025","0xda11c9da04ab02c4af9374b27a5e727944d3e1dd","0x2222222222222222222222222222222222222222"]
 def sh(a):
@@ -46,5 +46,5 @@ f=json.loads(sh(["sui","client","object",mid,"--json"]).stdout)["content"]["fiel
 print("RESOLVED — outcome:",["OPEN","YES","NO","VOID"][int(f["outcome"])])
 
 MK["markets"].append({"id":mid,"emoji":"🛰️","question":"Did Starship reach orbit?","category":"Resolved · zkTLS","phase":"resolved","price_yes":100})
-json.dump(MK,open(f"{ROOT}/demo/web/markets.json","w"),indent=2)
+json.dump(MK,open(f"{ROOT}/demos/prediction-market/web/markets.json","w"),indent=2)
 print("appended resolved showcase to markets.json")
