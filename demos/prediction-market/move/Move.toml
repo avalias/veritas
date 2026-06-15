@@ -1,0 +1,10 @@
+# veritas — the prediction-market demo built on the opml engine.
+# A solvent CPMM whose outcome is decided only by provenance-gated evidence
+# (zkTLS web proofs verified by native ecrecover) read by the AI judge — never
+# by a vote. Independent of the opml package; it consumes the engine off-chain.
+[package]
+name = "veritas"
+edition = "2024.beta"
+
+[addresses]
+veritas = "0x0"

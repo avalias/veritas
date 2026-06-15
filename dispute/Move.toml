@@ -1,8 +1,0 @@
-# Sui Move package: the on-chain dispute protocol + one-step verifier
-# (SPEC §8, line-by-line twin of vm/src/onestep.rs).
-[package]
-name = "dispute"
-edition = "2024.beta"
-
-[addresses]
-dispute = "0x0"

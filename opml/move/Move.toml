@@ -1,0 +1,10 @@
+# opml — the on-chain half of the verifiable-inference engine.
+# A line-by-line twin of the Rust VM (opml/vm): one-step verifier, the float
+# micro-op interpreter, Merkle state, soft-float, signed arithmetic, and the
+# Nautilus TEE attestation check. Disputes over any compiled model resolve here.
+[package]
+name = "opml"
+edition = "2024.beta"
+
+[addresses]
+opml = "0x0"
