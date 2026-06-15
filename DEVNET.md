@@ -37,6 +37,29 @@ python3 demo/web/serve.py        # → http://127.0.0.1:8777/app.html
   create_market) **builds and dry-runs successfully** against devnet; the
   position display reads real on-chain state via `position_of`.
 
+## Who runs Qwen? Watch it, live.
+
+The chain never runs the model (billions of ops). A **resolver** runs Qwen
+off-chain — on its own hardware — and the chain only re-runs **one micro-op**
+if a verdict is disputed (the Fraud Lab). To see it, start the resolver
+locally; it loads the real committed-float **Qwen-0.6B** (perplexity 34.60,
+bit-identical on any CPU):
+
+```
+cargo run -p qwen --release --bin resolver        # serves :8899
+```
+
+Then open the **evidence market** in the dApp and click **"Ask the AI judge
+to read the evidence."** The dApp streams Qwen's tokens as it reads the
+zkTLS-proven headline and **types its verdict** ("YES, … the report says
+Starship reached orbit"), then reveals the on-chain submit/resolve. That is
+literally the model running — the resolver is who runs Qwen; the chain
+verifies it's fraud-provable. (For a public deployment, host the resolver
+and set `resolver_url` in `config.json`; the in-VM evidence→Qwen binding
+that makes a *wrong* verdict slashable at the market level is the remaining
+cryptographic step — SPEC §7.2 genesis construction — and the Fraud Lab
+already proves the Qwen-conviction half.)
+
 ## The Fraud Lab — convict a liar on-chain, from a click
 
 The dApp has a live fraud proof. A resolver has staked a bond on a

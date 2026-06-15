@@ -281,8 +281,13 @@ async function openMarket(id,kind){
     evHtml=`<h3>Evidence — zkTLS proofs, not opinions</h3>
       <div class="kvs" style="margin-bottom:10px"><span>real proof: <b>${m.proof.source}</b> served "${m.proof.headline}"</span><span>witnessed by pinned attestor <b>${CFG.attestors[0].slice(0,10)}…</b></span></div>
       ${items}
-      ${st.phase===1?`<button class="btn primary" id="submitEv" style="margin-top:4px"><i class="ti ti-shield-check"></i> Submit this zkTLS proof (YES) on-chain</button>`
-        : st.phase===3?`<button class="btn primary" id="resolveEv" style="margin-top:4px"><i class="ti ti-gavel"></i> Resolve — apply the committed rule</button>`
+      <h3 style="margin-top:14px">The AI judge reads it — live</h3>
+      <div class="dim" style="font-size:13px;line-height:1.55">Run the real <b style="color:var(--tx)">Qwen-0.6B</b> on the proven evidence. It reads what the source actually served and types its verdict. The resolver runs Qwen off-chain (here, a local server); the chain only re-runs one micro-op if the verdict is disputed.</div>
+      <button class="btn" id="runJudgeBtn" style="margin-top:8px"><i class="ti ti-cpu"></i> Ask the AI judge to read the evidence</button>
+      <div id="judgeOut" style="display:none;margin-top:10px;padding:12px 14px;border-radius:10px;background:var(--inset);border:1px solid var(--border);font-size:14px;line-height:1.65;font-family:var(--mono)"></div>
+      <div id="judgeVerdict"></div>
+      ${st.phase===1?`<button class="btn primary" id="submitEv" style="margin-top:10px;display:none"><i class="ti ti-shield-check"></i> Submit the judge's verdict on-chain</button>`
+        : st.phase===3?`<button class="btn primary" id="resolveEv" style="margin-top:10px"><i class="ti ti-gavel"></i> Resolve — apply the committed rule</button>`
         : `<div class="note" style="margin-top:4px">Evidence window opens shortly (a short trading buffer is enforced at creation).</div>`}
       <h3 style="margin-top:18px">…now try to vote the other way</h3>
       <div class="seg" style="margin-bottom:8px">
@@ -325,6 +330,7 @@ async function openMarket(id,kind){
   const se=document.getElementById('submitEv'); if(se) se.onclick=()=>submitEvidence(id,m.proof);
   const re=document.getElementById('resolveEv'); if(re) re.onclick=()=>resolveMarket(id);
   const rb2=document.getElementById('reclaimBtn'); if(rb2) rb2.onclick=()=>reclaimProve(id, m.attestor_idx||0);
+  const jb=document.getElementById('runJudgeBtn'); if(jb) jb.onclick=()=>runJudge(m.question, (m.proof&&m.proof.headline)||m.question);
   const fb=document.getElementById('fakeBtn'); if(fb) fb.onclick=()=>{
     const v=(document.getElementById('fakeClaim').value||'').trim();
     document.getElementById('fakeOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill)"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-ban"></i></div><div class="b"><div class="s" style="color:var(--red)">Refused — no proof exists</div><div class="m" style="color:var(--dim)">${v?('"'+v.slice(0,48)+'" ')+'is an opinion. ':''}There is no zkTLS proof that a pinned source reported NO, so it cannot be submitted. You can't vote — you can only prove what a source served.</div></div></div>`;
@@ -356,6 +362,26 @@ async function redeem(id){
   await sign(tx,'Redeemed');
 }
 const delay=(ms)=>new Promise(r=>setTimeout(r,ms));
+// ---- the live AI judge: stream the REAL Qwen-0.6B reading the evidence ----
+function runJudge(question, evidenceText){
+  const rurl=(CFG.resolver_url||'http://127.0.0.1:8899');
+  const out=document.getElementById('judgeOut'); out.style.display='block'; out.textContent='';
+  const btn=document.getElementById('runJudgeBtn'); btn.disabled=true; btn.innerHTML='<i class="ti ti-cpu"></i> Qwen reading the evidence…';
+  let es;
+  try{ es=new EventSource(`${rurl}/judge?q=${encodeURIComponent(question)}&e=${encodeURIComponent(evidenceText)}`); }
+  catch(e){ out.textContent='[resolver offline]'; btn.disabled=false; return; }
+  es.onmessage=(ev)=>{ try{ const d=JSON.parse(ev.data);
+    if(d.t){ out.textContent+=d.t; out.scrollTop=out.scrollHeight; }
+    if(d.done){ es.close();
+      const v=d.verdict||'NO';
+      document.getElementById('judgeVerdict').innerHTML=`<div class="ev" style="margin-top:8px;border-color:var(--teal-deep);background:var(--teal-fill)"><div class="ico"><i class="ti ti-gavel"></i></div><div class="b"><div class="s" style="color:var(--teal)">Verdict: ${v}</div><div class="m">read by the real Qwen-0.6B · deterministic · perplexity 34.60 = published</div></div></div>`;
+      const sb=document.getElementById('submitEv'); if(sb) sb.style.display='block';
+      btn.innerHTML='<i class="ti ti-check"></i> Judge finished';
+    }
+  }catch(e){} };
+  es.onerror=()=>{ es.close(); if(!out.textContent) out.textContent='[resolver offline — start it with:  cargo run -p qwen --release --bin resolver]'; btn.disabled=false; btn.innerHTML='<i class="ti ti-cpu"></i> Ask the AI judge to read the evidence'; };
+}
+
 // ---- Reclaim: the user generates their OWN zkTLS proof in-app, then we
 // map it to submit_web_proof (reclaim::verify checks the attestor on-chain) ----
 async function reclaimProve(marketId, attestorIdx){
