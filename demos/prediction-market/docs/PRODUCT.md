@@ -31,7 +31,7 @@ of fact. The bet you make is not the bet that gets settled.
 
 **No human decides anything after trading opens.** Every judgment call — the question, the trusted sources, the decision rule — is fixed at creation, when no money is at stake yet. After that, resolution is a pure calculation over signed bytes. There is no settlement-time vote to capture. The exact thing that broke those markets does not exist here.
 
-**The AI judge is the real model, not a watered-down stand-in.** The judge is Qwen3-0.6B running in a deterministic virtual machine. We measured its quality: perplexity 34.5974, matching the published floating-point reference (34.60) and the standard llama.cpp build (34.99). It is the model as shipped. There is nothing dumbed down to make the math cheaper.
+**The AI judge is the real model, not a watered-down stand-in.** The demo runs Qwen3-1.7B in a deterministic virtual machine; the runtime is model-agnostic. We measured the bundled 0.6B reference at perplexity 34.5974, matching the published floating-point reference (34.60) and the standard llama.cpp build (34.99). It is the model as shipped — nothing is dumbed down to make the math cheaper.
 
 **The judge runs identically everywhere — provably.** The judge produces bit-for-bit identical output regardless of how many CPU threads it uses, whether it runs on an Apple M4 GPU or a CPU, or on a different machine entirely. "Run it yourself and check" is a real option, not a slogan.
 

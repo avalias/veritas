@@ -50,8 +50,8 @@ python3 demos/prediction-market/judge_setup.py                   # stage the ⚡
 The chain never runs the model (billions of ops). A **resolver** runs Qwen
 off-chain — on its own hardware — and the chain only re-runs **one micro-op**
 if a verdict is disputed (the Fraud Lab). To see it, start the resolver
-locally; it loads the real committed-float **Qwen-0.6B** (perplexity 34.60,
-bit-identical on any CPU):
+locally; it loads the real committed-float judge — **Qwen3-1.7B** if you ran
+`fetch-1.7b.sh`, otherwise the 0.6B reference (perplexity 34.60) — bit-identical on any CPU:
 
 ```
 cargo run -p qwen --release --bin resolver        # serves :8899
