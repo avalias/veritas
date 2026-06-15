@@ -11,11 +11,13 @@
     <span class="dim" id="att" style="font-size:12px"></span>
   </div>
 
-  <h1>Prove live web data, then let the judge read it</h1>
-  <p class="lede">Pick a real public API. Our self-hosted attestor runs a genuine TLS-MPC
-    handshake to it and signs what it served. You watch the proof come back, check it
-    recovers the pinned attestor, and the deterministic judge reads the proven value. All
-    live — nothing pre-baked.</p>
+  <h1>Prove real web data, then let the judge call it</h1>
+  <p class="lede">Pick a real source — a rocket-launch report, a live price, a match result.
+    Our self-hosted attestor runs a genuine TLS-MPC handshake to it and signs exactly what it
+    served. You watch the proof come back, check it recovers the pinned attestor, and the
+    deterministic judge reads it and settles a yes/no a prediction market would trade — the
+    two launch reports get opposite answers because the judge understands them. Then try to
+    forge the value and watch it break.</p>
 
   <div class="demos" id="cards"></div>
 
@@ -51,14 +53,21 @@
   // the proven football value is a JSON slice with the two scores around other fields,
   // e.g. `3","intRound":"37","intAwayScore":"2` — home is the first number, away the last.
   const fParse = v => { const s = String(v); const h = (s.match(/^\D*(\d+)/) || [])[1] || '?'; const a = (s.match(/(\d+)\D*$/) || [])[1] || '?'; return { home: h, away: a }; };
+  // a news summary comes back with escaped newlines and a "The post … appeared first on …" trailer
+  const clean = v => String(v).replace(/\\[rn]/g, ' ').replace(/\s*The post\b[\s\S]*$/, '').replace(/\s+/g, ' ').trim();
+  // Each source is a real fetch paired with the kind of question a prediction market would
+  // settle. The two rocket-launch reports use the SAME question — the judge reads each and
+  // gets opposite answers, because it understands what the report says.
   const SOURCES = {
+    launchA: { name: 'Rocket launch', sub: 'Spaceflight News · Japan’s H3', url: 'https://api.spaceflightnewsapi.net/v4/articles/38439/',
+      regex: '"summary":"(?<value>[^"]+)"', q: 'Did this rocket reach orbit?',
+      ev: v => `A space-industry news report: ${clean(v)}`, show: v => `“${clean(v)}”` },
+    launchB: { name: 'Rocket launch', sub: 'Spaceflight News · Blue Origin New Glenn', url: 'https://api.spaceflightnewsapi.net/v4/articles/38175/',
+      regex: '"summary":"(?<value>[^"]+)"', q: 'Did this rocket reach orbit?',
+      ev: v => `A space-industry news report: ${clean(v)}`, show: v => `“${clean(v)}”` },
     btc: { name: 'Bitcoin price', sub: 'Coinbase spot · live', url: 'https://api.coinbase.com/v2/prices/BTC-USD/spot',
       regex: '"amount":"(?<value>[0-9.]+)"', q: 'Is Bitcoin currently worth more than $100,000?',
       ev: v => `The current price of one Bitcoin is $${Math.round(+v).toLocaleString('en-US')}.`,
-      show: v => `$${Math.round(+v).toLocaleString('en-US')}` },
-    eth: { name: 'Ethereum price', sub: 'Coinbase spot · live', url: 'https://api.coinbase.com/v2/prices/ETH-USD/spot',
-      regex: '"amount":"(?<value>[0-9.]+)"', q: 'Is Ethereum currently worth more than $1,000?',
-      ev: v => `The current price of one Ether is $${Math.round(+v).toLocaleString('en-US')}.`,
       show: v => `$${Math.round(+v).toLocaleString('en-US')}` },
     football: { name: 'Football result', sub: 'TheSportsDB · a real match', url: 'https://www.thesportsdb.com/api/v1/json/3/lookupevent.php?id=2267440',
       regex: '"intHomeScore":"(?<value>\\d+","intRound":"\\d+","intAwayScore":"\\d+)"', q: 'Did the home team score more goals than the away team?',
@@ -67,7 +76,7 @@
   };
   const short = u => u.replace(/^https:\/\//, '').replace(/\?.*$/, '…');
 
-  let current = 'btc';
+  let current = 'launchA';
   const cards = document.getElementById('cards');
   for (const [k, s] of Object.entries(SOURCES)) {
     const a = document.createElement('a'); a.className = 'demo'; a.href = 'javascript:void 0';
@@ -84,7 +93,7 @@
     document.getElementById('status').textContent = '';
     document.getElementById('result').innerHTML = '';
   }
-  select('btc');
+  select('launchA');
 
   function recoverSigner(p) {
     const identifier = keccak256(toUtf8Bytes(`${p.provider}\n${p.parameters}\n${p.context}`));
