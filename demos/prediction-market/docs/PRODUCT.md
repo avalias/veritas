@@ -72,7 +72,7 @@ Evidence provenance is real and multi-scheme (see [PROVENANCE.md](PROVENANCE.md)
 on-chain; DKIM/zkTLS plug in via `groth16` and Reclaim's live Sui verifier.
 An optional AWS Nitro TEE second layer (`tee.move`) attests the judge ran
 in a measured enclave, as defense in depth behind the fraud proof. A
-polished, self-contained walkthrough lives in [demo/web](demo/web) — open
+polished, self-contained walkthrough lives in [demos/prediction-market/web](demos/prediction-market/web) — open
 `index.html` to try the whole thing in a browser.
 
 *Deeper reading: [VISION.md](VISION.md) (the general system), [EVIDENCE.md](EVIDENCE.md) (how evidence is chosen and the judge is hardened), [DEMO.md](DEMO.md) (the working demo).*

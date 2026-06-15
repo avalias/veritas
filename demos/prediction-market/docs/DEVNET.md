@@ -6,15 +6,15 @@ network), with a real wallet dApp. Nothing here is a mock.
 > **Handing it to a judge? See [JUDGE.md](JUDGE.md)** — a 5-minute, click-by-click
 > script where the judge personally signs every step of a market's life (buy →
 > AI-judge → prove → resolve → redeem) plus convicts a fraud, each a real on-chain
-> tx. One command (`python3 demo/judge_setup.py`) stages the live markets;
-> `python3 demo/replenish.py` keeps the board fresh across back-to-back judges.
+> tx. One command (`python3 demos/prediction-market/judge_setup.py`) stages the live markets;
+> `python3 demos/prediction-market/replenish.py` keeps the board fresh across back-to-back judges.
 
 ## Run the dApp
 
 ```
 cargo run -p qwen --release --bin resolver   # the live AI judge (:8899)
-python3 demo/web/serve.py                     # → http://127.0.0.1:8777/app.html
-python3 demo/judge_setup.py                   # stage the ⚡ LIVE + ⚖️ READY markets
+python3 demos/prediction-market/web/serve.py                     # → http://127.0.0.1:8777/app.html
+python3 demos/prediction-market/judge_setup.py                   # stage the ⚡ LIVE + ⚖️ READY markets
 ```
 
 - Browse 10 live markets (read straight from devnet, no wallet needed).
@@ -30,7 +30,7 @@ python3 demo/judge_setup.py                   # stage the ⚡ LIVE + ⚖️ READ
   (modules: `market`, `dispute`, `credential`, `reclaim`, `tee`).
 - **10 markets**: 8 open for trading (Starship, GPT-6, BTC $150k, Fed cut,
   Real Madrid, Avatar, hottest year, AI Math Olympiad), 1 in its evidence
-  window, 1 **resolved YES** (full lifecycle). IDs in `demo/web/markets.json`.
+  window, 1 **resolved YES** (full lifecycle). IDs in `demos/prediction-market/web/markets.json`.
 - A real zkTLS proof admitted on-chain:
   [tx F3DtJMvf…](https://suiscan.xyz/devnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1).
 
@@ -89,7 +89,7 @@ cargo run -p client --bin devnet_stage_dispute -- <PKG> <resolver> <challenger>
 
 One market pins **Reclaim's real attestor**. Add your free Reclaim
 `app_id` / `app_secret` / `provider_id` (dev.reclaimprotocol.org) to
-`demo/web/config.json`, and the "Generate a real zkTLS proof" button runs
+`demos/prediction-market/web/config.json`, and the "Generate a real zkTLS proof" button runs
 the Reclaim flow in-app — you prove a real website's data yourself, and the
 proof is mapped straight into `submit_web_proof` and verified on-chain by
 native `ecrecover`. The on-chain format already matches Reclaim's exactly
@@ -102,8 +102,8 @@ The dApp is network-configurable (it reads `network`/`rpc` from
 
 ```
 ./dispute/deploy.sh testnet      # fund the address first at faucet.sui.io
-python3 demo/seed_all.py && python3 demo/add_markets.py   # seed markets
-# then set demo/web/config.json network+rpc to testnet (or re-run from there)
+python3 demos/prediction-market/seed_all.py && python3 demos/prediction-market/add_markets.py   # seed markets
+# then set demos/prediction-market/web/config.json network+rpc to testnet (or re-run from there)
 ```
 
 (Currently the public testnet faucet is IP-rate-limited, so the live
@@ -131,9 +131,9 @@ evidence market and try the "vote NO" box):
 
 ```
 ./dispute/deploy.sh devnet                       # publish (prints PACKAGE_ID)
-python3 demo/seed_all.py                          # curated markets + prices
-python3 demo/add_markets.py                       # a few more
-python3 demo/show_resolved.py                     # a resolved-YES showcase
+python3 demos/prediction-market/seed_all.py                          # curated markets + prices
+python3 demos/prediction-market/add_markets.py                       # a few more
+python3 demos/prediction-market/show_resolved.py                     # a resolved-YES showcase
 ```
 
 (For mainnet: `./dispute/deploy.sh mainnet` with a funded address — the

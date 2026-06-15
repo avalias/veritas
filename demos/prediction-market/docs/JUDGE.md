@@ -106,7 +106,7 @@ all: **keep the judge at the operator's machine, or screen-share and drive.**
 ## 6. Troubleshooting
 
 - **⚡ not in trading / "evidence window opens shortly"** → re-run
-  `python3 demo/judge_setup.py` (re-mints a fresh ⚡ with a future window).
+  `python3 demos/prediction-market/judge_setup.py` (re-mints a fresh ⚡ with a future window).
 - **Resolve says E_TOO_EARLY** → the window hasn't closed; use the ⚖️ READY card,
   or wait for the ⚡ banner to reach ⚖️ RESOLVE.
 - **Redeem says nothing to redeem** → only the market the judge personally bought
