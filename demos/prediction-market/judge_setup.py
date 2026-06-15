@@ -21,6 +21,7 @@ import time
 import judge_lib as L
 
 import os
+SEED = int(L.CFG.get("seed_liq", 150_000_000))     # liquidity per staged market
 T_TRADE = int(os.environ.get("T_TRADE", 150_000))  # ⚡ trading window (ms) — judge buys here
 T_WIN = int(os.environ.get("T_WIN", 75_000))        # ⚡ evidence window (ms) — judge submits here
 # → ⚡ becomes resolvable ~225s after creation; redeemable right after. The
@@ -31,7 +32,7 @@ def stage_live():
     now = L.now_ms()
     ra = now + T_TRADE
     win = T_WIN
-    mid = L.create_market("Will independent wires confirm Starship reached orbit?", ra, win, k=1)
+    mid = L.create_market("Will independent wires confirm Starship reached orbit?", ra, win, k=1, seed_mist=SEED)
     proofs = L.all_source_proofs((ra + win // 2) // 1000)  # one per source, mid-window
     return {"id": mid, "emoji": "⚡", "question": "Will independent wires confirm Starship reached orbit?",
             "category": "LIVE · trade → judge → resolve → redeem", "kind": "live",
@@ -41,7 +42,7 @@ def stage_resolve_ready():
     now = L.now_ms()
     ra = now + 8_000
     win = 22_000
-    mid = L.create_market("Did Starship reach orbit? (ready to resolve)", ra, win, k=1)
+    mid = L.create_market("Did Starship reach orbit? (ready to resolve)", ra, win, k=1, seed_mist=SEED)
     proofs = L.all_source_proofs((ra + 5_000) // 1000)
     print("  ⚖️  waiting for the evidence window to open…")
     while L.now_ms() < ra + 1_500:

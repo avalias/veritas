@@ -11,7 +11,7 @@ from eth_hash.auto import keccak
 
 ROOT = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
 CFG = json.load(open(f"{ROOT}/demos/prediction-market/web/config.json"))
-PKG, CLOCK, GB = CFG["package"], "0x6", "400000000"
+PKG, CLOCK, GB = CFG["package"], "0x6", str(CFG.get("gas_budget", 150_000_000))
 # attestor[0] is the address of the demo signing key b"\x42"*32; [1],[2] add
 # independent trust groups. Resolution here uses one YES group (k=1 occurrence).
 # Three independent "sources" the demo controls end-to-end — each a distinct
@@ -167,8 +167,13 @@ def stage_fraud():
     if len(al) < 2:
         print("  🔪 fraud: need two funded addresses to stage; skipping", file=sys.stderr)
         return False
+    # the dispute lives in the opml verifier package, not the market package
+    opml_pkg = CFG.get("opml_package", PKG)
+    active = subprocess.run(["sui", "client", "active-address"], capture_output=True, text=True).stdout.strip()
     r = subprocess.run(["cargo", "run", "-q", "-p", "client", "--bin", "devnet_stage_dispute",
-                        "--", PKG, al[0], al[1]], capture_output=True, text=True, cwd=ROOT)
+                        "--", opml_pkg, al[0], al[1]], capture_output=True, text=True, cwd=ROOT)
+    # the staging bin switches the active address per call; restore it
+    subprocess.run(["sui", "client", "switch", "--address", active], capture_output=True, text=True)
     ok = r.returncode == 0
     print("  🔪 Fraud Lab re-armed" if ok else f"  🔪 fraud staging FAILED: {r.stderr[-200:]}")
     return ok

@@ -16,7 +16,7 @@ ATTESTORS = ["0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025",
              "0x2222222222222222222222222222222222222222"]
 JUDGE_ROOT = "0x" + "a7"*32
 DAY = 86400*1000
-LIQ = 500_000_000   # 0.5 SUI liquidity per market → gentle price impact
+LIQ = int(CFG.get("seed_liq", 150_000_000))   # SUI liquidity per market
 
 def sh(a):
     r=subprocess.run(a,capture_output=True,text=True)
@@ -73,7 +73,7 @@ ev={"id":mid,"emoji":"🛰️","question":"Did Starship reach orbit, as reported
       "signature":"0x"+bytes(sig.signature).hex(),"source":"bbc.com","headline":"SpaceX Starship reaches orbit"}}
 print("🛰️ evidence",mid[:12],"opens +90s")
 
-json.dump({"package":PKG,"network":"devnet","rpc":CFG["rpc"],"clock":CLOCK,
+json.dump({"package":PKG,"network":CFG.get("network","testnet"),"rpc":CFG["rpc"],"clock":CLOCK,
   "attestors":ATTESTORS,"markets":markets,"evidence_market":ev},
   open(f"{ROOT}/demos/prediction-market/web/markets.json","w"),indent=2)
 print("wrote markets.json")

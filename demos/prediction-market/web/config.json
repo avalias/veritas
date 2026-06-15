@@ -1,8 +1,9 @@
 {
-  "package": "0xd2b2a9493f91dc61d4dcc9f20f973600f39cb1e1cce1a155fe93ac16ec4a86f7",
-  "network": "devnet",
-  "rpc": "https://fullnode.devnet.sui.io:443",
-  "admin": "0xb01503bef9a3acaab095a9269d21a5a8def0069478d5d4f8c5fbc6b0a4a650c9",
+  "package": "0x128f9a3c051da659ba7bb94f18d77c553f08603d96a35b3d8cea8905e610c19a",
+  "opml_package": "0xbe6d4a7e3b569854b6cdebc4d6a2d8dae75049db50dfe6e309f643b589e23068",
+  "network": "testnet",
+  "rpc": "https://fullnode.testnet.sui.io:443",
+  "admin": "0xb0d94005a671368abac192c6d89f1ceb164934a6d01710d94f1937b72cee3f55",
   "clock": "0x6",
   "reclaim_attestor": "0xDa11C9Da04Ab02C4AF9374B27A5E727944D3E1dD",
   "reclaim": {

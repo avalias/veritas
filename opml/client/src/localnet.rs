@@ -96,7 +96,7 @@ impl Cli {
             "--amounts",
             &amount.to_string(),
             "--gas-budget",
-            "100000000",
+            "20000000",
             "--json",
         ])
         .expect("split");
@@ -116,7 +116,7 @@ impl Cli {
             "--function",
             function,
             "--gas-budget",
-            "2000000000",
+            "150000000",
             "--json",
         ];
         if !args.is_empty() {
