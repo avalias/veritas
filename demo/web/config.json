@@ -4,5 +4,11 @@
   "rpc": "https://fullnode.devnet.sui.io:443",
   "admin": "0xb01503bef9a3acaab095a9269d21a5a8def0069478d5d4f8c5fbc6b0a4a650c9",
   "clock": "0x6",
-  "reclaim_attestor": "0xDa11C9Da04Ab02C4AF9374B27A5E727944D3E1dD"
+  "reclaim_attestor": "0xDa11C9Da04Ab02C4AF9374B27A5E727944D3E1dD",
+  "reclaim": {
+    "app_id": "",
+    "app_secret": "",
+    "provider_id": "",
+    "attestor": "0xda11c9da04ab02c4af9374b27a5e727944d3e1dd"
+  }
 }

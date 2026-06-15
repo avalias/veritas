@@ -246,7 +246,9 @@ async function createMarket(q,days){
 // ---- render market grid ----
 async function renderGrid(){
   const grid=document.getElementById('grid');
-  const all=[...CFG.markets.map(m=>({...m,kind:'trading'})), ...runtimeMarkets, {...CFG.evidence_market,kind:'evidence'}];
+  const all=[...CFG.markets.map(m=>({...m,kind:'trading'})), ...runtimeMarkets,
+    {...CFG.evidence_market,kind:'evidence'},
+    ...(CFG.reclaim_market?[{...CFG.reclaim_market,kind:'reclaim'}]:[])];
   grid.innerHTML=all.map(m=>`<div class="mcard" data-id="${m.id}" data-kind="${m.kind}">
     <div class="cat">${m.category}</div>
     <div class="q"><span class="emoji">${m.emoji}</span> ${m.question}</div>
@@ -271,7 +273,7 @@ async function renderGrid(){
 let side='yes';
 async function openMarket(id,kind){
   const st=await loadMarket(id);
-  const m=[...CFG.markets,CFG.evidence_market].find(x=>x.id===id);
+  const m=[...CFG.markets,...runtimeMarkets,CFG.evidence_market,CFG.reclaim_market].filter(Boolean).find(x=>x.id===id);
   const modal=document.getElementById('modal');
   let evHtml='';
   if(kind==='evidence'){
@@ -289,6 +291,13 @@ async function openMarket(id,kind){
       </div>
       <div id="fakeOut"></div>
       <div class="note">This is exactly how we avoid becoming a token vote. You <b>cannot</b> submit an opinion. The only admissible evidence is a zkTLS proof of what a <b>pinned source actually served</b> — verified on-chain by native <span class="mono">ecrecover</span>. There is no proof of a source saying NO, so there is nothing to submit. And copies don't add up: confirmations are counted <b>per independent source</b>, never per submission. The AI judge reads the real content; nobody votes the result.</div>`;
+  }
+  if(kind==='reclaim'){
+    const rc=CFG.reclaim||{};
+    evHtml=`<h3>Prove it yourself — zkTLS via Reclaim</h3>
+      <div class="dim" style="font-size:13px;line-height:1.6">This market pins <b style="color:var(--tx)">Reclaim's real attestor</b> (<span class="mono">${(CFG.reclaim&&CFG.reclaim.attestor||'').slice(0,12)}…</span>). Generate your OWN zkTLS proof of a real website with the Reclaim app, and submit it — verified on-chain by native <span class="mono">ecrecover</span>, exactly like every other proof here. Nobody mediates; you bring the receipt.</div>
+      <button class="btn primary" id="reclaimBtn" style="margin-top:10px"><i class="ti ti-world-share"></i> Generate a real zkTLS proof</button>
+      ${rc.app_id?'':`<div class="note">To generate proofs in-app, add your free <a href="https://dev.reclaimprotocol.org" target="_blank">Reclaim</a> <span class="mono">app_id / app_secret / provider_id</span> to <span class="mono">demo/web/config.json</span>. The on-chain wiring (reclaim::verify → submit_web_proof) is done and the market pins the attestor — only the client credentials are missing.</div>`}`;
   }
   modal.innerHTML=`<span class="x" id="closeX">✕</span>
     <div class="cat mono dim">${m.category}</div>
@@ -315,6 +324,7 @@ async function openMarket(id,kind){
          myPosition(id).then(p=>{const el=document.getElementById('mypos'); if(el&&p&&(p.yes||p.no)) el.textContent='your position: '+(p.yes/1e9).toFixed(3)+' YES · '+(p.no/1e9).toFixed(3)+' NO';});}
   const se=document.getElementById('submitEv'); if(se) se.onclick=()=>submitEvidence(id,m.proof);
   const re=document.getElementById('resolveEv'); if(re) re.onclick=()=>resolveMarket(id);
+  const rb2=document.getElementById('reclaimBtn'); if(rb2) rb2.onclick=()=>reclaimProve(id, m.attestor_idx||0);
   const fb=document.getElementById('fakeBtn'); if(fb) fb.onclick=()=>{
     const v=(document.getElementById('fakeClaim').value||'').trim();
     document.getElementById('fakeOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill)"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-ban"></i></div><div class="b"><div class="s" style="color:var(--red)">Refused — no proof exists</div><div class="m" style="color:var(--dim)">${v?('"'+v.slice(0,48)+'" ')+'is an opinion. ':''}There is no zkTLS proof that a pinned source reported NO, so it cannot be submitted. You can't vote — you can only prove what a source served.</div></div></div>`;
@@ -346,6 +356,34 @@ async function redeem(id){
   await sign(tx,'Redeemed');
 }
 const delay=(ms)=>new Promise(r=>setTimeout(r,ms));
+// ---- Reclaim: the user generates their OWN zkTLS proof in-app, then we
+// map it to submit_web_proof (reclaim::verify checks the attestor on-chain) ----
+async function reclaimProve(marketId, attestorIdx){
+  const rc=CFG.reclaim||{};
+  if(!rc.app_id){ toast('Add Reclaim app_id / app_secret / provider_id to config.json (free at dev.reclaimprotocol.org) to generate proofs in-app.', false); return; }
+  if(!account){ await connect(); if(!account) return; }
+  try{
+    const { ReclaimProofRequest } = await import('https://esm.sh/@reclaimprotocol/js-sdk@4.3.0');
+    const req = await ReclaimProofRequest.init(rc.app_id, rc.app_secret, rc.provider_id);
+    const url = await req.getRequestUrl();
+    toast('Open on your phone to prove the data: <a href="'+url+'" target="_blank">Reclaim ↗</a>');
+    await req.startSession({
+      onSuccess: async (proofs)=>{
+        const pr = Array.isArray(proofs)?proofs[0]:proofs; const cd = pr.claimData; const sig = pr.signatures[0];
+        const enc = (s)=>Array.from(new TextEncoder().encode(s));
+        const tx = new Transaction();
+        tx.moveCall({target:`${PKG}::market::submit_web_proof`, arguments:[
+          tx.object(marketId), tx.pure.u64(attestorIdx), tx.pure.u8(1),
+          tx.pure.vector('u8', enc(cd.provider)), tx.pure.vector('u8', enc(cd.parameters)),
+          tx.pure.vector('u8', enc(cd.context)), tx.pure.vector('u8', enc(String(cd.owner).toLowerCase())),
+          tx.pure.u64(Number(cd.timestampS)), tx.pure.u64(Number(cd.epoch)),
+          tx.pure.vector('u8', Array.from(hexToBytes(sig))), tx.object(CLOCK)]});
+        await sign(tx, 'Your zkTLS proof admitted on-chain');
+      },
+      onError:(e)=>toast('Reclaim error: '+(e&&e.message||e), false),
+    });
+  }catch(e){ toast('Reclaim flow failed: '+(e&&e.message||e), false); }
+}
 async function resolveMarket(id){
   // narrate the deterministic AI judge reading the zkTLS-proven evidence,
   // then apply the committed counting rule on-chain.

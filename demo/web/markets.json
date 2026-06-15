@@ -111,5 +111,16 @@
       "source": "bbc.com",
       "headline": "SpaceX Starship reaches orbit"
     }
+  },
+  "reclaim_market": {
+    "id": "0x6a4782e8423bcfd4bf2bacd3106a67d7e6c8b5b33cff115afb72e473ee922acc",
+    "emoji": "\ud83d\udd17",
+    "question": "Will an OpenAI model top a public coding benchmark this year?",
+    "category": "zkTLS \u00b7 prove it yourself",
+    "phase": "evidence",
+    "resolve_after": 1781517270785,
+    "window": 604800000,
+    "attestor": "0xda11c9da04ab02c4af9374b27a5e727944d3e1dd",
+    "attestor_idx": 0
   }
 }
