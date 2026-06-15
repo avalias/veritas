@@ -68,8 +68,16 @@ fn handle(
     }
 
     let (q, e) = parse_qe(path);
+    // Qwen3-0.6B is an instruct model, so use its chat template (non-thinking
+    // mode: the empty <think></think> tells it to answer directly). A raw
+    // completion prompt wastes the post-training; this is the same weights,
+    // prompted the way the model expects.
     let prompt_text = format!(
-        "Question: {q}\nA trusted news source reported: \"{e}\"\nBased only on this report, is the answer to the question YES? Reply with YES or NO, then one short reason.\nAnswer:"
+        "<|im_start|>user\nDecide whether a news report supports a YES answer to a question. \
+         If the report describes the event happening or being confirmed, answer YES. If it \
+         describes the event NOT happening, failing, scrubbed, delayed, or cancelled, answer NO.\n\n\
+         Question: {q}\nReport: \"{e}\"\n\nAnswer YES or NO, then one short reason.\
+         <|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     );
 
     // SSE headers
@@ -105,11 +113,12 @@ fn handle(
                     emitted = full;
                     // stop at the end of the first full sentence of the reason
                     // (a period/!/? after the verdict) so we get "YES … <reason>."
-                    // cleanly — not a premature cut, not a ramble.
-                    let t = emitted.trim_end();
-                    let sentence_end = t.ends_with('.') || t.ends_with('!') || t.ends_with('?');
-                    let para = emitted.matches('\n').count() >= 2;
-                    if (out.len() >= 6 && sentence_end) || para {
+                    // The model emits <|im_end|> (eos) on its own; this just keeps
+                    // it to one clean sentence instead of a ramble.
+                    let trimmed = emitted.trim_end();
+                    let has_verdict = emitted.to_uppercase().contains("YES") || emitted.to_uppercase().contains("NO");
+                    let sentence_end = trimmed.ends_with('.') || trimmed.ends_with('!') || trimmed.ends_with('?');
+                    if out.len() >= 6 && has_verdict && sentence_end {
                         break;
                     }
                 }
