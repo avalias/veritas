@@ -12,24 +12,30 @@
   </div>
 
   <h1>Watch the AI judge read the evidence</h1>
-  <p class="lede">Pick a wire report that was already proven by zkTLS. The real
-    Qwen3-0.6B judge reads it and types its verdict, token by token. This is the
-    model running off-chain. No wallet, no transaction here.</p>
+  <p class="lede">The real Qwen3-0.6B reads a report and types its verdict, token by
+    token. This is the model running live, off-chain. No wallet, no transaction here.</p>
 
-  <p>The judge does one job: read a headline and say whether it supports the
-    market's question. It does not decide the market. It just reads, and the same
-    bytes go in every time.</p>
+  <p>The judge does one job: read a line and say whether it supports the market's
+    question. It does not decide the market. Pick a zkTLS-proven wire report below, or
+    type your own line and see what it says.</p>
 
   <div class="panel">
     <div class="kv" style="border:none;padding-bottom:0"><span>Question</span><b id="q">…</b></div>
-    <p class="dim" style="font-size:13px;margin:6px 0 14px">Choose which proven source the judge should read:</p>
+    <p class="dim" style="font-size:13px;margin:6px 0 8px">A proven source to read:</p>
     <select id="src"></select>
+    <p class="dim" style="font-size:13px;margin:12px 0 6px">…or write anything and let the judge read it:</p>
+    <input id="custom" placeholder="e.g. AP: mission control confirmed Starship reached orbit">
     <button class="btn primary wide" id="ask" style="margin-top:14px">Ask the judge to read it</button>
 
     <!-- the judge types into here, token by token -->
     <div class="stream" id="out" style="margin-top:16px"></div>
     <div id="verdict"></div>
   </div>
+
+  <div class="note"><b>Recording or real?</b> Type your own line in the box and ask. The
+    model has never seen it, yet it answers, so it can't be canned. Ask the exact same
+    thing twice and you get the identical tokens back: that is the committed-float
+    determinism, the property that makes a verdict disputable in the first place.</div>
 
   <h2>Why one input gives one answer</h2>
   <p>This model is committed-float: every arithmetic step is pinned to a fixed
@@ -40,6 +46,12 @@
     one right output, so a resolver who reports a different one can be caught. The
     judge only reads the evidence. The market's committed counting rule decides the
     outcome, never the AI's opinion.</div>
+
+  <p class="dim" style="font-size:13.5px">One honest note: this is a 0.6B model on a
+    laptop, so it is small and will sometimes be wrong. That is fine, and close to the
+    point. The system never trusts the AI to be <i>smart</i>; it makes whatever the AI
+    outputs <i>reproducible and slashable</i>, so a wrong answer is catchable instead of
+    final. Swap in a larger model and every guarantee on this page is identical.</p>
 
   <p class="dim" style="font-size:13px">And if a resolver lies about this output →
     <a href="slashing.html">slashing.html</a></p>
@@ -68,13 +80,15 @@
   const ask = document.getElementById('ask');
 
   ask.onclick = async () => {
-    const proof = LM.proofs[Number(sel.value)];
+    // whatever the user typed wins; otherwise read the selected proven source
+    const typed = document.getElementById('custom').value.trim();
+    const evidence = typed || LM.proofs[Number(sel.value)].headline;
     out.textContent = '';
     verdict.innerHTML = '';
     ask.disabled = true;
 
     // stream the real model: onToken appends each piece as it is produced
-    const v = await askJudge(LM.question, proof.headline, t => { out.textContent += t; });
+    const v = await askJudge(LM.question, evidence, t => { out.textContent += t; });
     ask.disabled = false;
 
     if (v === null) {
