@@ -1,356 +1,56 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Veritas — prediction markets settled by proof</title>
-<style>
-  :root{
-    --bg:#0B0E13; --surface:#141922; --surface2:#1C2430; --inset:#10151D;
-    --border:rgba(255,255,255,.09); --border2:rgba(255,255,255,.16);
-    --tx:#E8ECF2; --dim:#94A0B3; --faint:#6B7689;
-    --teal:#2DD4A8; --teal-deep:#14B891; --teal-fill:rgba(45,212,168,.12);
-    --red:#FF6B6B; --red-fill:rgba(255,107,107,.12);
-    --amber:#F0B132; --amber-fill:rgba(240,177,50,.13);
-    --blue:#5B9DF9; --blue-fill:rgba(91,157,249,.12);
-    --purple:#9B8CFF; --purple-fill:rgba(155,140,255,.12);
-    --mono:'SF Mono','JetBrains Mono',ui-monospace,Menlo,monospace;
-    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
-    --r:14px;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-behavior:smooth}
-  body{background:var(--bg);color:var(--tx);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
-  .wrap{max-width:920px;margin:0 auto;padding:0 22px}
-  a{color:inherit}
-  .mono{font-family:var(--mono)}
-  .dim{color:var(--dim)} .faint{color:var(--faint)}
-  section{padding:64px 0;border-top:1px solid var(--border)}
-  .lead{font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1.18;margin-bottom:14px}
-  .sub{font-size:16px;color:var(--dim);max-width:640px}
-  h2{font-size:13px;font-weight:500;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin-bottom:14px}
-  nav{position:sticky;top:0;z-index:50;background:rgba(11,14,19,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
-  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:58px}
-  .brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:-.01em}
-  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--teal);box-shadow:0 0 12px var(--teal)}
-  .live{font-family:var(--mono);font-size:11px;color:var(--teal);border:1px solid var(--teal-deep);background:var(--teal-fill);padding:4px 9px;border-radius:20px;display:flex;align-items:center;gap:6px}
-  .live .pulse{width:6px;height:6px;border-radius:50%;background:var(--teal);animation:pulse 1.8s infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
-  .hero{padding:74px 0 60px;text-align:center}
-  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--teal);margin-bottom:20px}
-  .hero h1{font-size:52px;font-weight:600;letter-spacing:-.035em;line-height:1.04;margin-bottom:20px}
-  .hero h1 .g{background:linear-gradient(90deg,var(--teal),var(--blue));-webkit-background-clip:text;background-clip:text;color:transparent}
-  .hero p{font-size:19px;color:var(--dim);max-width:620px;margin:0 auto 30px}
-  .cta{display:inline-flex;gap:12px;align-items:center}
-  .btn{font-family:var(--sans);font-size:15px;font-weight:500;border-radius:10px;padding:12px 22px;border:1px solid var(--border2);background:var(--surface2);color:var(--tx);cursor:pointer;transition:.16s}
-  .btn:hover{background:#222c3a;transform:translateY(-1px)}
-  .btn.primary{background:var(--teal);color:#04231b;border-color:var(--teal);font-weight:600}
-  .btn.primary:hover{background:#3ee0b6}
-  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-  @media(max-width:680px){.grid2,.grid3{grid-template-columns:1fr}.hero h1{font-size:38px}.lead{font-size:24px}}
-  .mkt{display:flex;flex-direction:column;gap:16px}
-  .mkt .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-  .mkt .q{font-size:19px;font-weight:600;letter-spacing:-.01em;max-width:560px}
-  .tag{font-family:var(--mono);font-size:11px;padding:4px 9px;border-radius:6px;white-space:nowrap;color:var(--teal);background:var(--teal-fill);border:1px solid var(--teal-deep)}
-  .prices{display:flex;gap:10px}
-  .pchip{flex:1;border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;transition:.16s;background:var(--inset)}
-  .pchip:hover{border-color:var(--border2)}
-  .pchip .lab{font-size:12px;color:var(--dim);display:flex;justify-content:space-between}
-  .pchip .val{font-size:26px;font-weight:600;margin-top:3px}
-  .pchip.yes .val{color:var(--teal)} .pchip.no .val{color:var(--blue)}
-  .pbar{height:8px;border-radius:5px;background:var(--inset);overflow:hidden;display:flex;border:1px solid var(--border)}
-  .pbar .y{background:var(--teal);transition:width .5s cubic-bezier(.4,0,.2,1)}
-  .pbar .n{background:var(--blue);transition:width .5s cubic-bezier(.4,0,.2,1)}
-  .hold{font-family:var(--mono);font-size:12px;color:var(--dim)}
-  .strip{font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;padding:7px 11px;border-radius:8px 8px 0 0;font-weight:500}
-  .strip.lock{color:#7BE8C8;background:var(--teal-fill)}
-  .strip.free{color:var(--faint);background:var(--inset)}
-  .panel{border:1px solid var(--border);border-radius:10px;overflow:hidden}
-  .panel .row{display:flex;gap:9px;align-items:center;padding:8px 12px;font-size:13px}
-  .ev{display:flex;gap:12px;align-items:center;padding:13px 15px;border:1px solid var(--border);border-radius:11px;background:var(--surface);margin-bottom:10px;animation:slideIn .5s ease both}
-  @keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-  .ev .ico{width:38px;height:38px;border-radius:9px;display:grid;place-items:center;font-size:13px;font-weight:600;flex-shrink:0}
-  .ev .body{flex:1;min-width:0}
-  .ev .src{font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-  .ev .claim{font-size:13px;color:var(--dim);margin-top:1px}
-  .ev .meta{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap}
-  .badge{font-family:var(--mono);font-size:10px;font-weight:500;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px}
-  .badge.ok{color:var(--teal);background:var(--teal-fill);border:1px solid var(--teal-deep)}
-  .badge.bad{color:var(--red);background:var(--red-fill);border:1px solid rgba(255,107,107,.4)}
-  .ev.refused{border-color:rgba(255,107,107,.35);background:var(--red-fill)}
-  .ev.refused .ico{background:var(--red-fill);color:var(--red)}
-  .ev .ico.reu{background:#FF8000018;color:#FFA040} .ev .ico.bbc{background:#BB1A1A18;color:#FF7A7A} .ev .ico.ap{background:#0A66C218;color:#6B9BFF}
-  .counter{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:11px;background:var(--teal-fill);border:1px solid var(--teal-deep);margin-top:6px;font-weight:600}
-  .counter .n{font-family:var(--mono);font-size:22px;color:var(--teal)}
-  .tryrow{display:flex;gap:9px;margin:14px 0 4px}
-  .tryrow input{flex:1;background:var(--inset);border:1px solid var(--border);border-radius:9px;padding:10px 13px;color:var(--tx);font-family:var(--sans);font-size:14px}
-  .tryrow input::placeholder{color:var(--faint)}
-  .jrow{display:flex;align-items:center;gap:12px;padding:12px 15px;border-radius:10px;background:var(--inset);border:1px solid var(--border);margin-bottom:9px}
-  .jrow .src{flex:1;font-size:14px}
-  .jrow .out{font-family:var(--mono);font-size:12px;font-weight:600;padding:4px 11px;border-radius:7px}
-  .jrow .out.computing{color:var(--amber);background:var(--amber-fill);animation:pulse 1s infinite}
-  .jrow .out.yes{color:var(--teal);background:var(--teal-fill)}
-  .verdict{margin-top:16px;display:flex;align-items:center;gap:16px;padding:18px 20px;border-radius:12px;background:var(--teal-fill);border:1px solid var(--teal-deep)}
-  .verdict .big{font-size:34px;font-weight:700;color:var(--teal)}
-  .qspec{font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
-  .pill{display:inline-flex;gap:6px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--dim);background:var(--inset);border:1px solid var(--border);padding:4px 10px;border-radius:20px}
-  .pill b{color:var(--blue);font-weight:500}
-  .bis{display:flex;gap:3px;height:64px;align-items:flex-end;margin:18px 0}
-  .bis .b{flex:1;background:var(--surface2);border-radius:3px;transition:.45s ease;min-height:14px}
-  .bis .b.dead{background:var(--inset);opacity:.4}
-  .bis .b.cul{background:var(--red);box-shadow:0 0 16px var(--red)}
-  .slashbox{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:12px;background:var(--red-fill);border:1px solid rgba(255,107,107,.4);margin-top:6px}
-  .slashbox .ic{font-size:26px;color:var(--red)}
-  .vs{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:12px;overflow:hidden}
-  @media(max-width:680px){.vs{grid-template-columns:1fr}}
-  .vs .col{padding:20px}
-  .vs .old{background:var(--red-fill);border-right:1px solid var(--border)}
-  .vs .new{background:var(--teal-fill)}
-  .vs h3{font-size:15px;font-weight:600;margin-bottom:10px}
-  .vs .old h3{color:var(--red)} .vs .new h3{color:var(--teal)}
-  .vs ul{list-style:none;display:flex;flex-direction:column;gap:9px}
-  .vs li{font-size:13px;color:var(--dim);display:flex;gap:8px;line-height:1.45}
-  .vs li b{color:var(--tx);font-weight:500}
-  .tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
-  .tile .num{font-size:28px;font-weight:600;color:var(--teal);font-family:var(--mono)}
-  .tile .lab{font-size:13px;color:var(--dim);margin-top:5px}
-  .stepnum{font-family:var(--mono);font-size:12px;color:var(--teal);font-weight:500;border:1px solid var(--teal-deep);border-radius:20px;padding:3px 11px;display:inline-block;margin-bottom:14px}
-  footer{padding:40px 0 70px;color:var(--faint);font-size:13px;text-align:center}
-  footer a{color:var(--dim);text-decoration:none;border-bottom:1px solid var(--border)}
-  .reveal{opacity:0;transform:translateY(16px);transition:.7s cubic-bezier(.2,.7,.2,1)}
-  .reveal.in{opacity:1;transform:none}
-  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:6px}
-  .flow .node{background:var(--inset);border:1px solid var(--border);border-radius:8px;padding:7px 10px;display:inline-flex;gap:6px;align-items:center}
-</style>
-</head>
-<body>
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Veritas: verifiable AI on Sui</title>
+<link rel="stylesheet" href="style.css">
 
-<nav><div class="wrap">
-  <div class="brand"><span class="dot"></span> Veritas</div>
-  <div class="live"><span class="pulse"></span> zkTLS verified on-chain</div>
-</div></nav>
+<div class="wrap">
+  <h1>Veritas</h1>
+  <p class="lede">Verifiable AI on Sui. A language model runs off-chain at near-native
+    speed, and anyone can prove on-chain that it ran wrong, down to a single arithmetic
+    operation a small contract re-executes. Below are four demos. Each shows one thing.
+    They are all real and running on Sui testnet.</p>
 
-<header class="hero"><div class="wrap">
-  <div class="eyebrow">// the oracle with no oracle inside it</div>
-  <h1>Read the real web, settle by <span class="g">proof</span>.</h1>
-  <p>Markets resolved by what BBC, Reuters and AP actually published — proven with zkTLS, judged by a deterministic AI anyone can re-run and challenge. No committee. No token vote. No node to trust.</p>
-  <div class="cta">
-    <a class="btn primary" href="app.html">▶ Trade it live on Sui devnet</a>
-    <a class="btn" href="#walk">See how it resolves</a>
-  </div>
-</div></header>
-
-<section id="walk"><div class="wrap reveal">
-  <span class="stepnum">step 1 / 5 · the market</span>
-  <div class="lead">A real question, with the rules locked before anyone trades.</div>
-  <p class="sub" style="margin-bottom:22px">Everything that will ever decide this market — the trusted sources, how votes are counted, the AI judge — is fixed now. No human touches the outcome after this.</p>
-
-  <div class="card mkt">
-    <div class="top">
-      <div class="q">Will SpaceX's Starship reach orbit before September 30, 2026?</div>
-      <span class="tag">● OPEN · trading</span>
-    </div>
-    <div class="prices">
-      <div class="pchip yes" id="buyYes"><div class="lab"><span>buy YES</span><span class="mono" id="pyL">62%</span></div><div class="val" id="pyV">62¢</div></div>
-      <div class="pchip no" id="buyNo"><div class="lab"><span>buy NO</span><span class="mono" id="pnL">38%</span></div><div class="val" id="pnV">38¢</div></div>
-    </div>
-    <div class="pbar"><div class="y" id="barY" style="width:62%"></div><div class="n" id="barN" style="width:38%"></div></div>
-    <div class="hold" id="hold">tap a side to take a position · every YES+NO pair is backed 1:1 by collateral, so the market can't go insolvent</div>
+  <div class="demos">
+    <a class="demo" href="slashing.html">
+      <div class="k">the engine · the point</div>
+      <h3>Slash a lying LLM</h3>
+      <p>A resolver bonded a wrong AI judgment. Re-run the one disputed micro-op on-chain
+        and take its money. This is what the others can't do cheaply.</p>
+    </a>
+    <a class="demo" href="judge.html">
+      <div class="k">the engine</div>
+      <h3>Watch the AI judge</h3>
+      <p>The real Qwen3-0.6B reads a proven fact and types its verdict, deterministically.
+        Same bits on any CPU or GPU. That is what makes it disputable.</p>
+    </a>
+    <a class="demo" href="evidence.html">
+      <div class="k">the product</div>
+      <h3>Prove a fact with zkTLS</h3>
+      <p>Add evidence to a market by submitting a real web proof, verified on-chain by
+        native ecrecover. Try to submit an opinion instead. It won't let you.</p>
+    </a>
+    <a class="demo" href="market.html">
+      <div class="k">the product</div>
+      <h3>A market that resolves on proof</h3>
+      <p>An outcome decided by counting independent zkTLS proofs against a committed rule,
+        then paying out. No vote. No token holder can change a signature check.</p>
+    </a>
   </div>
 
-  <div class="grid2" style="margin-top:16px">
-    <div class="panel">
-      <div class="strip lock"><i class="ti ti-lock"></i> committed at creation · immutable</div>
-      <div style="padding:6px 0">
-        <div class="row"><span>🌐</span> source policy: BBC · Reuters · AP, via zkTLS</div>
-        <div class="row"><span>🤖</span> AI judge spec, by hash</div>
-        <div class="row"><span>⚖️</span> rule: occurrence · k ≥ 2 independent sources</div>
-        <div class="row"><span>📌</span> pinned Reclaim attestor: 0xDa11…E1dD</div>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="strip free">can change after trading opens</div>
-      <div style="padding:26px 14px;font-size:13px;color:var(--faint)">Nothing. From here, resolution is a pure function of zkTLS-proven bytes.</div>
-    </div>
-  </div>
-</div></section>
+  <p class="dim" style="margin-top:26px;font-size:14px">Want everything in one place? The
+    <a href="app.html">full prediction-market app</a> combines all of it with a guided
+    tour. The engine itself is written up in
+    <a href="../../../opml/README.md">opml/README.md</a>.</p>
 
-<section id="evidence"><div class="wrap reveal">
-  <span class="stepnum">step 2 / 5 · the evidence</span>
-  <div class="lead">BBC and Reuters don't sign their pages. So we prove what they served.</div>
-  <p class="sub" style="margin-bottom:14px">Each item is a <b style="color:var(--tx)">zkTLS web proof</b>: a Reclaim attestor witnessed the TLS session to the real site, signed the extracted text, and that secp256k1 signature is verified <b style="color:var(--tx)">on Sui</b>. You can't paste a screenshot or invent a headline — only a witnessed fetch counts.</p>
-  <div class="flow" style="margin-bottom:18px">
-    <span class="node"><i class="ti ti-world"></i> GET reuters.com</span> →
-    <span class="node"><i class="ti ti-eye"></i> Reclaim attestor witnesses TLS</span> →
-    <span class="node"><i class="ti ti-signature"></i> attestor signs claim</span> →
-    <span class="node" style="color:var(--teal)"><i class="ti ti-shield-check"></i> ecrecover on Sui</span>
-  </div>
+  <footer style="margin-top:30px;border-top:1px solid var(--border);padding-top:16px" class="dim">
+    <span class="mono" id="pkgs">…</span>
+  </footer>
+</div>
 
-  <div id="feed"></div>
-
-  <div class="tryrow">
-    <input id="fakeIn" placeholder="try it: paste any text or a screenshot URL…" />
-    <button class="btn" id="fakeBtn">submit</button>
-  </div>
-  <div id="fakeOut"></div>
-
-  <div class="counter" style="margin-top:14px">
-    <span class="n" id="conf">0 / 2</span>
-    <span>independent sources zkTLS-proven — <span class="dim">the attestor is one trust group; sources are independent content</span></span>
-  </div>
-</div></section>
-
-<section id="judge"><div class="wrap reveal">
-  <span class="stepnum">step 3 / 5 · the judge</span>
-  <div class="lead">A deterministic AI reads the proven text and the market resolves itself.</div>
-  <p class="sub" style="margin-bottom:10px">The same published model, bit-for-bit identical on any computer. The outcome is a function of what the sources actually published — nobody votes.</p>
-  <div class="qspec" style="margin-bottom:20px">
-    <span class="pill">model <b>Qwen3-0.6B</b></span>
-    <span class="pill">perplexity <b>34.60</b> = published</span>
-    <span class="pill">determinism <b>bit-identical</b> CPU·GPU</span>
-  </div>
-  <div id="jrows"></div>
-  <div class="verdict" id="verdict" style="display:none">
-    <div>
-      <div class="mono dim" style="font-size:12px">2 independent sources confirmed it, zkTLS-proven · committed occurrence rule</div>
-      <div class="big">Resolves YES</div>
-    </div>
-    <div class="dim" style="font-size:13px;flex:1">The verdict is a pure function of what BBC and Reuters published, witnessed by zkTLS and read by a fixed public model. No token holder could move it.</div>
-  </div>
-  <button class="btn primary" id="runJudge" style="margin-top:18px">▶ run the judge</button>
-</div></section>
-
-<section id="dispute"><div class="wrap reveal">
-  <span class="stepnum">step 4 / 5 · the backstop</span>
-  <div class="lead">If a resolver ever lies, the lie is provable — and it costs them.</div>
-  <p class="sub">Anyone can challenge. The disputed AI computation is bisected, step by step, down to a single arithmetic micro-operation that a small Sui contract re-runs itself. We have done this end to end on a real fault.</p>
-  <div class="bis" id="bis"></div>
-  <div class="qspec" style="margin-bottom:8px">
-    <span class="pill">trace <b id="bisN">29,550,000 steps</b></span>
-    <span class="pill">→ <b id="bisR">round 0</b></span>
-    <span class="pill">on-chain cost <b>1,000,000 MIST</b> · min bucket</span>
-  </div>
-  <div class="slashbox" id="slash" style="display:none">
-    <div class="ic"><i class="ti ti-coin-off"></i></div>
-    <div><b style="color:var(--red)">Fraud proven on-chain.</b> <span class="dim">The single faulty micro-op didn't match. The liar's bond is slashed and paid to the challenger. Honesty is the only profitable move.</span></div>
-  </div>
-  <button class="btn primary" id="runBis" style="margin-top:18px">▶ challenge a dishonest verdict</button>
-</div></section>
-
-<section id="contrast"><div class="wrap reveal">
-  <span class="stepnum">step 5 / 5 · the difference</span>
-  <div class="lead">The same question, two ways to settle it.</div>
-  <div class="vs" style="margin-top:20px">
-    <div class="col old">
-      <h3><i class="ti ti-users"></i> the old way · token vote</h3>
-      <ul>
-        <li><b>Decided after</b> the money is on the table, by whoever holds the most tokens.</li>
-        <li>A well-funded holder can <b>buy the resolution</b> — a governance attack once forced a multi-million market to the wrong answer.</li>
-        <li>Resolution is <b>power, not proof.</b> No refunds when it goes wrong.</li>
-      </ul>
-    </div>
-    <div class="col new">
-      <h3><i class="ti ti-shield-check"></i> this way · proof</h3>
-      <ul>
-        <li><b>Decided before</b> trading, by committed rules over zkTLS-proven sources.</li>
-        <li>No amount of tokens changes a <b>secp256k1 verification</b> or a fraud proof.</li>
-        <li>A wrong verdict is <b>provable and slashable.</b> Truth is the only equilibrium.</li>
-      </ul>
-    </div>
-  </div>
-</div></section>
-
-<section id="real"><div class="wrap reveal">
-  <h2>this is built, not a sketch</h2>
-  <div class="grid3">
-    <div class="tile"><div class="num">70</div><div class="lab">on-chain Move tests green — AMM solvency, zkTLS admission, the decision rule, the fraud proof.</div></div>
-    <div class="tile"><div class="num">live</div><div class="lab">a real Reclaim attestor signature verifies on Sui via native ecrecover; driven through its full lifecycle on a Sui network.</div></div>
-    <div class="tile"><div class="num">~0%</div><div class="lab">overhead on the honest path. Being verifiable is free when no one cheats.</div></div>
-  </div>
-  <div class="card" style="margin-top:16px">
-    <div class="qspec">
-      <span class="pill"><b>zkTLS / Reclaim</b> · secp256k1 ecrecover · native</span>
-      <span class="pill">also <b>ed25519 · ES256/C2PA</b> for signed sources</span>
-      <span class="pill"><b>+ Nitro TEE</b> second layer for the judge</span>
-      <span class="pill">judge fault <b>CONVICTED</b> on-chain</span>
-    </div>
-  </div>
-</div></section>
-
-<footer><div class="wrap">
-  No human decided this outcome — the zkTLS-proven evidence did.<br/>
-  <span class="faint">Veritas · a fraud-provable AI judge for trustless resolution · <a href="../../PRODUCT.md">PRODUCT.md</a> · <a href="../../PROVENANCE.md">PROVENANCE.md</a> · <a href="../../VISION.md">VISION.md</a></span>
-</div></footer>
-
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.1.0/dist/tabler-icons.min.css">
-<script>
-(function(){
-  var TEAL='#2DD4A8', RED='#FF6B6B', REDF='rgba(255,107,107,.12)', BLUE='#5B9DF9';
-  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)e.target.classList.add('in')})},{threshold:.12});
-  document.querySelectorAll('.reveal').forEach(function(el){io.observe(el)});
-
-  // CPMM — starts ~62% YES (market leans YES on Starship)
-  var ry=380, rn=620, uy=0, un=0;
-  function price(){return Math.round(rn/(ry+rn)*100);}
-  function upd(){
-    var py=price();
-    document.getElementById('pyL').textContent=py+'%'; document.getElementById('pnL').textContent=(100-py)+'%';
-    document.getElementById('pyV').textContent=py+'¢'; document.getElementById('pnV').textContent=(100-py)+'¢';
-    document.getElementById('barY').style.width=py+'%'; document.getElementById('barN').style.width=(100-py)+'%';
-    if(uy||un) document.getElementById('hold').textContent='you hold '+Math.round(uy)+' YES, '+Math.round(un)+' NO · price moves along the bonding curve';
-  }
-  document.getElementById('buyYes').onclick=function(){var a=120,o=ry*a/(rn+a);ry+=a;rn+=2*a;ry-=o;uy+=a+o;upd();};
-  document.getElementById('buyNo').onclick=function(){var a=120,o=rn*a/(ry+a);ry+=2*a;rn+=a;rn-=o;un+=a+o;upd();};
-
-  // zkTLS evidence feed — real sources, witnessed + verified on-chain
-  var feed=document.getElementById('feed');
-  var items=[
-    {ic:'reu',mark:'R',src:'Reuters',badge:'<span class="badge ok"><i class="ti ti-shield-check"></i> zkTLS · ecrecover on Sui</span>',claim:'GET reuters.com — “Starship reached orbit on its tenth flight.”',meta:['attestor 0xDa11…E1dD','secp256k1 verified','witnessed 2026-09-12T13:02Z']},
-    {ic:'bbc',mark:'BBC',src:'BBC News',badge:'<span class="badge ok"><i class="ti ti-shield-check"></i> zkTLS · ecrecover on Sui</span>',claim:'GET bbc.com/news — “SpaceX confirms Starship reached orbit.”',meta:['attestor 0xDa11…E1dD','secp256k1 verified','witnessed 2026-09-12T13:40Z']},
-    {ic:'ap',mark:'AP',src:'Associated Press',badge:'<span class="badge ok"><i class="ti ti-shield-check"></i> zkTLS · ecrecover on Sui</span>',claim:'GET apnews.com — “Starship completes first orbital flight.”',meta:['attestor 0xDa11…E1dD','secp256k1 verified','witnessed 2026-09-12T14:11Z']}
-  ];
-  var fired=false, conf=0, seenSrc={};
-  function add(it,i){setTimeout(function(){
-    var d=document.createElement('div');d.className='ev';
-    d.innerHTML='<div class="ico '+it.ic+'">'+it.mark+'</div><div class="body"><div class="src">'+it.src+' '+it.badge+'</div><div class="claim">'+it.claim+'</div><div class="meta">'+it.meta.map(function(m){return '<span>'+m+'</span>'}).join('')+'</div></div><div class="mono" style="font-size:11px;color:'+TEAL+';background:var(--teal-fill);padding:4px 9px;border-radius:7px">asserts YES</div>';
-    feed.appendChild(d);
-    if(!seenSrc[it.src]){seenSrc[it.src]=1;conf=Math.min(2,conf+1);document.getElementById('conf').textContent=conf+' / 2';}
-  }, i*700);}
-  new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&!fired){fired=true;items.forEach(add);}})},{threshold:.2}).observe(document.getElementById('evidence'));
-
-  document.getElementById('fakeBtn').onclick=function(){
-    var v=document.getElementById('fakeIn').value.trim();
-    document.getElementById('fakeOut').innerHTML='<div class="ev refused"><div class="ico"><i class="ti ti-ban"></i></div><div class="body"><div class="src">refused <span class="badge bad"><i class="ti ti-x"></i> no zkTLS proof</span></div><div class="claim">'+(v?('“'+v.slice(0,70)+'”'):'(empty)')+' — not a witnessed fetch, so it never enters the count. Only what a source actually served, attestor-signed, is admissible.</div></div></div>';
-    document.getElementById('fakeIn').value='';
-  };
-
-  var jr=document.getElementById('jrows');
-  ['Reuters (zkTLS)','BBC News (zkTLS)','AP (zkTLS)'].forEach(function(s){var d=document.createElement('div');d.className='jrow';d.innerHTML='<span class="src">'+s+'</span><i class="ti ti-arrow-right" style="color:var(--faint)"></i><span class="out">queued</span>';jr.appendChild(d);});
-  document.getElementById('runJudge').onclick=function(){
-    this.disabled=true;this.textContent='judge running (deterministic)…';var self=this;
-    var outs=document.querySelectorAll('#jrows .out');
-    outs.forEach(function(o,i){setTimeout(function(){o.className='out computing';o.textContent='reading…';},i*800);setTimeout(function(){o.className='out yes';o.textContent='extracts: YES';},i*800+700);});
-    setTimeout(function(){document.getElementById('verdict').style.display='flex';self.style.display='none';},outs.length*800+700);
-  };
-
-  var bis=document.getElementById('bis');var N=40;
-  for(var i=0;i<N;i++){var b=document.createElement('div');b.className='b';b.style.height=(20+(i*37%44))+'px';bis.appendChild(b);}
-  document.getElementById('runBis').onclick=function(){
-    this.disabled=true;this.textContent='bisecting…';var self=this;
-    var bars=[].slice.call(bis.children);var lo=0,hi=N-1,round=0,steps=29550000;
-    var iv=setInterval(function(){
-      if(hi-lo<=0){clearInterval(iv);bars[lo].className='b cul';bars[lo].style.height='64px';
-        document.getElementById('bisR').textContent='1 micro-op';document.getElementById('bisN').textContent='one faulty step';
-        setTimeout(function(){document.getElementById('slash').style.display='flex';self.style.display='none';},500);return;}
-      var mid=(lo+hi)>>1;round++;for(var k=lo;k<=mid;k++){bars[k].className='b dead';}lo=mid+1;
-      document.getElementById('bisR').textContent='round '+round;steps=Math.max(1,Math.floor(steps/2));
-      document.getElementById('bisN').textContent=steps.toLocaleString()+' steps';
-    },460);
-  };
-  upd();
-})();
+<script type="module">
+  import { PKG, OPML, NET, scanObj } from './veritas.js';
+  document.getElementById('pkgs').innerHTML =
+    `on Sui ${NET} · market <a href="${scanObj(PKG)}" target="_blank">${PKG.slice(0,8)}…${PKG.slice(-4)}</a>` +
+    ` · opml verifier <a href="${scanObj(OPML)}" target="_blank">${OPML.slice(0,8)}…${OPML.slice(-4)}</a>`;
 </script>
-</body>
-</html>

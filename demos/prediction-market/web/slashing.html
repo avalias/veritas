@@ -1,0 +1,110 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slash a lying LLM · Veritas</title>
+<link rel="stylesheet" href="style.css">
+
+<div class="wrap">
+  <div class="top">
+    <a class="back" href="index.html">← all demos</a>
+    <span class="sp"></span>
+    <button class="btn" id="wallet">Connect wallet</button>
+  </div>
+
+  <h1>Slash a lying LLM, in one on-chain step</h1>
+  <p class="lede">An AI judge ran off-chain and a resolver posted its result with a
+    bond behind it. The result was a lie. Watch the chain catch it without re-running
+    the model, and take the resolver's money.</p>
+
+  <p>This is the part other verifiable-AI systems can't do cheaply. A resolver claimed
+    a Qwen judgment produced one answer; it actually produced another. A challenger
+    disagreed and the two played the dispute game: halve the disputed range, ask who's
+    right, repeat. After a couple dozen rounds, <b>85,937 micro-operations</b> collapse
+    to a single one. That one operation is now small enough for a Sui contract to redo
+    itself.</p>
+
+  <div class="panel bad">
+    <div class="kv"><span>disputed Fact</span><b><a id="factlink" target="_blank">…</a> · status CHALLENGED</b></div>
+    <div class="kv"><span>judgment size</span><b id="n">…</b></div>
+    <div class="kv"><span>bisected to</span><b>1 micro-op (step <span id="step">…</span>) in <span id="rounds">…</span> rounds</b></div>
+    <div class="bis" id="bis"></div>
+    <button class="btn danger wide" id="convict" style="margin-top:16px">Re-run that one op on-chain &amp; slash the liar</button>
+    <div id="out"></div>
+  </div>
+
+  <h2>Why this beats the alternatives</h2>
+  <p>Everyone can make an LLM deterministic now. The hard part is making a single wrong
+    step <i>cheaply provable on a public chain</i>. Here is who pays what when a result
+    is challenged:</p>
+  <table>
+    <tr><th>System</th><th>Who decides the dispute</th><th>Cost of a challenge</th></tr>
+    <tr class="us"><td><b>Veritas (this)</b></td><td>a ~330-line Sui contract anyone can read</td><td>~25 tiny txs + one min-gas micro-op</td></tr>
+    <tr><td>opML / ORA</td><td>a public contract, but a full MIPS CPU emulator</td><td>bisect, then re-run a MIPS instruction</td></tr>
+    <tr><td>zkML (EZKL, Risc0)</td><td>nobody, just a proof</td><td>seconds-to-minutes of proving on <i>every</i> inference</td></tr>
+    <tr><td>EigenAI / TEE</td><td>a staked enclave committee (≥2/3 vote)</td><td>re-run the <i>entire</i> inference in attested TEEs</td></tr>
+  </table>
+  <div class="note">The trick is the VM speaks tensors, not assembly. Its on-chain
+    interpreter only has to know how to redo one block dot-product, not emulate a CPU.
+    That is why the referee fits in a few hundred lines and one micro-op costs the
+    minimum gas bucket. The same machinery convicts the real Qwen judge
+    (<span class="mono">fqwen_conviction.move</span>); here it runs a toy model so the
+    bisection is fast to stage.</div>
+
+  <p class="dim" style="font-size:13px">See it run for real: <a href="judge.html">watch the AI judge →</a></p>
+</div>
+
+<script type="module">
+  import { OPML, tx, sign, connect, scanObj, scanTx, toast } from './veritas.js';
+
+  // the staged dispute: a resolver bonded a wrong judgment, a challenger bisected it.
+  const D = await (await fetch('./dispute.json')).json();
+  const pkg = D.package || OPML;
+
+  document.getElementById('factlink').textContent = D.fact.slice(0, 12) + '…';
+  document.getElementById('factlink').href = scanObj(D.fact);
+  document.getElementById('n').textContent = D.n.toLocaleString() + ' micro-operations';
+  document.getElementById('step').textContent = D.fault_step.toLocaleString();
+  document.getElementById('rounds').textContent = D.rounds.length;
+
+  // a little picture of the bisection collapsing to one culprit bar
+  const bis = document.getElementById('bis');
+  bis.style.cssText = 'display:flex;gap:3px;height:54px;align-items:flex-end;margin:16px 0';
+  const N = 36, bars = [];
+  for (let i = 0; i < N; i++) {
+    const b = document.createElement('div');
+    b.style.cssText = `flex:1;border-radius:3px;background:var(--surface2);height:${16 + (i * 37 % 38)}px;transition:.4s`;
+    bis.appendChild(b); bars.push(b);
+  }
+  let lo = 0, hi = N - 1, r = 0;
+  const iv = setInterval(() => {
+    if (hi - lo <= 0) {
+      clearInterval(iv);
+      bars[lo].style.background = 'var(--bad)';
+      bars[lo].style.height = '54px';
+      bars[lo].style.boxShadow = '0 0 16px var(--bad)';
+      return;
+    }
+    const mid = (lo + hi) >> 1; r++;
+    const agree = (D.rounds[r - 1] || {}).agree;
+    for (let k = agree ? mid + 1 : lo; k <= (agree ? hi : mid); k++) { bars[k].style.background = 'var(--inset)'; bars[k].style.opacity = '.3'; }
+    if (agree) hi = mid; else lo = mid + 1;
+  }, 320);
+
+  // wallet button
+  const wb = document.getElementById('wallet');
+  wb.onclick = connect;
+  document.addEventListener('wallet', (e) => { wb.textContent = e.detail.address.slice(0, 6) + '…' + e.detail.address.slice(-4); });
+
+  // the one action: re-run the disputed micro-op on-chain
+  document.getElementById('convict').onclick = async () => {
+    const r = await sign(tx.verifyStep(pkg, D.fact, D.verify), 'Fraud proven · resolver slashed');
+    if (!r) return;
+    document.getElementById('out').innerHTML =
+      `<div class="step done" style="margin-top:14px"><div class="n">✓</div><div class="t">
+        Fraud proven on-chain. The contract re-ran step ${D.fault_step.toLocaleString()}, found the resolver's
+        committed state wrong, and slashed the bond to the challenger.
+        <small><a href="${scanTx(r.digest)}" target="_blank">view the conviction tx →</a></small>
+      </div></div>`;
+    document.getElementById('convict').disabled = true;
+  };
+</script>

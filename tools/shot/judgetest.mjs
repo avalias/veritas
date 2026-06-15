@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const b=await chromium.launch();const p=await b.newPage();
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('http://127.0.0.1:8777/judge.html',{waitUntil:'networkidle'});
+await p.waitForTimeout(1500);
+await p.click('#ask');
+await p.waitForFunction(()=>{const o=document.getElementById('out');return o&&o.textContent.length>5;},{timeout:40000}).catch(()=>{});
+await p.waitForTimeout(1500);
+console.log('STREAM:', JSON.stringify((await p.$eval('#out',e=>e.textContent).catch(()=>'')).slice(0,90)));
+console.log('VERDICT:', await p.evaluate(()=>document.body.innerText.match(/Verdict:\s*\w+/)?.[0]||'(none)'));
+console.log('ERRORS:', errs.filter(e=>!/8899|CONNECTION/.test(e)).join('|')||'none');
+await b.close();

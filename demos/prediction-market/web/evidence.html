@@ -1,0 +1,117 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prove a fact with zkTLS · Veritas</title>
+<link rel="stylesheet" href="style.css">
+
+<div class="wrap">
+  <div class="top">
+    <a class="back" href="index.html">← all demos</a>
+    <span class="sp"></span>
+    <button class="btn" id="wallet">Connect wallet</button>
+  </div>
+
+  <h1>Prove a fact with zkTLS, or stay out</h1>
+  <p class="lede">Evidence only enters this market as a real zkTLS web proof: a signed
+    record that a named source actually served a page saying so. The contract checks the
+    attestor's signature with native ecrecover. There is no field for an opinion.</p>
+
+  <p id="q" class="dim">…</p>
+
+  <h2>The three sources this market trusts</h2>
+  <p>Each row is one independent attestor the market pins. A proof from that source is
+    admitted only after <span class="mono">ecrecover</span> recovers the attestor's address
+    on-chain and it matches. A green row means the proof is already in the market.</p>
+  <div id="sources"></div>
+  <div id="phasenote"></div>
+
+  <h2>Try to vote instead</h2>
+  <div class="panel">
+    <p style="margin-top:0">Type your verdict and submit it as NO. This is the thing the
+      market will not let you do.</p>
+    <input id="opinion" placeholder="It didn't happen, I'm sure of it">
+    <button class="btn wide" id="vote" style="margin-top:12px">Submit as NO</button>
+    <div id="refused"></div>
+  </div>
+
+  <h2>Why copies don't add up</h2>
+  <p>Each source is a separate trust group, keyed by its attestor. Submitting the BBC proof
+    ten times still counts as one group: the market counts distinct groups that confirmed,
+    not the number of proofs. To move the count you need a <i>different</i> source to have
+    reported it, and that source's attestor has to sign a proof that
+    <span class="mono">ecrecover</span> accepts. That is why you can prove a fact but cannot
+    out-shout one.</p>
+
+  <p class="dim" style="font-size:13px">Next: <a href="market.html">see how a market resolves →</a></p>
+</div>
+
+<script type="module">
+  import { loadMarket, tx, sign, connect, toast } from './veritas.js';
+
+  const M = await (await fetch('./markets.json')).json();
+  const m = M.live_market;               // the live market pins three independent sources
+  const st = await loadMarket(m.id);
+
+  document.getElementById('q').textContent = m.emoji + '  ' + st.question;
+
+  // which attestor groups are already admitted on-chain. Each evidence item may be
+  // wrapped ({fields:{group,claim}}) or flat ({group,claim}); handle both.
+  const admitted = new Set(st.evidence.map(e => Number((e.fields || e).group)));
+
+  const wrap = document.getElementById('sources');
+  m.proofs.forEach((p, i) => {
+    const done = admitted.has(p.attestor_idx);
+    const row = document.createElement('div');
+    row.className = 'step' + (done ? ' done' : '');
+    row.innerHTML =
+      `<div class="n">${done ? '✓' : i + 1}</div>
+       <div class="t">
+         <b>${p.source}</b> <span class="tag">${p.domain}</span>
+         <small>${p.headline}</small>
+       </div>`;
+    const slot = document.createElement('div');
+    row.appendChild(slot);
+
+    if (done) {
+      slot.innerHTML = `<span class="dim" style="font-size:12px">admitted · ecrecover-verified on-chain</span>`;
+    } else if (st.phase === 1) {
+      // evidence window is open: anyone can submit this source's real proof
+      const b = document.createElement('button');
+      b.className = 'btn';
+      b.textContent = 'Add';
+      b.onclick = async () => {
+        b.disabled = true;
+        const r = await sign(tx.submitProof(m.id, p), 'zkTLS proof admitted (' + p.source + ')');
+        if (r) { row.classList.add('done'); row.querySelector('.n').textContent = '✓'; slot.innerHTML = `<span class="dim" style="font-size:12px">admitted · ecrecover-verified on-chain</span>`; }
+        else b.disabled = false;
+      };
+      slot.appendChild(b);
+    }
+    wrap.appendChild(row);
+  });
+
+  // be honest about the clock: only phase 1 accepts evidence.
+  if (st.phase !== 1) {
+    const msg = st.phase === 0 ? 'still trading. The evidence window for this market is not open yet.'
+      : st.phase === 2 ? 'already resolved. Evidence is closed and the outcome is settled.'
+      : 'the evidence window for this market has closed.';
+    document.getElementById('phasenote').innerHTML = `<div class="note">No proof to add right now: this market is ${msg}</div>`;
+  }
+
+  // the anti-vote: always refused, no transaction. You can prove, not vote.
+  document.getElementById('vote').onclick = () => {
+    const txt = document.getElementById('opinion').value.trim();
+    document.getElementById('refused').innerHTML =
+      `<div class="panel bad" style="margin-top:14px">
+        Refused. ${txt ? `“${txt}” is` : 'That is'} an opinion, and there is no zkTLS proof of a
+        source reporting NO behind it. The contract only accepts a signed web proof a named
+        attestor stands behind, so there is nothing to submit. You can prove a fact here, not vote on one.
+      </div>`;
+    toast('No proof, nothing to submit. You can prove, not vote.', false);
+  };
+
+  // wallet button
+  const wb = document.getElementById('wallet');
+  wb.onclick = connect;
+  document.addEventListener('wallet', (e) => { wb.textContent = e.detail.address.slice(0, 6) + '…' + e.detail.address.slice(-4); });
+</script>

@@ -1,0 +1,135 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A market that resolves on proof · Veritas</title>
+<link rel="stylesheet" href="style.css">
+
+<div class="wrap">
+  <div class="top">
+    <a class="back" href="index.html">← all demos</a>
+    <span class="sp"></span>
+    <button class="btn" id="wallet">Connect wallet</button>
+  </div>
+
+  <h1>A market that resolves on proof, not a vote</h1>
+  <p class="lede">Trading sets the price. The outcome is decided by a counting rule the
+    contract committed to up front, applied to admitted zkTLS proofs. No token holder
+    casts a ballot; nobody can outvote a signature.</p>
+
+  <p>This market's evidence window has closed and one YES proof is already admitted on
+    chain, so it is resolvable in a single click. Resolving runs the committed rule over
+    the admitted proofs and writes the outcome. Then the winning side redeems.</p>
+
+  <div class="panel" id="card">
+    <div class="kv"><span id="qlabel">market</span><b id="q">…</b></div>
+    <div class="kv"><span>price now</span><b><span id="py">…</span>% YES · <span id="pn">…</span>% NO</b></div>
+    <div class="kv"><span>liquidity</span><b id="liq">…</b></div>
+    <div class="kv"><span>decision rule</span><b>occurrence, k=1: YES if ≥1 independent source group confirms</b></div>
+    <div class="kv"><span>admitted evidence</span><b id="ev">…</b></div>
+    <div id="action" style="margin-top:16px"></div>
+    <div id="out"></div>
+  </div>
+
+  <h2>Take a position</h2>
+  <p>Buying YES or NO is a bet. It moves the price and lets you profit if you are right,
+    but it has no say in how the market resolves. The outcome comes from the admitted
+    proofs and the committed rule, full stop.</p>
+  <div id="buybox"></div>
+
+  <h2>Money prices, proof decides</h2>
+  <p>On UMA and similar systems, a disputed outcome is settled by a token vote: whoever
+    holds the most tokens decides what happened. Here the resolution is a
+    <span class="mono">secp256k1</span> check inside a Move contract. To flip a YES into a
+    NO you would have to forge a wire service's signature, which the math does not allow.
+    Whales can move the price all day; they cannot move the verdict.</p>
+  <div class="note">The price and the outcome are two different things. The price is a
+    market's opinion before the fact. The outcome is what the proofs say after it. Veritas
+    keeps them separate on purpose. That is the whole point.</div>
+
+  <p class="dim" style="font-size:13px">See the pieces on their own:
+    <a href="evidence.html">how a proof gets admitted →</a> ·
+    <a href="slashing.html">what happens if a resolver lies →</a></p>
+</div>
+
+<script type="module">
+  import { loadMarket, tx, sign, connect, scanTx, toast, getAccount } from './veritas.js';
+
+  const M = await (await fetch('./markets.json')).json();
+  const rr = M.resolve_ready_market;   // window closed + a YES proof pre-admitted → resolvable now
+
+  const $ = (id) => document.getElementById(id);
+
+  // wallet button (same pattern as every page)
+  const wb = $('wallet');
+  wb.onclick = connect;
+  document.addEventListener('wallet', (e) => { wb.textContent = e.detail.address.slice(0, 6) + '…' + e.detail.address.slice(-4); });
+
+  // count distinct independent source groups that claim YES, straight from chain state.
+  // This is exactly what the contract's rule counts; we show it before signing.
+  function yesGroups(evidence) {
+    const g = new Set();
+    for (const e of evidence) { const f = e.fields || e; if (Number(f.claim) === 1) g.add(String(f.group)); }
+    return g.size;
+  }
+
+  const outcomeWord = (o) => o === 1 ? 'YES' : o === 2 ? 'NO' : o === 3 ? 'VOID' : '·';
+
+  async function render() {
+    const st = await loadMarket(rr.id);
+    $('q').textContent = st.question || rr.question;
+    $('py').textContent = st.priceYes;
+    $('pn').textContent = 100 - st.priceYes;
+    $('liq').textContent = (st.collateral / 1e9).toFixed(2) + ' SUI';
+    $('ev').textContent = st.evidence.length + ' independent zkTLS proof(s)';
+
+    const action = $('action');
+
+    // phase 3: window closed and not yet resolved → one click applies the rule.
+    if (st.phase === 3) {
+      action.innerHTML = `<button class="btn primary wide" id="resolve">Resolve and apply the committed rule</button>`;
+      $('resolve').onclick = async () => {
+        // read the chain, count YES groups, and say so before asking for a signature.
+        const n = yesGroups(st.evidence);
+        toast(`Committed rule over ${st.evidence.length} proof(s): <b>${n}</b> independent YES group(s) ≥ k=1 → YES`);
+        const r = await sign(tx.resolve(rr.id), 'Resolved by the committed rule');
+        if (r) render();
+      };
+      return;
+    }
+
+    // phase 2: already resolved → show the outcome and let the winner redeem.
+    if (st.phase === 2) {
+      const w = outcomeWord(st.outcome);
+      action.innerHTML =
+        `<div class="step done"><div class="n">✓</div><div class="t">
+           Resolved <b>${w}</b> by the committed rule over ${st.evidence.length} admitted proof(s).
+         </div></div>
+         <button class="btn primary wide" id="redeem" style="margin-top:12px">Redeem winnings</button>`;
+      $('redeem').onclick = () => sign(tx.redeem(rr.id), 'Redeemed');
+      return;
+    }
+
+    // phase 0/1: not this card's job. State it honestly rather than offer a button that fails.
+    action.innerHTML = st.phase === 1
+      ? `<div class="note">Evidence window is still open. Proofs can be admitted before this resolves.</div>`
+      : `<div class="note">Still trading. The evidence window has not opened yet.</div>`;
+
+    // only when trading do we show a buy form. Buying is a bet, not a vote.
+    if (st.phase === 0) {
+      const bb = document.getElementById('buybox');
+      bb.innerHTML =
+        `<div class="panel">
+           <div class="kv"><span>stake (SUI)</span><b><input id="amt" value="0.1" style="width:120px"></b></div>
+           <div style="display:flex;gap:10px;margin-top:12px">
+             <button class="btn wide" id="byes">Buy YES</button>
+             <button class="btn wide" id="bno">Buy NO</button>
+           </div>
+         </div>`;
+      const amt = () => parseFloat(document.getElementById('amt').value) || 0;
+      document.getElementById('byes').onclick = () => sign(tx.buy(rr.id, 'yes', amt()), 'Bought YES');
+      document.getElementById('bno').onclick  = () => sign(tx.buy(rr.id, 'no',  amt()), 'Bought NO');
+    }
+  }
+
+  render();
+</script>
