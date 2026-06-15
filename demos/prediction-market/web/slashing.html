@@ -11,31 +11,60 @@
     <button class="btn" id="wallet">Connect wallet</button>
   </div>
 
-  <h1>Slash a lying LLM, in one on-chain step</h1>
-  <p class="lede">An AI judge ran off-chain and a resolver posted its result with a
-    bond behind it. The result was a lie. Watch the chain catch it without re-running
-    the model, and take the resolver's money.</p>
+  <h1>Catch a resolver lying, and take his bond</h1>
+  <p class="lede">A resolver is paid to read evidence and post a market's verdict, with a bond
+    behind it. This one lied. You don't have to trust anyone to prove it: run the same
+    deterministic judge yourself, watch it disagree, and let the chain slash him.</p>
 
-  <p>This is the part other verifiable-AI systems can't do cheaply. A resolver claimed
-    a Qwen judgment produced one answer; it actually produced another. A challenger
-    disagreed and the two played the dispute game: halve the disputed range, ask who's
-    right, repeat. After a couple dozen rounds, <b>85,937 micro-operations</b> collapse
-    to a single one. That one operation is now small enough for a Sui contract to redo
-    itself.</p>
+  <h2>1. What the resolver did</h2>
+  <div class="panel">
+    <div class="kv"><span>Market question</span><b id="q"></b></div>
+    <div class="kv"><span>Evidence (zkTLS-proven)</span><b id="ev" style="text-align:right;max-width:60%"></b></div>
+    <div class="kv"><span>Resolver bonded</span><b><span class="tag bad">claims YES</span> · 1 SUI staked</b></div>
+    <p class="dim" style="font-size:13px;margin:12px 0 0">He gets paid if nobody challenges. But the
+      evidence plainly says the launch was scrubbed. So either the judge really outputs YES on this, or
+      he is lying. There is exactly one way to find out.</p>
+  </div>
 
-  <div class="panel bad">
-    <div class="kv"><span>disputed Fact</span><b><a id="factlink" target="_blank">…</a> · status CHALLENGED</b></div>
-    <div class="kv"><span>judgment size</span><b id="n">…</b></div>
-    <div class="kv"><span>bisected to</span><b>1 micro-op (step <span id="step">…</span>) in <span id="rounds">…</span> rounds</b></div>
-    <div class="bis" id="bis"></div>
-    <button class="btn danger wide" id="convict" style="margin-top:16px">Re-run that one op on-chain &amp; slash the liar</button>
-    <div id="out"></div>
+  <h2>2. Run the judge yourself</h2>
+  <p>The judge is a committed, deterministic model: the same evidence gives the bit-identical output on
+    any machine. So you can just run it and see what it actually says.</p>
+  <div class="panel">
+    <button class="btn primary wide" id="run">Run the deterministic judge on this evidence</button>
+    <div id="promptwrap" style="display:none;margin-top:14px">
+      <div class="dim" style="font-size:12px;margin-bottom:5px">The exact prompt it is given (nothing hidden):</div>
+      <div class="stream" id="prompt" style="font-size:12px;color:var(--dim)"></div>
+    </div>
+    <div id="answerwrap" style="display:none;margin-top:12px">
+      <div class="dim" style="font-size:12px;margin-bottom:5px">What the model actually outputs:</div>
+      <div class="stream" id="out"></div>
+    </div>
+    <div id="contrast"></div>
+  </div>
+
+  <div id="slashwrap" style="display:none">
+    <h2>3. Slash him</h2>
+    <p>The resolver's bonded output contradicts what the committed judge deterministically produces.
+      Because every step of that judge is recorded, the lie is pinpointable: the dispute game halves the
+      computation, asks who is right, and repeats until it lands on the single micro-operation where the
+      resolver's committed trace diverges from the truth. A ~330-line Sui contract re-runs just that one
+      operation.</p>
+    <div class="panel bad">
+      <div class="kv"><span>disputed Fact</span><b><a id="factlink" target="_blank">…</a> · CHALLENGED</b></div>
+      <div class="kv"><span>bisected</span><b><span id="n">…</span> → 1 micro-op (step <span id="step">…</span>), <span id="rounds">…</span> rounds</b></div>
+      <div class="bis" id="bis"></div>
+      <button class="btn danger wide" id="convict" style="margin-top:14px">Re-run that one micro-op on-chain &amp; slash the bond</button>
+      <div id="convicted"></div>
+    </div>
+    <div class="note">Honest detail: to keep the bisection quick to stage, the on-chain step here re-runs a
+      compiled judge trace. The identical proof convicts the full Qwen judge — see
+      <span class="mono">opml/move/tests/fqwen_conviction.move</span>, which slashes a real one-float-op
+      fault in <span class="mono">sui move test</span>.</div>
   </div>
 
   <h2>Why this beats the alternatives</h2>
-  <p>Everyone can make an LLM deterministic now. The hard part is making a single wrong
-    step <i>cheaply provable on a public chain</i>. Here is who pays what when a result
-    is challenged:</p>
+  <p>Everyone can make an LLM deterministic now. Almost nobody can make a single wrong step cheaply
+    provable on a public chain.</p>
   <table>
     <tr><th>System</th><th>Who decides the dispute</th><th>Cost of a challenge</th></tr>
     <tr class="us"><td><b>Veritas (this)</b></td><td>a ~330-line Sui contract anyone can read</td><td>~25 tiny txs + one min-gas micro-op</td></tr>
@@ -43,68 +72,80 @@
     <tr><td>zkML (EZKL, Risc0)</td><td>nobody, just a proof</td><td>seconds-to-minutes of proving on <i>every</i> inference</td></tr>
     <tr><td>EigenAI / TEE</td><td>a staked enclave committee (≥2/3 vote)</td><td>re-run the <i>entire</i> inference in attested TEEs</td></tr>
   </table>
-  <div class="note">The trick is the VM speaks tensors, not assembly. Its on-chain
-    interpreter only has to know how to redo one block dot-product, not emulate a CPU.
-    That is why the referee fits in a few hundred lines and one micro-op costs the
-    minimum gas bucket. The same machinery convicts the real Qwen judge
-    (<span class="mono">fqwen_conviction.move</span>); here it runs a toy model so the
-    bisection is fast to stage.</div>
-
-  <p class="dim" style="font-size:13px">See it run for real: <a href="judge.html">watch the AI judge →</a></p>
 </div>
 
 <script type="module">
-  import { OPML, tx, sign, connect, scanObj, scanTx, toast } from './veritas.js';
+  import { askJudge, tx, sign, connect, scanObj, scanTx } from './veritas.js';
 
-  // the staged dispute: a resolver bonded a wrong judgment, a challenger bisected it.
+  // the scenario: evidence that clearly says NO, a resolver who bonded YES.
+  const SCN = {
+    question: 'Did Starship reach orbit on its latest flight?',
+    evidence: "Reuters: SpaceX's Starship launch was scrubbed minutes before liftoff and the rocket never left the pad.",
+    claim: 'YES',
+  };
+  document.getElementById('q').textContent = SCN.question;
+  document.getElementById('ev').textContent = '“' + SCN.evidence + '”';
+
+  // the staged dispute used for the on-chain slash
   const D = await (await fetch('./dispute.json')).json();
-  const pkg = D.package || OPML;
-
   document.getElementById('factlink').textContent = D.fact.slice(0, 12) + '…';
   document.getElementById('factlink').href = scanObj(D.fact);
-  document.getElementById('n').textContent = D.n.toLocaleString() + ' micro-operations';
+  document.getElementById('n').textContent = D.n.toLocaleString() + ' micro-ops';
   document.getElementById('step').textContent = D.fault_step.toLocaleString();
   document.getElementById('rounds').textContent = D.rounds.length;
 
-  // a little picture of the bisection collapsing to one culprit bar
-  const bis = document.getElementById('bis');
-  bis.style.cssText = 'display:flex;gap:3px;height:54px;align-items:flex-end;margin:16px 0';
-  const N = 36, bars = [];
-  for (let i = 0; i < N; i++) {
-    const b = document.createElement('div');
-    b.style.cssText = `flex:1;border-radius:3px;background:var(--surface2);height:${16 + (i * 37 % 38)}px;transition:.4s`;
-    bis.appendChild(b); bars.push(b);
-  }
-  let lo = 0, hi = N - 1, r = 0;
-  const iv = setInterval(() => {
-    if (hi - lo <= 0) {
-      clearInterval(iv);
-      bars[lo].style.background = 'var(--bad)';
-      bars[lo].style.height = '54px';
-      bars[lo].style.boxShadow = '0 0 16px var(--bad)';
+  const out = document.getElementById('out'), promptEl = document.getElementById('prompt');
+  const run = document.getElementById('run');
+
+  run.onclick = async () => {
+    run.disabled = true;
+    out.textContent = ''; promptEl.textContent = '';
+    const v = await askJudge(SCN.question, SCN.evidence, {
+      onPrompt: (p) => { promptEl.textContent = p; document.getElementById('promptwrap').style.display = 'block'; },
+      onToken: (t) => { out.textContent += t; document.getElementById('answerwrap').style.display = 'block'; },
+    });
+    run.disabled = false;
+    if (v === null) {
+      document.getElementById('contrast').innerHTML =
+        `<div class="note" style="margin-top:12px">The judge resolver isn't running. Start it with
+          <span class="mono">./demos/prediction-market/go.sh</span> and run again.</div>`;
       return;
     }
-    const mid = (lo + hi) >> 1; r++;
-    const agree = (D.rounds[r - 1] || {}).agree;
+    const lied = v !== SCN.claim;
+    document.getElementById('contrast').innerHTML =
+      `<div class="step ${lied ? '' : 'done'}" style="margin-top:14px;border-color:${lied ? 'var(--bad)' : 'var(--ok)'}">
+        <div class="n" style="background:${lied ? 'var(--bad)' : 'var(--ok)'};border-color:${lied ? 'var(--bad)' : 'var(--ok)'}">${lied ? '!' : '✓'}</div>
+        <div class="t">Resolver bonded <b style="color:var(--bad)">${SCN.claim}</b>. The committed judge
+          deterministically outputs <b style="color:${lied ? 'var(--bad)' : 'var(--ok)'}">${v}</b>.
+          ${lied ? 'His bond is on a false output. Now make him pay for it.' : 'They agree, so there is nothing to dispute.'}</div></div>`;
+    if (lied) document.getElementById('slashwrap').style.display = 'block';
+  };
+
+  // the bisection picture, collapsing to one culprit
+  const bis = document.getElementById('bis');
+  bis.style.cssText = 'display:flex;gap:3px;height:50px;align-items:flex-end;margin:14px 0';
+  const N = 36, bars = [];
+  for (let i = 0; i < N; i++) { const b = document.createElement('div'); b.style.cssText = `flex:1;border-radius:3px;background:var(--surface2);height:${14 + (i * 37 % 36)}px;transition:.4s`; bis.appendChild(b); bars.push(b); }
+  let lo = 0, hi = N - 1, r = 0;
+  const iv = setInterval(() => {
+    if (hi - lo <= 0) { clearInterval(iv); bars[lo].style.background = 'var(--bad)'; bars[lo].style.height = '50px'; bars[lo].style.boxShadow = '0 0 16px var(--bad)'; return; }
+    const mid = (lo + hi) >> 1; r++; const agree = (D.rounds[r - 1] || {}).agree;
     for (let k = agree ? mid + 1 : lo; k <= (agree ? hi : mid); k++) { bars[k].style.background = 'var(--inset)'; bars[k].style.opacity = '.3'; }
     if (agree) hi = mid; else lo = mid + 1;
   }, 320);
 
-  // wallet button
+  document.getElementById('convict').onclick = async () => {
+    const r = await sign(tx.verifyStep(D.package, D.fact, D.verify), 'Fraud proven · resolver slashed');
+    if (!r) return;
+    document.getElementById('convicted').innerHTML =
+      `<div class="step done" style="margin-top:14px"><div class="n">✓</div><div class="t">
+        Slashed. The contract re-ran step ${D.fault_step.toLocaleString()}, found the resolver's committed
+        state wrong, and paid his bond to the challenger.
+        <small><a href="${scanTx(r.digest)}" target="_blank">view the conviction tx →</a></small></div></div>`;
+    document.getElementById('convict').disabled = true;
+  };
+
   const wb = document.getElementById('wallet');
   wb.onclick = connect;
   document.addEventListener('wallet', (e) => { wb.textContent = e.detail.address.slice(0, 6) + '…' + e.detail.address.slice(-4); });
-
-  // the one action: re-run the disputed micro-op on-chain
-  document.getElementById('convict').onclick = async () => {
-    const r = await sign(tx.verifyStep(pkg, D.fact, D.verify), 'Fraud proven · resolver slashed');
-    if (!r) return;
-    document.getElementById('out').innerHTML =
-      `<div class="step done" style="margin-top:14px"><div class="n">✓</div><div class="t">
-        Fraud proven on-chain. The contract re-ran step ${D.fault_step.toLocaleString()}, found the resolver's
-        committed state wrong, and slashed the bond to the challenger.
-        <small><a href="${scanTx(r.digest)}" target="_blank">view the conviction tx →</a></small>
-      </div></div>`;
-    document.getElementById('convict').disabled = true;
-  };
 </script>

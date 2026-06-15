@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+const b=await chromium.launch();const p=await b.newPage();
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('http://127.0.0.1:8777/slashing.html',{waitUntil:'networkidle'});
+await p.waitForTimeout(1200);
+await p.click('#run');
+await p.waitForFunction(()=>!document.getElementById('run').disabled && document.getElementById('contrast').textContent.length>10,{timeout:45000}).catch(()=>{});
+await p.waitForTimeout(800);
+console.log('PROMPT shown:', (await p.$eval('#prompt',e=>e.textContent).catch(()=>'')).slice(0,60));
+console.log('JUDGE OUT   :', (await p.$eval('#out',e=>e.textContent).catch(()=>'')).replace(/\n/g,' ').slice(0,110));
+console.log('CONTRAST    :', (await p.$eval('#contrast',e=>e.textContent).catch(()=>'')).replace(/\s+/g,' ').trim().slice(0,160));
+console.log('slash panel shown:', await p.evaluate(()=>document.getElementById('slashwrap').style.display));
+console.log('ERRORS:', errs.filter(e=>!/8899|CONNECTION|favicon/.test(e)).join('|')||'none');
+await p.screenshot({path:'/tmp/slash2.png',fullPage:true});
+await b.close();
