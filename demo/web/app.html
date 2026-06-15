@@ -98,6 +98,14 @@
       <div class="c"><div class="h"><i class="ti ti-gavel" style="color:var(--teal)"></i> The AI reads it, not you</div><div class="d">A fixed public model reads the real content and extracts the answer. A wrong verdict is provable on-chain and slashes the liar.</div></div>
     </div>
   </div>
+  <div id="fraudBanner" style="display:none;background:var(--red-fill);border:1px solid rgba(255,107,107,.4);border-radius:14px;padding:16px 18px;margin:6px 0 4px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:12px">
+      <i class="ti ti-gavel" style="font-size:24px;color:var(--red)"></i>
+      <div><div style="font-weight:600">A resolver is lying right now — on devnet.</div>
+      <div class="dim" style="font-size:13px">A fraudulent AI-judge result, bonded and disputed. The lie is bisected down to one micro-op. Deliver the proof and slash them.</div></div>
+    </div>
+    <button class="btn" id="fraudBtn" style="white-space:nowrap"><i class="ti ti-scale"></i> Open the Fraud Lab</button>
+  </div>
   <div class="grid" id="grid"></div>
 
   <div style="margin:34px 0 10px">
@@ -348,6 +356,52 @@ async function resolveMarket(id){
   const tx=new Transaction();
   tx.moveCall({target:`${PKG}::market::resolve`,arguments:[tx.object(id),tx.object(CLOCK)]});
   const r=await sign(tx,'Resolved by the committed rule'); if(r){setTimeout(()=>{openMarket(id,'evidence');renderGrid();},1500);}
+}
+
+// ---- Fraud Lab: deliver a real on-chain conviction ----
+let DISPUTE=null;
+(async()=>{ try{ DISPUTE=await (await fetch('./dispute.json')).json();
+  document.getElementById('fraudBanner').style.display='flex';
+  document.getElementById('fraudBtn').onclick=openFraud;
+}catch(e){} })();
+function openFraud(){
+  const d=DISPUTE; const modal=document.getElementById('modal');
+  modal.innerHTML=`<span class="x" id="closeX">✕</span>
+    <h2 style="font-size:20px;margin-bottom:4px"><i class="ti ti-gavel" style="color:var(--red)"></i> Fraud Lab — convict a lying resolver</h2>
+    <div class="dim" style="font-size:13px;line-height:1.6">A resolver asserted a <b style="color:var(--tx)">fraudulent AI-judge result</b> and staked a bond on it. A challenger disputed it. The two bisected the disputed computation <b style="color:var(--tx)">live on devnet</b> — narrowing ${d.n.toLocaleString()} micro-operations to exactly one. The disagreement is now pinned to a single step the Sui contract can re-run itself.</div>
+    <div class="bis" id="bis" style="display:flex;gap:3px;height:60px;align-items:flex-end;margin:16px 0"></div>
+    <div class="qspec" style="margin-bottom:6px">
+      <span class="pill">trace <b id="bn">${d.n.toLocaleString()} steps</b></span>
+      <span class="pill">→ <b id="br">${d.rounds.length} rounds</b></span>
+      <span class="pill">disputed step <b>${d.fault_step.toLocaleString()}</b></span>
+    </div>
+    <div class="kvs" style="margin-bottom:8px"><span>fact <a href="https://suiscan.xyz/devnet/object/${d.fact}" target="_blank">${d.fact.slice(0,14)}…</a> · status CHALLENGED · atomic [${d.atomic[0]}, ${d.atomic[1]}]</span></div>
+    <button class="btn primary" id="convictBtn" style="width:100%;background:var(--red);border-color:var(--red);color:#2a0606"><i class="ti ti-scale"></i> Convict & slash the liar (deliver the one-step proof)</button>
+    <div id="convictOut"></div>
+    <div class="note">This uses the toy judge so the bisection is fast to stage. The exact same machinery convicts the real Qwen-0.6B judge — proven in <span class="mono">fqwen_conviction.move</span>. The on-chain step-verifier is a few hundred lines; one micro-op costs the minimum gas bucket.</div>`;
+  document.getElementById('modalbg').style.display='flex';
+  document.getElementById('closeX').onclick=()=>document.getElementById('modalbg').style.display='none';
+  // bisection animation: bars collapsing to one red culprit
+  const bis=document.getElementById('bis'); const N=36;
+  for(let i=0;i<N;i++){const b=document.createElement('div');b.style.cssText='flex:1;border-radius:3px;background:var(--surface2);height:'+(18+(i*37%40))+'px;transition:.4s';bis.appendChild(b);}
+  const bars=[].slice.call(bis.children); let lo=0,hi=N-1,r=0;
+  const iv=setInterval(()=>{ if(hi-lo<=0){clearInterval(iv);bars[lo].style.background='var(--red)';bars[lo].style.height='60px';bars[lo].style.boxShadow='0 0 16px var(--red)';return;}
+    const mid=(lo+hi)>>1; r++; const agree=(d.rounds[r-1]||{}).agree;
+    for(let k=(agree?mid+1:lo);k<=(agree?hi:mid);k++) bars[k].style.cssText+=';background:var(--inset);opacity:.35'; if(agree)hi=mid;else lo=mid+1; },360);
+  document.getElementById('convictBtn').onclick=convict;
+}
+async function convict(){
+  const d=DISPUTE,v=d.verify;
+  const tx=new Transaction();
+  tx.moveCall({target:`${d.package}::dispute::verify_step`,arguments:[
+    tx.object(d.fact),tx.pure.vector('u8',Array.from(hexToBytes(v.regs))),tx.pure.vector('u8',Array.from(hexToBytes(v.mem_root))),
+    tx.pure.vector('u8',Array.from(hexToBytes(v.instr))),tx.pure.vector('vector<u8>',v.instr_sibs.map(h=>Array.from(hexToBytes(h)))),
+    tx.pure.vector('u8',Array.from(hexToBytes(v.page_a))),tx.pure.vector('vector<u8>',v.sibs_a.map(h=>Array.from(hexToBytes(h)))),
+    tx.pure.vector('u8',Array.from(hexToBytes(v.page_b))),tx.pure.vector('vector<u8>',v.sibs_b.map(h=>Array.from(hexToBytes(h)))),
+    tx.pure.vector('u8',Array.from(hexToBytes(v.page_w))),tx.pure.vector('vector<u8>',v.sibs_w.map(h=>Array.from(hexToBytes(h))))]});
+  const r=await sign(tx,'Fraud proven · resolver slashed');
+  if(r){document.getElementById('convictOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill);margin-top:10px"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-coin-off"></i></div><div class="b"><div class="s" style="color:var(--red)">Fraud proven on-chain — bond slashed to the challenger.</div><div class="m"><a href="https://suiscan.xyz/devnet/tx/${r.digest}" target="_blank">view the conviction tx →</a></div></div></div>`;
+    document.getElementById('convictBtn').disabled=true;}
 }
 
 renderGrid();
