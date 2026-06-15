@@ -4,7 +4,10 @@
 
 [workspace]
 resolver = "2"
-members = ["vm", "models/toy", "compiler", "game", "client", "benches", "models/qwen", "kernels", "gpu"]
+members = [
+    "opml/vm", "opml/kernels", "opml/gpu", "opml/compiler", "opml/game",
+    "opml/client", "opml/benches", "opml/models/toy", "opml/models/qwen",
+]
 
 [workspace.package]
 edition = "2021"
