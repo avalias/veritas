@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prove live web data with zkTLS · Veritas</title>
+<link rel="stylesheet" href="style.css">
+
+<div class="wrap">
+  <div class="top">
+    <a class="back" href="index.html">← all demos</a>
+    <span class="sp"></span>
+    <span class="dim" id="att" style="font-size:12px"></span>
+  </div>
+
+  <h1>Prove live web data, then let the judge read it</h1>
+  <p class="lede">Pick a real public API. Our self-hosted attestor runs a genuine TLS-MPC
+    handshake to it and signs what it served. You watch the proof come back, check it
+    recovers the pinned attestor, and the deterministic judge reads the proven value. All
+    live — nothing pre-baked.</p>
+
+  <div class="demos" id="cards"></div>
+
+  <div class="panel" id="run" style="display:none">
+    <div class="kv"><span>source</span><b id="srcurl" class="mono" style="font-size:12px;text-align:right;max-width:65%"></b></div>
+    <button class="btn primary wide" id="prove" style="margin-top:12px">Generate a real zkTLS proof</button>
+    <div id="status" class="dim" style="font-size:13px;margin-top:10px"></div>
+    <div id="result"></div>
+  </div>
+
+  <div class="note">A real proof takes 30–60 seconds because it is an actual multi-party TLS
+    session, not an HTTP fetch. That is the cost of proving a server really served these bytes.
+    The exact proof you generate here is admissible on-chain
+    (<span class="mono">submit_real_zktls.py</span>), verified by native ecrecover.</div>
+
+  <p class="dim" style="font-size:13px">Prereqs: the attestor (<span class="mono">tools/zktls</span>)
+    and the gen server (<span class="mono">node tools/reclaim/gen_server.mjs</span>) running locally,
+    plus the judge resolver. See <a href="../../../tools/zktls/README.md">tools/zktls/README.md</a>.</p>
+</div>
+
+<script type="module">
+  import { askJudge } from './veritas.js';
+  import { keccak256, toUtf8Bytes, hashMessage, recoverAddress } from 'https://esm.sh/ethers@6.13.4';
+
+  const GEN = new URLSearchParams(location.search).get('gen') || 'http://localhost:8788';
+  const PINNED = '0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025';   // our attestor address
+  document.getElementById('att').textContent = 'attestor ' + PINNED.slice(0, 10) + '…';
+
+  // each source: a real endpoint + a yes/no the judge can decide from the proven value
+  const SOURCES = {
+    coinbase: { name: 'Coinbase', sub: 'live Bitcoin price', url: 'api.coinbase.com/v2/prices/BTC-USD/spot',
+      q: 'Is Bitcoin trading above $50,000?', ev: v => `Coinbase reports the BTC-USD spot price is $${v}.` },
+    forex: { name: 'Exchange rates', sub: 'USD → EUR (ECB)', url: 'open.er-api.com/v6/latest/USD',
+      q: 'Is one US dollar worth less than one euro?', ev: v => `1 US dollar is currently worth ${v} euros.` },
+    news: { name: 'Hacker News', sub: 'a real story headline', url: 'hacker-news.firebaseio.com/v0/item/8863.json',
+      q: 'Does this headline announce a file-storage / cloud product?', ev: v => `Headline: "${v}".` },
+    football: { name: 'TheSportsDB', sub: 'a real match result', url: 'thesportsdb.com/.../lookupevent.php',
+      q: 'Does this name a football match between two teams?', ev: v => `Match: "${v}".` },
+  };
+
+  let current = 'coinbase';
+  const cards = document.getElementById('cards');
+  for (const [k, s] of Object.entries(SOURCES)) {
+    const a = document.createElement('a'); a.className = 'demo'; a.href = 'javascript:void 0';
+    a.innerHTML = `<div class="k">${s.sub}</div><h3>${s.name}</h3><p>${s.q}</p>`;
+    a.onclick = () => select(k);
+    cards.appendChild(a); s._el = a;
+  }
+  function select(k) {
+    current = k;
+    Object.values(SOURCES).forEach(s => s._el.style.borderColor = '');
+    SOURCES[k]._el.style.borderColor = 'var(--ok)';
+    document.getElementById('run').style.display = 'block';
+    document.getElementById('srcurl').textContent = SOURCES[k].url;
+    document.getElementById('status').textContent = '';
+    document.getElementById('result').innerHTML = '';
+  }
+  select('coinbase');
+
+  function recoverSigner(p) {
+    const identifier = keccak256(toUtf8Bytes(`${p.provider}\n${p.parameters}\n${p.context}`));
+    const message = `${identifier}\n${p.owner}\n${p.timestampS}\n${p.epoch}`;
+    return recoverAddress(hashMessage(message), p.signature).toLowerCase();
+  }
+
+  document.getElementById('prove').onclick = async () => {
+    const s = SOURCES[current];
+    const btn = document.getElementById('prove'), status = document.getElementById('status'), result = document.getElementById('result');
+    btn.disabled = true; result.innerHTML = '';
+    const t0 = Date.now();
+    const tick = setInterval(() => { status.textContent = `Running a real TLS-MPC handshake to ${s.url} … ${Math.round((Date.now() - t0) / 1000)}s (genuinely happening, not staged)`; }, 250);
+    let proof;
+    try { proof = await (await fetch(`${GEN}/prove?source=${current}`)).json(); }
+    catch (e) { proof = { error: 'gen server not reachable — start it: node tools/reclaim/gen_server.mjs' }; }
+    clearInterval(tick); btn.disabled = false;
+    if (proof.error) { status.innerHTML = `<span style="color:var(--bad)">${proof.error}</span>`; return; }
+    status.textContent = `Proof generated in ${Math.round((Date.now() - t0) / 1000)}s.`;
+
+    const got = recoverSigner(proof);
+    const ok = got === PINNED;
+    result.innerHTML =
+      `<div class="step done" style="margin-top:14px"><div class="n">✓</div><div class="t">
+        Proven value: <b>${proof.value}</b>
+        <small>signature recovers <span class="mono">${got}</span> ${ok ? '= the pinned attestor ✓' : '(unexpected)'}</small></div></div>
+       <div class="dim" style="font-size:13px;margin:14px 0 6px">Now the deterministic judge reads it:</div>
+       <div class="stream" id="jout"></div><div id="jverdict"></div>`;
+
+    const jout = document.getElementById('jout');
+    const v = await askJudge(s.q, s.ev(proof.value), { onToken: t => { jout.textContent += t; } });
+    const col = { YES: 'var(--ok)', NO: 'var(--blue)', UNKNOWN: 'var(--amber)' }[v] || 'var(--dim)';
+    document.getElementById('jverdict').innerHTML = v === null
+      ? `<div class="note" style="margin-top:10px">Judge resolver isn't running (start it with go.sh).</div>`
+      : `<div class="step done" style="margin-top:10px;border-color:${col}"><div class="n" style="background:${col};border-color:${col}">✓</div>
+          <div class="t"><b style="color:${col}">${v}</b> on "${s.q}" — read by the real Qwen3-1.7B from a value proven over zkTLS.</div></div>`;
+  };
+</script>

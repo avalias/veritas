@@ -42,6 +42,22 @@ ATTESTOR_BASE_URL=ws://localhost:8001/ws node gen.mjs > proof.json
 The proof's signature recovers our attestor address through the exact
 `reclaim.move` algorithm (verified end to end).
 
+## Live proofs in the browser (the zktls.html demo)
+
+`tools/reclaim/gen_server.mjs` is a tiny HTTP server (`:8788`) that generates a real
+proof on demand so the dApp can do it from the browser. It has four ready sources:
+Coinbase BTC price, USD→EUR (open.er-api.com), a Hacker News headline, and a
+TheSportsDB match result.
+
+```bash
+cd tools/reclaim && node gen_server.mjs        # needs the attestor on :8001
+# then open the dApp's zktls.html, pick a source, click "Generate a real zkTLS proof"
+```
+
+Each proof takes 30–60s (a real TLS-MPC session). The page shows the proven value,
+recovers the attestor address client-side (the same ecrecover the chain runs), and
+the deterministic judge reads it.
+
 ## Submit a real proof on-chain
 
 `demos/prediction-market/submit_real_zktls.py` creates a market that pins our
