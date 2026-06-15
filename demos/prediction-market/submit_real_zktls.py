@@ -6,19 +6,33 @@ proof of a live website during the evidence window, and submits it.
 Prereq: the attestor is running (tools/zktls/attestor-core, port 8001) and the
 client deps are installed (tools/reclaim). Run on the configured network.
 """
-import json, subprocess, time, os
+import json, subprocess, time, os, sys
 import judge_lib as L
 
 ATTESTOR = "ws://localhost:8001/ws"
-TARGET = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
-REGEX = '"amount":"(?<value>[0-9.]+)"'
+
+# Real, stable, Qwen-readable zkTLS sources. Pick one with: python3 submit_real_zktls.py <name>
+SOURCES = {
+    "coinbase": {
+        "question": "Did Coinbase serve this BTC price (proven by self-hosted zkTLS)?",
+        "url": "https://api.coinbase.com/v2/prices/BTC-USD/spot",
+        "regex": '"amount":"(?<value>[0-9.]+)"',
+    },
+    "football": {
+        "question": "Did this football match result come from TheSportsDB (proven by zkTLS)?",
+        "url": "https://www.thesportsdb.com/api/v1/json/123/lookupevent.php?id=2052705",
+        "regex": '"strEvent":"(?<value>[^"]+)"',
+    },
+}
+SRC = SOURCES[sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in SOURCES else "coinbase"]
+TARGET, REGEX = SRC["url"], SRC["regex"]
 
 
 def gen_proof():
     """Run the Node client to produce a fresh real proof; return the claim dict."""
     cmd = (f'source ~/.nvm/nvm.sh >/dev/null 2>&1; nvm use 22 >/dev/null 2>&1; '
            f'cd "{L.ROOT}/tools/reclaim"; '
-           f'ATTESTOR_BASE_URL={ATTESTOR} TARGET_URL={TARGET} TARGET_REGEX=\'{REGEX}\' node gen.mjs')
+           f'ATTESTOR_BASE_URL={ATTESTOR} TARGET_URL="{TARGET}" TARGET_REGEX=\'{REGEX}\' node gen.mjs')
     out = subprocess.run(["bash", "-lc", cmd], capture_output=True, text=True)
     # the client interleaves pino log lines; the proof is the pretty-printed object
     lines = out.stdout.splitlines()
@@ -35,8 +49,7 @@ def main():
     ra = now + 12_000
     win = 2 * 3600 * 1000
     print("creating a market that pins our attestor…")
-    mid = L.create_market("Did Coinbase serve this BTC price (proven by self-hosted zkTLS)?",
-                          ra, win, k=1, seed_mist=70_000_000)
+    mid = L.create_market(SRC["question"], ra, win, k=1, seed_mist=70_000_000)
     print("  market:", mid)
     print("waiting for the evidence window to open…")
     while L.now_ms() < ra + 2_000:
