@@ -35,7 +35,10 @@ fn main() {
     eprintln!("· judge ready. POST/GET http://127.0.0.1:8899/judge?q=…&e=…");
 
     let lock = Mutex::new(()); // one inference at a time (bounded memory)
-    let listener = TcpListener::bind("127.0.0.1:8899").expect("bind :8899");
+    // bind 0.0.0.0 so a screen-shared / tunneled (ngrok) / LAN judge can reach
+    // the live judge too; the dApp can target it with ?resolver=<host>:8899.
+    let addr = std::env::var("RESOLVER_ADDR").unwrap_or_else(|_| "0.0.0.0:8899".into());
+    let listener = TcpListener::bind(&addr).unwrap_or_else(|_| panic!("bind {addr}"));
     for stream in listener.incoming() {
         let Ok(mut s) = stream else { continue };
         let _g = lock.lock().unwrap();
@@ -100,8 +103,13 @@ fn handle(
                     let _ = write!(s, "data:{}\n\n", json_str("t", &delta));
                     let _ = s.flush();
                     emitted = full;
-                    // one clean sentence: stop at the newline after the answer
-                    if out.len() >= 4 && emitted.trim_end().contains('\n') {
+                    // stop at the end of the first full sentence of the reason
+                    // (a period/!/? after the verdict) so we get "YES … <reason>."
+                    // cleanly — not a premature cut, not a ramble.
+                    let t = emitted.trim_end();
+                    let sentence_end = t.ends_with('.') || t.ends_with('!') || t.ends_with('?');
+                    let para = emitted.matches('\n').count() >= 2;
+                    if (out.len() >= 6 && sentence_end) || para {
                         break;
                     }
                 }

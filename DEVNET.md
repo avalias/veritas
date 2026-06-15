@@ -3,10 +3,18 @@
 The whole product is deployed and running on **Sui devnet** (a real public
 network), with a real wallet dApp. Nothing here is a mock.
 
+> **Handing it to a judge? See [JUDGE.md](JUDGE.md)** — a 5-minute, click-by-click
+> script where the judge personally signs every step of a market's life (buy →
+> AI-judge → prove → resolve → redeem) plus convicts a fraud, each a real on-chain
+> tx. One command (`python3 demo/judge_setup.py`) stages the live markets;
+> `python3 demo/replenish.py` keeps the board fresh across back-to-back judges.
+
 ## Run the dApp
 
 ```
-python3 demo/web/serve.py        # → http://127.0.0.1:8777/app.html
+cargo run -p qwen --release --bin resolver   # the live AI judge (:8899)
+python3 demo/web/serve.py                     # → http://127.0.0.1:8777/app.html
+python3 demo/judge_setup.py                   # stage the ⚡ LIVE + ⚖️ READY markets
 ```
 
 - Browse 10 live markets (read straight from devnet, no wallet needed).
