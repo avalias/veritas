@@ -1,135 +1,360 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>A market that resolves on proof · Veritas</title>
+<title>A market, end to end · Veritas</title>
 <link rel="stylesheet" href="style.css">
 
 <div class="wrap">
   <div class="top">
     <a class="back" href="index.html">← all demos</a>
     <span class="sp"></span>
+    <span class="dim mono" id="status" style="font-size:12px"></span>
     <button class="btn" id="wallet">Connect wallet</button>
   </div>
 
-  <h1>A market that resolves on proof, not a vote</h1>
-  <p class="lede">Trading sets the price. The outcome is decided by a counting rule the
-    contract committed to up front, applied to admitted zkTLS proofs. No token holder
-    casts a ballot; nobody can outvote a signature.</p>
+  <h1>One market, the whole way through</h1>
+  <p class="lede">A single real market on Sui, walked from trading to evidence to resolution to
+    redemption. Every act below is a transaction you sign yourself; each toast links to it on
+    suiscan. The state is read back from chain after each step, so what you see is what is there.</p>
 
-  <p>This market's evidence window has closed and one YES proof is already admitted on
-    chain, so it is resolvable in a single click. Resolving runs the committed rule over
-    the admitted proofs and writes the outcome. Then the winning side redeems.</p>
-
-  <div class="panel" id="card">
-    <div class="kv"><span id="qlabel">market</span><b id="q">…</b></div>
-    <div class="kv"><span>price now</span><b><span id="py">…</span>% YES · <span id="pn">…</span>% NO</b></div>
-    <div class="kv"><span>liquidity</span><b id="liq">…</b></div>
-    <div class="kv"><span>decision rule</span><b>occurrence, k=1: YES if ≥1 independent source group confirms</b></div>
-    <div class="kv"><span>admitted evidence</span><b id="ev">…</b></div>
-    <div id="action" style="margin-top:16px"></div>
-    <div id="out"></div>
+  <!-- everything renders into here once we have loaded the market -->
+  <div id="acts">
+    <div class="panel"><div class="dim">Reading the market from chain…</div></div>
   </div>
 
-  <h2>Take a position</h2>
-  <p>Buying YES or NO is a bet. It moves the price and lets you profit if you are right,
-    but it has no say in how the market resolves. The outcome comes from the admitted
-    proofs and the committed rule, full stop.</p>
-  <div id="buybox"></div>
+  <div class="note" id="restage" style="display:none"></div>
 
-  <h2>Money prices, proof decides</h2>
-  <p>On UMA and similar systems, a disputed outcome is settled by a token vote: whoever
-    holds the most tokens decides what happened. Here the resolution is a
-    <span class="mono">secp256k1</span> check inside a Move contract. To flip a YES into a
-    NO you would have to forge a wire service's signature, which the math does not allow.
-    Whales can move the price all day; they cannot move the verdict.</p>
-  <div class="note">The price and the outcome are two different things. The price is a
-    market's opinion before the fact. The outcome is what the proofs say after it. Veritas
-    keeps them separate on purpose. That is the whole point.</div>
-
-  <p class="dim" style="font-size:13px">See the pieces on their own:
-    <a href="evidence.html">how a proof gets admitted →</a> ·
-    <a href="slashing.html">what happens if a resolver lies →</a></p>
+  <p class="dim" style="font-size:13px;margin-top:22px">The outcome is a function of zkTLS-proven
+    sources and a deterministic AI, both checked on-chain. No amount of money changes a secp256k1
+    verification or a fraud proof. That is the difference from a token-vote oracle: here you cannot
+    buy the result, you can only prove it.</p>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <script type="module">
-  import { loadMarket, tx, sign, connect, scanTx, toast, getAccount } from './veritas.js';
+  import {
+    NET, loadMarket, myPosition, tx, sign, connect,
+    askJudge, scanObj, toast,
+  } from './veritas.js';
 
+  // markets.json carries the live market + its pre-proven wire reports. config.json
+  // (loaded inside veritas.js) carries the package id and rpc.
   const M = await (await fetch('./markets.json')).json();
-  const rr = M.resolve_ready_market;   // window closed + a YES proof pre-admitted → resolvable now
+  const LM = M.live_market;
+  const K = LM.k || 1;
 
-  const $ = (id) => document.getElementById(id);
-
-  // wallet button (same pattern as every page)
-  const wb = $('wallet');
+  // wallet button, same pattern as the other pages
+  const wb = document.getElementById('wallet');
   wb.onclick = connect;
-  document.addEventListener('wallet', (e) => { wb.textContent = e.detail.address.slice(0, 6) + '…' + e.detail.address.slice(-4); });
+  document.addEventListener('wallet', e => wb.textContent = e.detail.address.slice(0, 6) + '…' + e.detail.address.slice(-4));
 
-  // count distinct independent source groups that claim YES, straight from chain state.
-  // This is exactly what the contract's rule counts; we show it before signing.
-  function yesGroups(evidence) {
-    const g = new Set();
-    for (const e of evidence) { const f = e.fields || e; if (Number(f.claim) === 1) g.add(String(f.group)); }
-    return g.size;
+  const mmss = s => { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const outcomeName = ['undecided', 'YES', 'NO', 'VOID'];
+  const verdictColor = { YES: 'var(--ok)', NO: 'var(--blue)', UNKNOWN: 'var(--amber)' };
+  const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+  // a proof's attestor_idx is the on-chain "group" once admitted. Read which groups
+  // are already admitted so we never offer to re-submit one.
+  const admittedGroups = st => new Set((st.evidence || []).map(e => String((e.fields || e).group)));
+
+  // ---- the live status line: phase + a mm:ss countdown, recomputed each second ----
+  let clockTimer = null;
+  function tickStatus(st) {
+    if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+    const ra = Number(st.f.resolve_after_ms), win = Number(st.f.evidence_window_ms);
+    const el = document.getElementById('status');
+    const paint = () => {
+      const now = Date.now();
+      if (st.stored === 2) { el.textContent = 'phase: resolved · ' + outcomeName[st.outcome]; return; }
+      if (now < ra) el.textContent = 'phase: trading · closes in ' + mmss((ra - now) / 1000);
+      else if (now < ra + win) el.textContent = 'phase: evidence · closes in ' + mmss((ra + win - now) / 1000);
+      else el.textContent = 'phase: window closed · resolvable now';
+    };
+    paint();
+    if (st.stored !== 2) clockTimer = setInterval(paint, 1000);
   }
 
-  const outcomeWord = (o) => o === 1 ? 'YES' : o === 2 ? 'NO' : o === 3 ? 'VOID' : '·';
+  // reload chain state and re-render every act. Called after every action.
+  async function refresh() {
+    const st = await loadMarket(LM.id);
+    tickStatus(st);
+    render(st);
+    return st;
+  }
 
-  async function render() {
-    const st = await loadMarket(rr.id);
-    $('q').textContent = st.question || rr.question;
-    $('py').textContent = st.priceYes;
-    $('pn').textContent = 100 - st.priceYes;
-    $('liq').textContent = (st.collateral / 1e9).toFixed(2) + ' SUI';
-    $('ev').textContent = st.evidence.length + ' independent zkTLS proof(s)';
+  // run a tx, then reload. busy guards against double-submits.
+  let busy = false;
+  async function act(buildTx, label, after) {
+    if (busy) return;
+    busy = true;
+    try {
+      const r = await sign(buildTx(), label);
+      if (r && after) after(r);
+      if (r) setTimeout(refresh, 1600);   // give the fullnode a moment to index
+    } finally { busy = false; }
+  }
 
-    const action = $('action');
+  function render(st) {
+    const admitted = admittedGroups(st);
+    document.getElementById('acts').innerHTML = [
+      act1(st), act2(st), act3(st, admitted), act4(st, admitted),
+      act5(st), act6(st), act7(),
+    ].join('');
 
-    // phase 3: window closed and not yet resolved → one click applies the rule.
-    if (st.phase === 3) {
-      action.innerHTML = `<button class="btn primary wide" id="resolve">Resolve and apply the committed rule</button>`;
-      $('resolve').onclick = async () => {
-        // read the chain, count YES groups, and say so before asking for a signature.
-        const n = yesGroups(st.evidence);
-        toast(`Committed rule over ${st.evidence.length} proof(s): <b>${n}</b> independent YES group(s) ≥ k=1 → YES`);
-        const r = await sign(tx.resolve(rr.id), 'Resolved by the committed rule');
-        if (r) render();
-      };
-      return;
-    }
+    wireBuy(st);
+    wireEvidence(st);
+    wireJudge(st, admitted);
+    wireResolve(st);
+    wireRedeem(st);
 
-    // phase 2: already resolved → show the outcome and let the winner redeem.
-    if (st.phase === 2) {
-      const w = outcomeWord(st.outcome);
-      action.innerHTML =
-        `<div class="step done"><div class="n">✓</div><div class="t">
-           Resolved <b>${w}</b> by the committed rule over ${st.evidence.length} admitted proof(s).
-         </div></div>
-         <button class="btn primary wide" id="redeem" style="margin-top:12px">Redeem winnings</button>`;
-      $('redeem').onclick = () => sign(tx.redeem(rr.id), 'Redeemed');
-      return;
-    }
+    // honest banner if the ⚡ market is sitting in a gap the page can't act on
+    const rs = document.getElementById('restage');
+    if (st.stored !== 2 && ![0, 1, 3].includes(st.phase)) {
+      rs.style.display = 'block';
+      rs.innerHTML = `This ⚡ market is between phases right now, so no single action is valid. Re-stage a
+        fresh lifecycle with <span class="mono">./demos/prediction-market/go.sh</span> and reload.`;
+    } else rs.style.display = 'none';
+  }
 
-    // phase 0/1: not this card's job. State it honestly rather than offer a button that fails.
-    action.innerHTML = st.phase === 1
-      ? `<div class="note">Evidence window is still open. Proofs can be admitted before this resolves.</div>`
-      : `<div class="note">Still trading. The evidence window has not opened yet.</div>`;
+  // ---- ACT 1 · the market ----
+  function act1(st) {
+    return `<div class="panel">
+      <span class="tag">act 1</span>
+      <h2 style="margin-top:8px">The market</h2>
+      <p>${esc(st.question)}</p>
+      <div class="kv"><span>YES price</span><b>${st.priceYes}¢ &nbsp;·&nbsp; NO ${100 - st.priceYes}¢</b></div>
+      <div class="kv"><span>liquidity</span><b>${(st.collateral / 1e9).toFixed(3)} SUI, backing every share 1:1</b></div>
+      <div class="kv"><span>resolution rule</span><b>occurrence, k=${K}</b></div>
+      <div class="kv"><span>market object</span><b><a href="${scanObj(st.id)}" target="_blank">${st.id.slice(0, 10)}…${st.id.slice(-4)}</a> on ${NET}</b></div>
+      <div class="note">YES if at least ${K} independent zkTLS proof${K > 1 ? 's' : ''} confirm the event.
+        Money prices this market; it never decides it. The rule is committed in the market object before
+        anyone trades, and cannot be changed after.</div>
+    </div>`;
+  }
 
-    // only when trading do we show a buy form. Buying is a bet, not a vote.
+  // ---- ACT 2 · take a side ----
+  function act2(st) {
+    let body;
     if (st.phase === 0) {
-      const bb = document.getElementById('buybox');
-      bb.innerHTML =
-        `<div class="panel">
-           <div class="kv"><span>stake (SUI)</span><b><input id="amt" value="0.1" style="width:120px"></b></div>
-           <div style="display:flex;gap:10px;margin-top:12px">
-             <button class="btn wide" id="byes">Buy YES</button>
-             <button class="btn wide" id="bno">Buy NO</button>
-           </div>
-         </div>`;
-      const amt = () => parseFloat(document.getElementById('amt').value) || 0;
-      document.getElementById('byes').onclick = () => sign(tx.buy(rr.id, 'yes', amt()), 'Bought YES');
-      document.getElementById('bno').onclick  = () => sign(tx.buy(rr.id, 'no',  amt()), 'Bought NO');
+      body = `<div style="display:flex;gap:8px;margin:8px 0 10px">
+          <button class="btn sm" id="sideYes">YES</button>
+          <button class="btn sm" id="sideNo">NO</button></div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input id="amt" type="number" value="0.05" step="0.01" min="0.01" style="max-width:140px">
+          <span class="dim" style="font-size:13px">SUI</span>
+          <button class="btn primary" id="buyBtn" style="margin-left:auto">Buy <span id="buyLbl">YES</span></button>
+        </div>
+        <div id="posLine" class="mono" style="font-size:12px;color:var(--ok);margin-top:10px"></div>
+        <div class="note">Buying a share is a bet, not a vote. Winners redeem 1 SUI per winning share, and
+          every YES+NO pair is backed 1:1, so the market cannot go insolvent.</div>`;
+    } else {
+      body = `<p class="dim">Trading has closed. The only thing money could ever do here was price the
+          market, and that window is over. Your position, if any, is read from chain below.</p>
+        <div id="posLine" class="mono" style="font-size:12px;color:var(--ok);margin-top:6px"></div>`;
     }
+    return `<div class="panel"><span class="tag">act 2</span>
+      <h2 style="margin-top:8px">Take a side</h2>${body}</div>`;
   }
 
-  render();
+  // ---- ACT 3 · the evidence ----
+  function act3(st, admitted) {
+    const rows = LM.proofs.map((p, i) => {
+      const ok = admitted.has(String(p.attestor_idx));
+      const canAdmit = st.phase === 1 && !ok;
+      return `<div class="step ${ok ? 'done' : ''}">
+        <div class="n">${ok ? '✓' : 'zk'}</div>
+        <div class="t"><b>${esc(p.source)}</b> <span class="dim">· ${esc(p.domain || 'zkTLS')}</span>
+          <small>${ok ? 'admitted · independent group ' + p.attestor_idx + ' · verified on-chain by ecrecover'
+            : '“' + esc((p.headline || '').slice(0, 80)) + '”'}</small></div>
+        ${ok ? '<span class="tag">on-chain</span>'
+          : canAdmit ? `<button class="btn sm primary" data-admit="${i}">Admit this zkTLS proof</button>` : ''}
+      </div>`;
+    }).join('');
+
+    let head;
+    if (st.phase === 1) head = `<p>The evidence window is open. Each row is a real zkTLS proof of what a
+        pinned source actually served. Admitting one submits it to <span class="mono">submit_web_proof</span>,
+        where Sui-native <span class="mono">ecrecover</span> checks the attestor signature.</p>`;
+    else if (st.phase === 0) head = `<p class="dim">Evidence opens when the trading buffer closes. Until then
+        these proofs are staged but cannot be admitted yet.</p>`;
+    else head = `<p class="dim">The evidence window is ${st.stored === 2 ? 'over — the market is resolved' : 'closed'}.
+        Admitted proofs are shown read-only below.</p>`;
+
+    return `<div class="panel"><span class="tag">act 3</span>
+      <h2 style="margin-top:8px">The evidence</h2>${head}${rows}
+      <div class="note">This is a real zkTLS proof verified on-chain by native ecrecover. You cannot submit
+        an opinion, only a signature over what a source served — prove one yourself in
+        <a href="zktls.html">the live zkTLS demo</a>.</div></div>`;
+  }
+
+  // ---- ACT 4 · the judge reads it ----
+  function act4(st, admitted) {
+    const admittedProof = LM.proofs.find(p => admitted.has(String(p.attestor_idx)));
+    return `<div class="panel"><span class="tag">act 4</span>
+      <h2 style="margin-top:8px">The judge reads it</h2>
+      <p>The real Qwen judge reads ${admittedProof ? 'an admitted proof' : 'the first staged proof'} and
+        types its verdict, deterministically and off-chain.</p>
+      <button class="btn primary wide" id="judgeBtn">Run the AI judge on the admitted evidence</button>
+      <div id="promptWrap" style="display:none;margin-top:14px">
+        <div class="dim" style="font-size:12px;margin-bottom:5px">The exact prompt (nothing hidden):</div>
+        <div class="stream" id="judgePrompt" style="font-size:12px;color:var(--dim)"></div>
+      </div>
+      <div id="answerWrap" style="display:none;margin-top:12px">
+        <div class="dim" style="font-size:12px;margin-bottom:5px">What the model outputs:</div>
+        <div class="stream" id="judgeOut"></div>
+      </div>
+      <div id="judgeVerdict"></div>
+      <div class="note">The judge <b>reads</b>; the committed counting rule <b>decides</b>. Its output never
+        sets the outcome on its own — it only feeds the k-of-independent-sources rule that resolve
+        enforces.</div></div>`;
+  }
+
+  // ---- ACT 5 · resolve ----
+  function act5(st) {
+    let body;
+    if (st.phase === 3) {
+      body = `<p>The evidence window has closed. Resolving applies the committed rule over the proofs
+          admitted on-chain — counted per independent group, never per submission.</p>
+        <button class="btn primary wide" id="resolveBtn">Resolve — apply the committed rule</button>`;
+    } else if (st.stored === 2) {
+      const o = st.outcome, col = o === 1 ? 'var(--ok)' : o === 2 ? 'var(--blue)' : 'var(--amber)';
+      body = `<div class="step done" style="border-color:${col}"><div class="n" style="background:${col};border-color:${col}">✓</div>
+        <div class="t">Resolved <b style="color:${col}">${outcomeName[o]}</b> by the committed rule over
+          ${(st.evidence || []).length} admitted proof(s).</div></div>`;
+    } else {
+      body = `<p class="dim">Not resolvable yet — the evidence window must close first. The status line up
+          top counts down to it.</p>`;
+    }
+    return `<div class="panel"><span class="tag">act 5</span>
+      <h2 style="margin-top:8px">Resolve</h2>${body}</div>`;
+  }
+
+  // ---- ACT 6 · redeem ----
+  function act6(st) {
+    let body;
+    if (st.stored === 2) {
+      body = `<p>The market is resolved. Winners redeem 1 SUI per winning share, paid out on-chain to your
+          wallet.</p>
+        <button class="btn primary wide" id="redeemBtn">Redeem winnings</button>
+        <div id="redeemPos" class="mono" style="font-size:12px;color:var(--ok);margin-top:10px"></div>`;
+    } else {
+      body = `<p class="dim">Redemption opens once the market resolves. Nothing to redeem yet.</p>`;
+    }
+    return `<div class="panel"><span class="tag">act 6</span>
+      <h2 style="margin-top:8px">Redeem</h2>${body}</div>`;
+  }
+
+  // ---- ACT 7 · the backstop ----
+  function act7() {
+    return `<div class="panel"><span class="tag">act 7</span>
+      <h2 style="margin-top:8px">The backstop</h2>
+      <p>The judge ran off-chain in act 4 — so why trust its output? Because it is bonded and disputable.
+        If the resolver had reported a verdict the committed model does not actually produce, anyone could
+        bisect the disputed computation down to one micro-op, re-run that single step on-chain, and slash
+        the resolver's bond.</p>
+      <p class="dim" style="font-size:14px">That is what makes leaning on an off-chain judge safe: lying is
+        cheaper to catch than to get away with. Watch it convict a liar in
+        <a href="slashing.html">slashing.html</a>.</p></div>`;
+  }
+
+  // ---------- wiring ----------
+  function wireBuy(st) {
+    const pl = document.getElementById('posLine');
+    const showPos = el => myPosition(LM.id).then(p => { if (el && p && (p.yes || p.no)) el.textContent = 'your position: ' + (p.yes / 1e9).toFixed(3) + ' YES · ' + (p.no / 1e9).toFixed(3) + ' NO'; });
+    if (st.phase !== 0) { showPos(pl); return; }
+    let side = 'yes';
+    const yes = document.getElementById('sideYes'), no = document.getElementById('sideNo'), lbl = document.getElementById('buyLbl');
+    const mark = () => {
+      yes.className = 'btn sm' + (side === 'yes' ? ' primary' : '');
+      no.className = 'btn sm' + (side === 'no' ? ' primary' : '');
+      lbl.textContent = side.toUpperCase();
+    };
+    mark();
+    yes.onclick = () => { side = 'yes'; mark(); };
+    no.onclick = () => { side = 'no'; mark(); };
+    document.getElementById('buyBtn').onclick = () => {
+      const sui = parseFloat(document.getElementById('amt').value);
+      if (!(sui > 0)) { toast('Enter an amount first', false); return; }
+      act(() => tx.buy(LM.id, side, sui), 'Bought ' + side.toUpperCase());
+    };
+    showPos(pl);
+  }
+
+  function wireEvidence(st) {
+    document.querySelectorAll('[data-admit]').forEach(b => {
+      b.onclick = () => {
+        const p = LM.proofs[+b.dataset.admit];
+        act(() => tx.submitProof(LM.id, p), `zkTLS proof admitted (${p.source})`);
+      };
+    });
+  }
+
+  function wireJudge(st, admitted) {
+    const btn = document.getElementById('judgeBtn');
+    if (!btn) return;
+    btn.onclick = async () => {
+      const proof = LM.proofs.find(p => admitted.has(String(p.attestor_idx))) || LM.proofs[0];
+      const out = document.getElementById('judgeOut'), pr = document.getElementById('judgePrompt');
+      const verdict = document.getElementById('judgeVerdict');
+      out.textContent = ''; pr.textContent = ''; verdict.innerHTML = '';
+      btn.disabled = true;
+      const v = await askJudge(st.question, proof.headline, {
+        onPrompt: p => { pr.textContent = p; document.getElementById('promptWrap').style.display = 'block'; },
+        onToken: t => { out.textContent += t; document.getElementById('answerWrap').style.display = 'block'; out.scrollTop = out.scrollHeight; },
+      });
+      btn.disabled = false;
+      if (v === null) {
+        verdict.innerHTML = `<div class="note" style="margin-top:12px">The judge resolver isn't running.
+          Start it with <span class="mono">./demos/prediction-market/go.sh</span> and run again.</div>`;
+        return;
+      }
+      const c = verdictColor[v] || 'var(--dim)';
+      verdict.innerHTML = `<div class="step done" style="margin-top:12px;border-color:${c}">
+        <div class="n" style="background:${c};border-color:${c}">✓</div>
+        <div class="t">Verdict: <b style="color:${c}">${v}</b> on “${esc(proof.source)}” — read by the real
+          Qwen judge, deterministic. The model read it; the committed rule decides the market.</div></div>`;
+    };
+  }
+
+  function wireResolve(st) {
+    const btn = document.getElementById('resolveBtn');
+    if (!btn) return;
+    btn.onclick = async () => {
+      // read the on-chain evidence first and count distinct independent YES groups,
+      // so the operator sees exactly what the committed rule is about to apply.
+      const fresh = await loadMarket(LM.id);
+      const yesG = new Set(), noG = new Set();
+      (fresh.evidence || []).forEach(e => { const f = e.fields || e; (Number(f.claim) === 1 ? yesG : noG).add(String(f.group)); });
+      toast(`committed rule over ${(fresh.evidence || []).length} admitted proof(s): <b>${yesG.size}</b> independent YES group(s) · <b>${noG.size}</b> NO · k=${K}`);
+      setTimeout(() => act(() => tx.resolve(LM.id), 'Resolved by the committed rule'), 1700);
+    };
+  }
+
+  function wireRedeem(st) {
+    const btn = document.getElementById('redeemBtn');
+    if (!btn) return;
+    const pos = document.getElementById('redeemPos');
+    if (pos) myPosition(LM.id).then(p => { if (p && (p.yes || p.no)) pos.textContent = 'your position: ' + (p.yes / 1e9).toFixed(3) + ' YES · ' + (p.no / 1e9).toFixed(3) + ' NO'; });
+    btn.onclick = () => act(() => tx.redeem(LM.id), 'Redeemed — winnings paid out');
+  }
+
+  // first read, then keep the phase honest: when the clock crosses a boundary
+  // (trading→evidence→resolvable) the wrong action would be on screen, so re-render.
+  let lastPhase = null, lastStored = null;
+  async function loop() {
+    if (busy) return;
+    try {
+      const st = await loadMarket(LM.id);
+      if (st.phase !== lastPhase || st.stored !== lastStored) {
+        lastPhase = st.phase; lastStored = st.stored; tickStatus(st); render(st);
+      }
+    } catch (e) { /* transient rpc hiccup; try again next tick */ }
+  }
+  await refresh().then(st => { lastPhase = st.phase; lastStored = st.stored; }).catch(() => {
+    document.getElementById('acts').innerHTML = `<div class="panel bad"><h2>Could not read the market</h2>
+      <p class="dim">The ⚡ market object isn't readable on ${NET} right now. Stage a fresh lifecycle with
+      <span class="mono">./demos/prediction-market/go.sh</span> and reload.</p></div>`;
+  });
+  setInterval(loop, 5000);
 </script>

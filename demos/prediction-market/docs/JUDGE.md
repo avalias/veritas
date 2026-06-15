@@ -1,6 +1,6 @@
 # JUDGE.md — hand it to a judge, watch the whole thing run on-chain in 5 minutes
 
-Everything below is **real Sui devnet** + the **real Qwen-0.6B** judge. No mocks.
+Everything below is **real Sui testnet** + the **real Qwen3-1.7B** judge. No mocks.
 A judge connects their own wallet and personally signs every step of a prediction
 market's life — buy, AI-judge, prove, resolve, redeem — plus convicts a lying
 resolver on-chain. Each action surfaces a clickable suiscan transaction.
@@ -13,7 +13,7 @@ resolver on-chain. Each action surfaces a clickable suiscan transaction.
 ./demo/go.sh
 ```
 
-It starts the AI-judge resolver (real Qwen-0.6B on :8899) and the dApp server
+It starts the AI-judge resolver (real Qwen3-1.7B on :8899) and the dApp server
 (:8777) if they aren't already up, stages fresh **⚡ LIVE** and **⚖️ READY**
 markets, arms the **Fraud Lab**, launches the **auto-replenisher** (so the board
 resets itself for the next judge), and opens the dApp. **Re-run it any time** to
@@ -47,7 +47,7 @@ verified end-to-end with a real wallet (7/7, 0 errors).
 | 1 | **Connect** Slush (devnet). | wallet connects — you sign everything yourself |
 | 2 | Open **⚡ LIVE**, buy **0.05 YES**. | `buy_yes` tx → **view tx**; CPMM price moves. This is the position you'll redeem. |
 | 3 | Once it shows **EVIDENCE**, pick a source — **BBC / Reuters / AP** — and click **Add**. | `submit_web_proof` tx → suiscan; that source's pinned-attestor signature verified by **native ecrecover**. Each source is an *independent* trust-group. |
-| 4 | Click **"Ask the AI judge to read the evidence."** | the real **Qwen-0.6B** streams tokens and types its **Verdict: YES** (off-chain — it *reads*; the rule decides) |
+| 4 | Click **"Ask the AI judge to read the evidence."** | the real **Qwen3-1.7B** streams tokens and types its **Verdict: YES** (off-chain — it *reads*; the rule decides) |
 | 5 | Try the **"Submit as NO"** box — any opinion. | **refused** ("no proof exists") — *no tx*. You cannot vote, only prove. |
 | 6 | Banner shows **RESOLVE** → click **"Resolve — apply the committed rule."** | `resolve` tx → suiscan; outcome = count of **independent trust-groups** vs k → **YES** |
 | 7 | Banner shows **REDEEM** → click **"Redeem winnings."** | `redeem_to_sender` tx → suiscan; winning SUI paid to the wallet |
@@ -76,7 +76,7 @@ resolution rules in one signed tx, before anyone trades.
 
 > *On Sui devnet I connected my own wallet and signed real transactions for an
 > entire prediction-market lifecycle: I bought YES and watched the on-chain price
-> move; I watched the real deterministic Qwen-0.6B judge stream its reading of the
+> move; I watched the real deterministic Qwen3-1.7B judge stream its reading of the
 > evidence; I admitted a zkTLS web proof verified on-chain by native ecrecover, and
 > saw the app refuse a bare "NO" opinion because no proof backed it; I resolved the
 > market by the committed rule that counts independent trust-groups (not a vote, not

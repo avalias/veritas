@@ -23,26 +23,73 @@ the engine makes possible.
 opml/                      the engine (Rust crates + Move verifier + docs)
 demos/prediction-market/   the demo dApp, market contract, and judge resolver
 VISION.md                  why route existing crypto trust instead of inventing oracles
+HANDOFF.md                 full resume doc: testnet addresses, open threads, gotchas
 ```
 
-## Quick start
+## Run it end to end (cold start)
 
-The engine:
+Three processes when everything is up: the **AI judge** `:8899`, the **dApp** `:8777`,
+and the self-hosted **zkTLS attestor** `:8001` (plus a small proof-gen server `:8788`).
+Run every command from the repo root.
+
+**Prerequisites:** Rust (`rustup`, `~/.cargo/bin` on PATH) · **Node 20 or 22 via nvm —
+not 24** (24 has a crypto-backend bug the zkTLS client works around) · the **Sui CLI**
+(set the Slush wallet to **testnet** to sign in the dApp) · **Python 3**.
 
 ```bash
-cargo test                          # Rust: VM, compiler, kernels, fraud game
-cd opml/move && sui move test       # Move: the on-chain verifier (54 tests)
+# 1. Fetch the Qwen judge weights (~4 GB, gitignored). Skip this and it falls back to
+#    the bundled 0.6B reference; fetch it for the smarter Qwen3-1.7B the demo uses.
+./opml/models/qwen/fetch-1.7b.sh
+
+# 2. Start the demo stack: AI judge resolver (:8899) + dApp (:8777), stage fresh markets,
+#    arm the Fraud Lab, and keep the board fresh. Re-run any time to reset.
+./demos/prediction-market/go.sh          # opens http://127.0.0.1:8777/
+
+# 3. The self-hosted zkTLS attestor (:8001) — unlimited, no Docker, Node 20/22. It signs
+#    with the key the demo markets pin (address 0x17c5…d025), so its proofs are admitted
+#    on-chain unchanged. Full runbook: tools/zktls/README.md
+nvm use 22
+git clone --depth 1 https://github.com/reclaimprotocol/attestor-core tools/zktls/attestor-core
+cd tools/zktls/attestor-core && npm install && npm run download:zk-files
+PRIVATE_KEY=0x4242424242424242424242424242424242424242424242424242424242424242 PORT=8001 npm run start
+
+# 4. The browser proof-gen server the live demo calls (go.sh auto-starts it if the
+#    attestor is already up on :8001). From a fresh shell at the repo root:
+cd tools/reclaim && npm rebuild re2 && node gen_server.mjs     # :8788
 ```
 
-The demo:
+Then open <http://127.0.0.1:8777/> and pick a demo:
+
+| page | what it shows |
+|------|---------------|
+| **Slash a lying LLM** | a resolver bonded a fake verdict; run the real deterministic judge, watch it disagree, re-run the one disputed micro-op on-chain and take the bond. |
+| **Watch the AI judge read the news** | the real Qwen3-1.7B reads a real news report and settles a bettable yes/no question ("did the Fed raise rates?", "did the merger go through?") where the wording never matches the question. |
+| **Prove live web data** | generate a real zkTLS proof of a live source (BTC price, a football result), watch it recover the pinned attestor, then try to forge the value and watch ecrecover break. |
+| **A market, end to end** | one real market on Sui: trade, admit a zkTLS proof, the judge reads it, resolve, redeem. |
+
+`app.html` combines all of it with a guided tour. Each on-chain action links its suiscan tx.
+
+## Tests
 
 ```bash
-cd demos/prediction-market && sui move test   # the market contract (16 tests)
-./demos/prediction-market/go.sh               # run the live dApp on devnet
+cargo test                                         # Rust: VM, compiler, kernels, fraud game
+cd opml/move && sui move test                       # the on-chain verifier (54 tests)
+cd demos/prediction-market/move && sui move test    # the market contract (16 tests)
 ```
 
-See [opml/README.md](opml/README.md) for the engine and
-[demos/prediction-market/docs/DEVNET.md](demos/prediction-market/docs/DEVNET.md)
-for the running demo.
+## Continue development
+
+The Qwen weights (`opml/models/qwen/artifacts-1.7b/`) and the attestor clone
+(`tools/zktls/attestor-core/`) are **gitignored and recreated by the fetch scripts**
+above. The judge model is **Qwen3-1.7B**; the runtime is model-agnostic (reads all
+dims from config, needs tied embeddings) and **0.6B is the bundled reference** whose
+quality we measured (committed-float perplexity 34.5974 = the published model).
+
+[HANDOFF.md](HANDOFF.md) is the full resume doc: the deployed testnet package IDs and
+operator address, the open threads (the deepest being on-chain evidence→Qwen genesis
+binding, which makes a *wrong verdict* slashable at the market level), and the
+operational gotchas. See [opml/README.md](opml/README.md) for the engine and
+[demos/prediction-market/docs/DEVNET.md](demos/prediction-market/docs/DEVNET.md) for
+the running demo.
 
 Apache-2.0.

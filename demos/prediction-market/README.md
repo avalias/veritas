@@ -17,9 +17,9 @@ Open `web/index.html` (the four are deployed on Sui testnet):
 | page | what it shows |
 |------|---------------|
 | `web/slashing.html` | Slash a lying LLM. Re-run the one disputed micro-op on-chain and take the resolver's bond. The point of the whole project. |
-| `web/judge.html` | Watch the real Qwen3-0.6B read a proven fact and type its verdict, deterministically. Off-chain, no wallet. |
-| `web/evidence.html` | Add evidence as a real zkTLS proof, verified by native ecrecover. Try to submit an opinion instead; it refuses. |
-| `web/market.html` | A market resolved by counting independent proofs against a committed rule, then paying out. |
+| `web/judge.html` | Watch the real Qwen3-1.7B read a proven fact and type its verdict, deterministically. Off-chain, no wallet. |
+| `web/zktls.html` | Prove live web data. Pick a real API (BTC/ETH price, exchange rate, weather, GitHub stars, a headline, a match result), generate a real zkTLS proof on the spot, watch it recover the pinned attestor, let the judge read it — then try to forge the value and watch ecrecover land on a different address. |
+| `web/market.html` | One real market walked end to end: trade, admit a zkTLS proof, the judge reads it, resolve, redeem. |
 
 `web/app.html` is the same capabilities combined into one guided walkthrough.
 

@@ -22,9 +22,9 @@ import judge_lib as L
 
 import os
 SEED = int(L.CFG.get("seed_liq", 150_000_000))     # liquidity per staged market
-T_TRADE = int(os.environ.get("T_TRADE", 150_000))  # ⚡ trading window (ms) — judge buys here
-T_WIN = int(os.environ.get("T_WIN", 75_000))        # ⚡ evidence window (ms) — judge submits here
-# → ⚡ becomes resolvable ~225s after creation; redeemable right after. The
+T_TRADE = int(os.environ.get("T_TRADE", 120_000))  # ⚡ trading window (ms) — judge buys here
+T_WIN = int(os.environ.get("T_WIN", 240_000))       # ⚡ evidence window (ms) — a humane 4 min to submit a proof
+# → ⚡ becomes resolvable ~360s after creation; redeemable right after. The
 # instant features (Qwen judge, Fraud Lab, create, other trades) fill the waits.
 # (T_TRADE / T_WIN env overrides let the E2E test run the whole arc fast.)
 
@@ -58,10 +58,10 @@ def stage_resolve_ready():
 
 def main():
     bal = L.gas_total_sui()
-    print(f"Staging judge-ready markets on devnet…  (gas: {bal:.2f} SUI)")
+    print(f"Staging judge-ready markets on testnet…  (gas: {bal:.2f} SUI)")
     if bal < 3:
         print("  ⚠️  LOW GAS — fund the operator address before the demo:\n"
-              "      curl -s -X POST https://faucet.devnet.sui.io/v2/gas -H 'Content-Type: application/json' \\\n"
+              "      curl -s -X POST https://faucet.testnet.sui.io/v2/gas -H 'Content-Type: application/json' \\\n"
               f"        -d '{{\"FixedAmountRequest\":{{\"recipient\":\"{subprocess.run(['sui','client','active-address'],capture_output=True,text=True).stdout.strip()}\"}}}}'")
     # do the slow steps FIRST (⚖️ wait + fraud staging), then mint ⚡ LAST so its
     # full trading window is fresh when the operator hands over.

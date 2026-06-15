@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "veritas-demo", "runtimeExecutable": "python3", "runtimeArgs": ["demo/web/serve.py"], "port": 8777 }
+    { "name": "veritas-demo", "runtimeExecutable": "python3", "runtimeArgs": ["demos/prediction-market/web/serve.py"], "port": 8777 }
   ]
 }

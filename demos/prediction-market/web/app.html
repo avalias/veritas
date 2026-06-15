@@ -147,7 +147,7 @@
   <div style="margin:34px 0 10px">
     <div style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:14px">under the hood · all of it real</div>
     <div class="why" style="grid-template-columns:repeat(4,1fr)">
-      <div class="c"><div class="h" style="color:var(--teal)"><i class="ti ti-cpu"></i> Real AI judge</div><div class="d">Qwen3-0.6B in a deterministic VM · perplexity <b style="color:var(--tx)">34.60</b> = the published model. Not dumbed down.</div></div>
+      <div class="c"><div class="h" style="color:var(--teal)"><i class="ti ti-cpu"></i> Real AI judge</div><div class="d">Qwen3-1.7B in a deterministic VM · committed-float, <b style="color:var(--tx)">bit-identical</b> on any CPU or GPU. The model as published, not dumbed down.</div></div>
       <div class="c"><div class="h" style="color:var(--blue)"><i class="ti ti-copy-check"></i> Bit-identical</div><div class="d">Same output on any CPU or GPU, to the last bit. "Run it yourself" is real, not a slogan.</div></div>
       <div class="c"><div class="h" style="color:var(--purple)"><i class="ti ti-shield-lock"></i> zkTLS on-chain</div><div class="d">A real attestor signature verified by Sui-native <span class="mono">ecrecover</span>. <a href="https://suiscan.xyz/devnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1" target="_blank">see the tx</a></div></div>
       <div class="c"><div class="h" style="color:var(--red)"><i class="ti ti-gavel"></i> Fraud-provable</div><div class="d">A real judge fault was bisected to one micro-op and <b style="color:var(--tx)">convicted on-chain</b>. Lying is slashable.</div></div>
@@ -356,7 +356,7 @@ async function openMarket(id,kind){
       ${srcRows}
       ${st.phase===0?`<div class="note" style="margin-top:2px">Evidence opens when the short trading buffer closes — then you can admit a source.</div>`:''}
       <h3 style="margin-top:16px">The AI judge reads it — live</h3>
-      <div class="dim" style="font-size:12.5px;line-height:1.5">The real <b style="color:var(--tx)">Qwen-0.6B</b> reads what the source served and types its verdict, deterministically. It <b>reads</b> the evidence; the committed counting rule <b>decides</b>. Off-chain — the chain re-runs one micro-op only on dispute.</div>
+      <div class="dim" style="font-size:12.5px;line-height:1.5">The real <b style="color:var(--tx)">Qwen3-1.7B</b> reads what the source served and types its verdict, deterministically. It <b>reads</b> the evidence; the committed counting rule <b>decides</b>. Off-chain — the chain re-runs one micro-op only on dispute.</div>
       <button class="btn" id="runJudgeBtn" style="margin-top:8px"><i class="ti ti-cpu"></i> Ask the AI judge to read the evidence</button>
       <div id="judgeOut" style="display:none;margin-top:10px;padding:12px 14px;border-radius:10px;background:var(--inset);border:1px solid var(--border);font-size:14px;line-height:1.65;font-family:var(--mono)"></div>
       <div id="judgeVerdict"></div>
@@ -449,7 +449,7 @@ async function redeem(id){
   const r=await sign(tx,'Redeemed — winnings paid out'); if(r){tourDone('redeem',r.digest);setTimeout(()=>{openMarket(id,'live');renderGrid();},1500);}
 }
 const delay=(ms)=>new Promise(r=>setTimeout(r,ms));
-// ---- the live AI judge: stream the REAL Qwen-0.6B reading the evidence ----
+// ---- the live AI judge: stream the REAL Qwen3-1.7B reading the evidence ----
 function runJudge(question, evidenceText){
   const rurl=(new URLSearchParams(location.search).get('resolver')||CFG.resolver_url||'http://127.0.0.1:8899');
   const out=document.getElementById('judgeOut'); out.style.display='block'; out.textContent='';
@@ -461,7 +461,7 @@ function runJudge(question, evidenceText){
     if(d.t){ out.textContent+=d.t; out.scrollTop=out.scrollHeight; }
     if(d.done){ es.close();
       const v=d.verdict||'NO';
-      document.getElementById('judgeVerdict').innerHTML=`<div class="ev" style="margin-top:8px;border-color:var(--teal-deep);background:var(--teal-fill)"><div class="ico"><i class="ti ti-gavel"></i></div><div class="b"><div class="s" style="color:var(--teal)">Verdict: ${v}</div><div class="m">read by the real Qwen-0.6B · deterministic · perplexity 34.60 = published</div></div></div>`;
+      document.getElementById('judgeVerdict').innerHTML=`<div class="ev" style="margin-top:8px;border-color:var(--teal-deep);background:var(--teal-fill)"><div class="ico"><i class="ti ti-gavel"></i></div><div class="b"><div class="s" style="color:var(--teal)">Verdict: ${v}</div><div class="m">read by the real Qwen3-1.7B · deterministic · committed-float, bit-identical CPU/GPU</div></div></div>`;
       if(typeof tourDone==='function') tourDone('judge');
       btn.innerHTML='<i class="ti ti-check"></i> Judge finished';
     }
@@ -530,7 +530,7 @@ function openFraud(){
     <div class="kvs" style="margin-bottom:8px"><span>fact <a href="https://suiscan.xyz/devnet/object/${d.fact}" target="_blank">${d.fact.slice(0,14)}…</a> · status CHALLENGED · atomic [${d.atomic[0]}, ${d.atomic[1]}]</span></div>
     <button class="btn primary" id="convictBtn" style="width:100%;background:var(--red);border-color:var(--red);color:#2a0606"><i class="ti ti-scale"></i> Convict & slash the liar (deliver the one-step proof)</button>
     <div id="convictOut"></div>
-    <div class="note">This uses the toy judge so the bisection is fast to stage. The exact same machinery convicts the real Qwen-0.6B judge — proven in <span class="mono">fqwen_conviction.move</span>. The on-chain step-verifier is a few hundred lines; one micro-op costs the minimum gas bucket.</div>`;
+    <div class="note">This uses the toy judge so the bisection is fast to stage. The exact same machinery convicts a real committed-float Qwen judge — proven in <span class="mono">fqwen_conviction.move</span>. The on-chain step-verifier is a few hundred lines; one micro-op costs the minimum gas bucket.</div>`;
   document.getElementById('modalbg').style.display='flex'; if(typeof renderTour==='function')renderTour();
   document.getElementById('closeX').onclick=()=>{document.getElementById('modalbg').style.display='none';if(typeof renderTour==='function')renderTour();};
   // bisection animation: bars collapsing to one red culprit
@@ -561,7 +561,7 @@ const TOUR=[
  {k:'connect',t:'Connect your wallet',how:'Click “Connect wallet” (top-right). Use Slush, set to <b>devnet</b>.',proves:'You personally sign every action — nothing here trusts a server.'},
  {k:'buy',t:'Buy YES on the ⚡ LIVE market',how:'Opens the red ⚡ card. Buy 0.05 YES.',proves:'A real on-chain CPMM trade; the price moves. Money <i>prices</i> the market — it never decides it.'},
  {k:'evidence',t:'Add evidence from a real source',how:'In ⚡ (once it shows EVIDENCE) pick BBC / Reuters / AP → <b>Add</b>.',proves:'A zkTLS proof verified on-chain by native <span class="mono">ecrecover</span>. You cannot submit an opinion — only a proof.'},
- {k:'judge',t:'Watch the AI judge read it',how:'Click “Ask the AI judge to read the evidence”.',proves:'The real deterministic Qwen-0.6B reads the proof and types its verdict. It reads; the rule decides.'},
+ {k:'judge',t:'Watch the AI judge read it',how:'Click “Ask the AI judge to read the evidence”.',proves:'The real deterministic Qwen3-1.7B reads the proof and types its verdict. It reads; the rule decides.'},
  {k:'resolve',t:'Resolve the market',how:'When ⚡ shows RESOLVE click it. (Or use the ⚖️ READY card any time.)',proves:'Outcome = count of <i>independent</i> trust-groups vs k. Not a vote, not the AI’s opinion.'},
  {k:'redeem',t:'Redeem your winnings',how:'Click “Redeem winnings” on the resolved ⚡.',proves:'Winning shares pay 1 SUI each — paid out on-chain to your wallet.'},
  {k:'fraud',t:'Convict a lying resolver',how:'Open the Fraud Lab (red banner) → Convict & slash.',proves:'A one-micro-op fraud proof, re-run on-chain, slashes the liar. This is what makes the AI judge <b>trustless</b>.'},

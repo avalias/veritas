@@ -63,15 +63,44 @@
   </div>
 
   <h2>Why this beats the alternatives</h2>
-  <p>Everyone can make an LLM deterministic now. Almost nobody can make a single wrong step cheaply
-    provable on a public chain.</p>
+  <p>Plenty of systems can make an LLM deterministic. The hard part is making a single wrong step
+    <i>cheaply provable on a public chain</i> — without shrinking or distorting the model. Here is the
+    honest landscape.</p>
   <table>
-    <tr><th>System</th><th>Who decides the dispute</th><th>Cost of a challenge</th></tr>
-    <tr class="us"><td><b>Veritas (this)</b></td><td>a ~330-line Sui contract anyone can read</td><td>~25 tiny txs + one min-gas micro-op</td></tr>
-    <tr><td>opML / ORA</td><td>a public contract, but a full MIPS CPU emulator</td><td>bisect, then re-run a MIPS instruction</td></tr>
-    <tr><td>zkML (EZKL, Risc0)</td><td>nobody, just a proof</td><td>seconds-to-minutes of proving on <i>every</i> inference</td></tr>
-    <tr><td>EigenAI / TEE</td><td>a staked enclave committee (≥2/3 vote)</td><td>re-run the <i>entire</i> inference in attested TEEs</td></tr>
+    <tr><th>System</th><th>Who settles a dispute</th><th>Cost of a challenge</th><th>Model fidelity</th></tr>
+    <tr class="us"><td><b>Veritas (this)</b></td><td>a ~330-line Sui contract anyone can read</td><td>~25 tiny bisection txs + <b>one</b> min-gas tensor micro-op</td><td><b>the published model, exactly</b> — committed float, no quantization</td></tr>
+    <tr><td>opML / ORA · Cartesi</td><td>a public contract, but a <b>full CPU emulator</b> (MIPS / RISC-V) inside it</td><td>bisect, then re-run one emulated CPU instruction; the honest path pays emulator speed</td><td>quantized / fixed-point — a <b>distorted</b> model</td></tr>
+    <tr><td>zkML (EZKL, Risc0, zkLLM)</td><td>nobody — pure math</td><td><b>proving on every inference</b>: minutes <i>per token</i> on a datacenter GPU, hours-to-days on commodity hardware</td><td>usually a <b>shrunk / approximated</b> model</td></tr>
+    <tr><td>EigenAI / TEE</td><td>a staked enclave committee (≥2/3 vote)</td><td>re-run the <b>entire</b> inference inside attested enclaves</td><td>exact, but trusts the hardware and a quorum</td></tr>
   </table>
+  <p class="dim" style="font-size:13px;margin-top:10px">On that zkML number: the fastest published full-LLM zk
+    systems are minutes-per-token <i>and</i> lossy — zkLLM proves a single 13B forward pass in ~13&nbsp;min on an
+    A100 while approximating the model; Polyhedra's zkPyTorch runs ~150&nbsp;s per token on an 8B. A full-fidelity
+    1B+ judgment proven in seconds is simply not on the table today. Veritas pays <b>zero</b> proving cost on the
+    honest path.</p>
+
+  <h2>The one idea that makes it work</h2>
+  <p>You do not need to emulate a whole CPU to check a neural network. A network is a few dozen tensor
+    operations, so the on-chain referee only ever has to redo <b>one</b> of them. Four plain ideas carry it:</p>
+  <ul style="line-height:1.6">
+    <li><b>Committed float</b> — the model is pinned to one exact arithmetic recipe (fixed rounding, a fixed
+      addition order), so every CPU and GPU computes the <i>identical</i> answer. Any disagreement is, by
+      definition, one side's provable mistake.</li>
+    <li><b>Native-speed kernels</b> — there is no CPU emulator in the loop. The honest path runs the real fast
+      kernels (roughly the speed of running the model in ollama); the only extra cost is hashing the work as it
+      goes, so you can prove later.</li>
+    <li><b>Bisection to one micro-op</b> — instead of re-running ~30&nbsp;million operations on-chain, challenger
+      and resolver play ~25 rounds of "which half do we disagree on?" until it lands on a single arithmetic step
+      the contract checks for the minimum gas bucket.</li>
+    <li><b>Arithmetic-agnostic protocol</b> — the commit / bisect / dispute machinery is identical no matter which
+      op is in dispute, so the model stays exact (no quantization) <i>and</i> the contract stays ~330 lines.</li>
+  </ul>
+  <p class="dim" style="font-size:13px">As far as our June-2026 survey found, this is the first fraud-proof system
+    to make <i>every micro-operation of a full-fidelity, published-weights LLM</i> adjudicable by a small public
+    contract — and the first on Sui. It opens trustless AI oracles, LLM-resolved prediction markets, and verifiable
+    agents to Sui Move. Honest scope: demonstrated end to end at 0.6B (the protocol is size-agnostic — a bigger model
+    is just more compile time and more genesis pages), and the predictor is currently ~3× slower than llama.cpp on
+    CPU — an engineering gap, not an architectural one.</p>
 </div>
 
 <script type="module">

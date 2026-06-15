@@ -28,7 +28,7 @@ opml/
   docs/               SPEC, ANALYSIS, PRIOR_ART
 demos/prediction-market/
   move/               the veritas market package (market, credential, reclaim)
-  web/                the demos: index + slashing/judge/evidence/market .html + app.html, on veritas.js
+  web/                the demos: index + slashing/judge/zktls/market .html + app.html, on veritas.js
   *.py, go.sh         staging, auto-replenish, real-zkTLS submit
   docs/               DEVNET, JUDGE, EVIDENCE, PROVENANCE, WEBPROOFS, DEMO
 tools/
@@ -110,20 +110,22 @@ gen.mjs); copy the zk files into the client if missing (see tools/zktls/README.m
   vs opML/zkML/TEE.
 - `judge.html` — the real Qwen3-1.7B reads evidence and types YES/NO/UNKNOWN with a
   reason; shows the exact prompt; free-text box proves it's live, not canned.
-- `evidence.html` — add a zkTLS proof (ecrecover). Two attacks shown failing:
-  an opinion (no signature), and a forgery (the page runs the real ecrecover and
-  the recovered address breaks when you change the claim).
-- `zktls.html` — pick a real API (Coinbase price, USD/EUR, a Hacker News headline,
-  a match result), generate a real zkTLS proof live through the attestor, see it
-  recover the pinned attestor, and the judge reads the proven value.
-- `market.html` — a market resolved by counting independent proofs, then paid out.
+- `zktls.html` — the single zkTLS demo (it replaced the old evidence.html, which was
+  a near-duplicate). Pick a real API (BTC/ETH price, USD/EUR, live weather, GitHub
+  stars, a Hacker News headline, a match result), generate a real zkTLS proof live
+  through the attestor, see it recover the pinned attestor, and the judge reads the
+  proven value. Then try to forge it: the page runs the same ecrecover the chain runs,
+  and the recovered address moves off the attestor — you can prove, not forge.
+- `market.html` — one real market walked end to end: trade, admit a zkTLS proof, the
+  judge reads it, resolve, redeem. Phase-aware with a live countdown.
 - `app.html` — all of it combined, with a guided tour.
 
 ## Open threads / what's next
 
 1. **In-browser live zkTLS is DONE** (zktls.html + tools/reclaim/gen_server.mjs on
-   :8788). Next, if wanted: wire the same live-gen into evidence.html's market
-   submit so a user proves-and-submits a fresh proof to a real market in one flow.
+   :8788), with 7 real sources and an in-page forgery test. market.html admits a
+   staged proof on-chain; wiring the browser live-gen straight into market.html's
+   submit (prove-and-submit a fresh proof in one flow) is the remaining polish.
 2. **On-chain evidence→Qwen binding** (the genesis-construction step, SPEC §7.2):
    makes a *wrong judge verdict* slashable at the market level. The Fraud Lab
    already proves the conviction machinery; binding live evidence to it is the

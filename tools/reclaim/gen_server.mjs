@@ -23,7 +23,9 @@ async function prove(src) {
   const r = await createClaimOnAttestor({
     name: 'http',
     params: { url: src.url, method: 'GET', responseMatches: [{ type: 'regex', value: src.regex }], responseRedactions: [{ regex: src.regex }] },
-    secretParams: { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Veritas/1.0)' } },
+    // identity encoding: stop servers gzipping the body (which the attestor returns
+    // base64-wrapped, breaking the regex). plain text keeps the regex working.
+    secretParams: { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Veritas/1.0)', 'Accept-Encoding': 'identity' } },
     ownerPrivateKey: '0x' + '11'.repeat(32),
     client: { url: ATTESTOR },
   });
@@ -37,10 +39,25 @@ http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const u = new URL(req.url, 'http://x');
   if (!u.pathname.startsWith('/prove')) { res.end('zktls gen server up'); return; }
-  const src = SOURCES[u.searchParams.get('source')] || SOURCES.coinbase;
+  // either a named preset, or an arbitrary https url + regex chosen in the dApp.
+  // Never silently fall back to a different source: a wrong/unknown request must
+  // error, so a page can never show one source's question over another's value.
+  const url = u.searchParams.get('url'), regex = u.searchParams.get('regex'), source = u.searchParams.get('source');
+  let src;
+  if (url && regex && url.startsWith('https://')) src = { url, regex };
+  else if (source) src = SOURCES[source];               // named preset (or undefined if unknown)
+  else if (!url && !regex) src = SOURCES.coinbase;       // bare /prove smoke test
+  if (!src) {
+    res.statusCode = 400; res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: 'need an https url+regex, or a known source name (' + Object.keys(SOURCES).join(', ') + ')' }));
+    return;
+  }
   console.error('proving', src.url);
   try {
-    const out = await prove(src);
+    // a server can occasionally hand the attestor a gzip/chunked body it returns
+    // base64-wrapped, so the regex finds nothing; retry a couple times for a clean read.
+    let out;
+    for (let i = 0; i < 3; i++) { out = await prove(src); if (out.value != null) break; }
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(out));
   } catch (e) {

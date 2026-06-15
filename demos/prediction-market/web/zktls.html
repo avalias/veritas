@@ -44,19 +44,30 @@
   const PINNED = '0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025';   // our attestor address
   document.getElementById('att').textContent = 'attestor ' + PINNED.slice(0, 10) + '…';
 
-  // each source: a real endpoint + a yes/no the judge can decide from the proven value
+  // Each source is a real, live endpoint paired with a question a prediction market
+  // would actually trade — the judge settles it from the proven value alone. (Striking
+  // news-comprehension examples live in judge.html; live news is too unpredictable to
+  // pin a fixed question to, so here we use sources whose live value reliably decides it.)
+  // the proven football value is a JSON slice with the two scores around other fields,
+  // e.g. `3","intRound":"37","intAwayScore":"2` — home is the first number, away the last.
+  const fParse = v => { const s = String(v); const h = (s.match(/^\D*(\d+)/) || [])[1] || '?'; const a = (s.match(/(\d+)\D*$/) || [])[1] || '?'; return { home: h, away: a }; };
   const SOURCES = {
-    coinbase: { name: 'Coinbase', sub: 'live Bitcoin price', url: 'api.coinbase.com/v2/prices/BTC-USD/spot',
-      q: 'Is Bitcoin trading above $50,000?', ev: v => `Coinbase reports the BTC-USD spot price is $${v}.` },
-    forex: { name: 'Exchange rates', sub: 'USD → EUR (ECB)', url: 'open.er-api.com/v6/latest/USD',
-      q: 'Is one US dollar worth less than one euro?', ev: v => `1 US dollar is currently worth ${v} euros.` },
-    news: { name: 'Hacker News', sub: 'a real story headline', url: 'hacker-news.firebaseio.com/v0/item/8863.json',
-      q: 'Does this headline mention a product called Dropbox?', ev: v => `Headline: "${v}".` },
-    football: { name: 'TheSportsDB', sub: 'a real match result', url: 'thesportsdb.com/.../lookupevent.php',
-      q: 'Does the report describe a football fixture?', ev: v => `A football results database lists this fixture: "${v}".` },
+    btc: { name: 'Bitcoin price', sub: 'Coinbase spot · live', url: 'https://api.coinbase.com/v2/prices/BTC-USD/spot',
+      regex: '"amount":"(?<value>[0-9.]+)"', q: 'Is Bitcoin currently worth more than $100,000?',
+      ev: v => `The current price of one Bitcoin is $${Math.round(+v).toLocaleString('en-US')}.`,
+      show: v => `$${Math.round(+v).toLocaleString('en-US')}` },
+    eth: { name: 'Ethereum price', sub: 'Coinbase spot · live', url: 'https://api.coinbase.com/v2/prices/ETH-USD/spot',
+      regex: '"amount":"(?<value>[0-9.]+)"', q: 'Is Ethereum currently worth more than $1,000?',
+      ev: v => `The current price of one Ether is $${Math.round(+v).toLocaleString('en-US')}.`,
+      show: v => `$${Math.round(+v).toLocaleString('en-US')}` },
+    football: { name: 'Football result', sub: 'TheSportsDB · a real match', url: 'https://www.thesportsdb.com/api/v1/json/3/lookupevent.php?id=2267440',
+      regex: '"intHomeScore":"(?<value>\\d+","intRound":"\\d+","intAwayScore":"\\d+)"', q: 'Did the home team score more goals than the away team?',
+      ev: v => { const f = fParse(v); return `In this match, the home team scored ${f.home} goals and the away team scored ${f.away} goals.`; },
+      show: v => { const f = fParse(v); return `${f.home}–${f.away} (home–away)`; } },
   };
+  const short = u => u.replace(/^https:\/\//, '').replace(/\?.*$/, '…');
 
-  let current = 'coinbase';
+  let current = 'btc';
   const cards = document.getElementById('cards');
   for (const [k, s] of Object.entries(SOURCES)) {
     const a = document.createElement('a'); a.className = 'demo'; a.href = 'javascript:void 0';
@@ -69,11 +80,11 @@
     Object.values(SOURCES).forEach(s => s._el.style.borderColor = '');
     SOURCES[k]._el.style.borderColor = 'var(--ok)';
     document.getElementById('run').style.display = 'block';
-    document.getElementById('srcurl').textContent = SOURCES[k].url;
+    document.getElementById('srcurl').textContent = short(SOURCES[k].url);
     document.getElementById('status').textContent = '';
     document.getElementById('result').innerHTML = '';
   }
-  select('coinbase');
+  select('btc');
 
   function recoverSigner(p) {
     const identifier = keccak256(toUtf8Bytes(`${p.provider}\n${p.parameters}\n${p.context}`));
@@ -86,19 +97,22 @@
     const btn = document.getElementById('prove'), status = document.getElementById('status'), result = document.getElementById('result');
     btn.disabled = true; result.innerHTML = '';
     const t0 = Date.now();
-    const tick = setInterval(() => { status.textContent = `Running a real TLS-MPC handshake to ${s.url} … ${Math.round((Date.now() - t0) / 1000)}s (genuinely happening, not staged)`; }, 250);
+    const tick = setInterval(() => { status.textContent = `Running a real TLS-MPC handshake to ${short(s.url)} … ${Math.round((Date.now() - t0) / 1000)}s (genuinely happening, not staged)`; }, 250);
     let proof;
-    try { proof = await (await fetch(`${GEN}/prove?source=${current}`)).json(); }
-    catch (e) { proof = { error: 'gen server not reachable — start it: node tools/reclaim/gen_server.mjs' }; }
+    try {
+      const qs = `url=${encodeURIComponent(s.url)}&regex=${encodeURIComponent(s.regex)}`;
+      proof = await (await fetch(`${GEN}/prove?${qs}`)).json();
+    } catch (e) { proof = { error: 'gen server not reachable — start it: node tools/reclaim/gen_server.mjs' }; }
     clearInterval(tick); btn.disabled = false;
     if (proof.error) { status.innerHTML = `<span style="color:var(--bad)">${proof.error}</span>`; return; }
+    if (proof.value == null) { status.innerHTML = `<span style="color:var(--bad)">the regex matched nothing — the source changed its response shape</span>`; return; }
     status.textContent = `Proof generated in ${Math.round((Date.now() - t0) / 1000)}s.`;
 
     const got = recoverSigner(proof);
     const ok = got === PINNED;
     result.innerHTML =
       `<div class="step done" style="margin-top:14px"><div class="n">✓</div><div class="t">
-        Proven value: <b>${proof.value}</b>
+        Proven value: <b>${s.show ? s.show(proof.value) : proof.value}</b>
         <small>signature recovers <span class="mono">${got}</span> ${ok ? '= the pinned attestor ✓' : '(unexpected)'}</small></div></div>
        <div class="dim" style="font-size:13px;margin:14px 0 6px">Now the deterministic judge reads it:</div>
        <div class="stream" id="jout"></div><div id="jverdict"></div>`;
@@ -110,5 +124,33 @@
       ? `<div class="note" style="margin-top:10px">Judge resolver isn't running (start it with go.sh).</div>`
       : `<div class="step done" style="margin-top:10px;border-color:${col}"><div class="n" style="background:${col};border-color:${col}">✓</div>
           <div class="t"><b style="color:${col}">${v}</b> on "${s.q}" — read by the real Qwen3-1.7B from a value proven over zkTLS.</div></div>`;
+
+    // forgery test: you proved a real value — now try to lie about it. The signature
+    // covers the literal bytes the attestor saw, so editing the value moves the
+    // recovered address off the pinned attestor and the chain rejects it.
+    const fwrap = document.createElement('div');
+    fwrap.style.cssText = 'margin-top:24px;padding-top:18px;border-top:1px solid var(--border)';
+    fwrap.innerHTML =
+      `<div class="dim" style="font-size:13px;margin-bottom:6px">You proved a real value. Now try to lie about it — edit it and recover the signer again:</div>
+       <input id="forgeval" class="mono" style="width:100%;box-sizing:border-box">
+       <button class="btn wide" id="recover" style="margin-top:12px">Recover the signer from this value</button>
+       <div id="forgeout"></div>
+       <div class="note" style="margin-top:14px">A token-vote oracle would let the richest wallet outvote the truth here. This
+         is not a vote: the outcome is an ecrecover against a pinned address, and no balance can move a signature.</div>`;
+    result.appendChild(fwrap);
+    document.getElementById('forgeval').value = String(proof.value);
+    document.getElementById('recover').onclick = () => {
+      const orig = String(proof.value), edited = document.getElementById('forgeval').value;
+      const forged = { ...proof, context: proof.context.split(orig).join(edited) };
+      const got2 = recoverSigner(forged), unchanged = edited === orig;
+      document.getElementById('forgeout').innerHTML = (unchanged && got2 === PINNED)
+        ? `<div class="step done" style="margin-top:14px"><div class="n">✓</div><div class="t">
+            Unchanged, so it still recovers <span class="mono">${PINNED}</span> = the pinned attestor.
+            <small>this is the value the source actually served.</small></div></div>`
+        : `<div class="step" style="margin-top:14px;border-color:var(--bad)"><div class="n" style="background:var(--bad);border-color:var(--bad)">✕</div><div class="t">
+            You changed <b>${orig}</b> to <b>${edited || '(empty)'}</b>, so the signed bytes no longer match.
+            <small>now recovers <span class="mono">${got2}</span> — a different address, not the pinned attestor. On-chain,
+            <span class="mono">submit_web_proof</span>'s ecrecover lands on the wrong signer and the transaction reverts.</small></div></div>`;
+    };
   };
 </script>
