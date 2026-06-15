@@ -214,9 +214,21 @@
   function act5(st) {
     let body;
     if (st.phase === 3) {
-      body = `<p>The evidence window has closed. Resolving applies the committed rule over the proofs
-          admitted on-chain — counted per independent group, never per submission.</p>
-        <button class="btn primary wide" id="resolveBtn">Resolve — apply the committed rule</button>`;
+      // would the committed rule have anything to say YES on? if no independent YES group
+      // reached k, resolving returns NO (silence ⇒ NO) — warn instead of a silent contradiction.
+      const yesG = new Set();
+      (st.evidence || []).forEach(e => { const f = e.fields || e; if (Number(f.claim) === 1) yesG.add(String(f.group)); });
+      if (yesG.size < K) {
+        body = `<div class="note">No YES evidence reached the threshold before the window closed, so the committed
+            rule would resolve this market <b>NO</b> (silence ⇒ NO) — which won't match the judge's reading above.
+            To walk the full path, stage a fresh lifecycle:
+            <span class="mono">./demos/prediction-market/go.sh</span>.</div>
+          <button class="btn wide" id="resolveBtn" style="margin-top:12px">Resolve anyway (returns NO)</button>`;
+      } else {
+        body = `<p>The evidence window has closed. Resolving applies the committed rule over the proofs
+            admitted on-chain — counted per independent group, never per submission.</p>
+          <button class="btn primary wide" id="resolveBtn">Resolve — apply the committed rule</button>`;
+      }
     } else if (st.stored === 2) {
       const o = st.outcome, col = o === 1 ? 'var(--ok)' : o === 2 ? 'var(--blue)' : 'var(--amber)';
       body = `<div class="step done" style="border-color:${col}"><div class="n" style="background:${col};border-color:${col}">✓</div>
@@ -293,6 +305,9 @@
   function wireJudge(st, admitted) {
     const btn = document.getElementById('judgeBtn');
     if (!btn) return;
+    // up-front health check: if the judge resolver is offline, say so before a click
+    const resolverUrl = new URLSearchParams(location.search).get('resolver') || 'http://127.0.0.1:8899';
+    fetch(resolverUrl).catch(() => { btn.disabled = true; btn.textContent = 'Judge offline — run go.sh, then reload'; });
     btn.onclick = async () => {
       const proof = LM.proofs.find(p => admitted.has(String(p.attestor_idx))) || LM.proofs[0];
       const out = document.getElementById('judgeOut'), pr = document.getElementById('judgePrompt');
@@ -335,8 +350,19 @@
     const btn = document.getElementById('redeemBtn');
     if (!btn) return;
     const pos = document.getElementById('redeemPos');
-    if (pos) myPosition(LM.id).then(p => { if (p && (p.yes || p.no)) pos.textContent = 'your position: ' + (p.yes / 1e9).toFixed(3) + ' YES · ' + (p.no / 1e9).toFixed(3) + ' NO'; });
-    btn.onclick = () => act(() => tx.redeem(LM.id), 'Redeemed — winnings paid out');
+    // only offer redeem if the wallet actually holds the winning side, else redeem aborts
+    // on-chain (E_NOTHING_TO_REDEEM) and surfaces as a scary failure. VOID refunds either side.
+    myPosition(LM.id).then(p => {
+      const yes = p ? p.yes / 1e9 : 0, no = p ? p.no / 1e9 : 0;
+      if (pos) pos.textContent = `your position: ${yes.toFixed(3)} YES · ${no.toFixed(3)} NO`;
+      const canRedeem = st.outcome === 1 ? yes > 0 : st.outcome === 2 ? no > 0 : (yes > 0 || no > 0);
+      if (!canRedeem) {
+        btn.disabled = true;
+        btn.textContent = `Resolved ${outcomeName[st.outcome]} — you hold no winning shares`;
+        return;
+      }
+      btn.onclick = () => act(() => tx.redeem(LM.id), 'Redeemed — winnings paid out');
+    });
   }
 
   // first read, then keep the phase honest: when the clock crosses a boundary

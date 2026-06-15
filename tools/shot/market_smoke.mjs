@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch(); const p = await b.newPage();
+const errs = []; p.on('pageerror', e => errs.push(e.message));
+p.on('console', m => { if (m.type() === 'error') errs.push('C:' + m.text()); });
+await p.goto('http://127.0.0.1:8777/market.html', { waitUntil: 'domcontentloaded' });
+await p.waitForTimeout(4500);
+const panels = await p.$$eval('#acts .panel', e => e.length);
+const heads = await p.$$eval('#acts h2', e => e.map(x => x.textContent));
+console.log('acts panels:', panels, '| heads:', heads.join(' / ') || '(reading…)');
+console.log('ERRORS:', errs.filter(e => !/8899|8788|favicon|net::ERR|Failed to fetch/.test(e)).join(' | ') || 'none');
+await b.close();
