@@ -12,23 +12,31 @@
   </div>
 
   <h1>Watch the AI judge read the evidence</h1>
-  <p class="lede">The real Qwen3-0.6B reads a report and types its verdict, token by
+  <p class="lede">The real Qwen3-1.7B reads a report and types its verdict, token by
     token. This is the model running live, off-chain. No wallet, no transaction here.</p>
 
-  <p>The judge does one job: read a line and say whether it supports the market's
-    question. It does not decide the market. Pick a zkTLS-proven wire report below, or
-    type your own line and see what it says.</p>
+  <p>The judge does one job: read a line and say YES, NO, or UNKNOWN about the market's
+    question, with a one-sentence reason. It does not decide the market. Pick a
+    zkTLS-proven wire report below, or type your own line and see what it says.</p>
 
   <div class="panel">
     <div class="kv" style="border:none;padding-bottom:0"><span>Question</span><b id="q">…</b></div>
     <p class="dim" style="font-size:13px;margin:6px 0 8px">A proven source to read:</p>
     <select id="src"></select>
     <p class="dim" style="font-size:13px;margin:12px 0 6px">…or write anything and let the judge read it:</p>
-    <input id="custom" placeholder="e.g. AP: mission control confirmed Starship reached orbit">
+    <input id="custom" placeholder="e.g. the launch was scrubbed and never left the ground">
     <button class="btn primary wide" id="ask" style="margin-top:14px">Ask the judge to read it</button>
 
-    <!-- the judge types into here, token by token -->
-    <div class="stream" id="out" style="margin-top:16px"></div>
+    <!-- the exact instruction sent to the model: no hidden prompt -->
+    <div id="promptwrap" style="display:none;margin-top:16px">
+      <div class="dim" style="font-size:12px;margin-bottom:5px">The exact prompt the model is asked (nothing hidden):</div>
+      <div class="stream" id="prompt" style="font-size:12.5px;color:var(--dim)"></div>
+    </div>
+    <!-- the judge types its answer here, token by token -->
+    <div id="answerwrap" style="display:none;margin-top:12px">
+      <div class="dim" style="font-size:12px;margin-bottom:5px">The model's answer:</div>
+      <div class="stream" id="out"></div>
+    </div>
     <div id="verdict"></div>
   </div>
 
@@ -39,22 +47,20 @@
 
   <h2>Why one input gives one answer</h2>
   <p>This model is committed-float: every arithmetic step is pinned to a fixed
-    rounding, so the same evidence produces the bit-identical output on any CPU or
-    GPU. The published checkpoint reads at perplexity 34.60; that number is the
-    fingerprint of the exact weights running here.</p>
-  <div class="note">Determinism is what makes a verdict <b>disputable</b>: there is
-    one right output, so a resolver who reports a different one can be caught. The
-    judge only reads the evidence. The market's committed counting rule decides the
-    outcome, never the AI's opinion.</div>
+    rounding, so the same evidence produces the bit-identical output on any CPU or GPU.
+    That is unusual — normal GPU inference is not even reproducible run to run. Here
+    there is exactly one correct output for a given input.</p>
+  <div class="note">Determinism is what makes a verdict <b>disputable</b>: a resolver who
+    reports a different output than the one the weights actually produce can be caught
+    and slashed (see <a href="slashing.html">slashing.html</a>). The judge only reads
+    the evidence; the market's committed counting rule decides the outcome, never the
+    AI's opinion.</div>
 
-  <p class="dim" style="font-size:13.5px">One honest note: this is a 0.6B model on a
-    laptop, so it is small and will sometimes be wrong. That is fine, and close to the
-    point. The system never trusts the AI to be <i>smart</i>; it makes whatever the AI
-    outputs <i>reproducible and slashable</i>, so a wrong answer is catchable instead of
-    final. Swap in a larger model and every guarantee on this page is identical.</p>
-
-  <p class="dim" style="font-size:13px">And if a resolver lies about this output →
-    <a href="slashing.html">slashing.html</a></p>
+  <p class="dim" style="font-size:13.5px">An honest note on size: this is a 1.7B model,
+    small next to frontier models, so it can still be wrong on a hard line. That is the
+    point, not a bug. The system never trusts the AI to be <i>smart</i> — it makes
+    whatever the AI outputs <i>reproducible and slashable</i>. Swap in a larger model and
+    every guarantee on this page is identical.</p>
 </div>
 
 <script type="module">
@@ -65,7 +71,6 @@
   const LM = M.live_market;
   document.getElementById('q').textContent = LM.question;
 
-  // one option per proven source; value is the index into LM.proofs
   const sel = document.getElementById('src');
   LM.proofs.forEach((p, i) => {
     const o = document.createElement('option');
@@ -76,32 +81,39 @@
   sel.value = '0';
 
   const out = document.getElementById('out');
+  const promptEl = document.getElementById('prompt');
   const verdict = document.getElementById('verdict');
   const ask = document.getElementById('ask');
+  const color = { YES: 'var(--ok)', NO: 'var(--blue)', UNKNOWN: 'var(--amber)' };
 
   ask.onclick = async () => {
-    // whatever the user typed wins; otherwise read the selected proven source
     const typed = document.getElementById('custom').value.trim();
     const evidence = typed || LM.proofs[Number(sel.value)].headline;
-    out.textContent = '';
-    verdict.innerHTML = '';
+    out.textContent = ''; promptEl.textContent = ''; verdict.innerHTML = '';
+    document.getElementById('promptwrap').style.display = 'none';
+    document.getElementById('answerwrap').style.display = 'none';
     ask.disabled = true;
 
-    // stream the real model: onToken appends each piece as it is produced
-    const v = await askJudge(LM.question, evidence, t => { out.textContent += t; });
+    const v = await askJudge(LM.question, evidence, {
+      onPrompt: (p) => { promptEl.textContent = p; document.getElementById('promptwrap').style.display = 'block'; },
+      onToken: (t) => { out.textContent += t; document.getElementById('answerwrap').style.display = 'block'; },
+    });
     ask.disabled = false;
 
     if (v === null) {
-      // the resolver isn't up, so say it plainly and don't pretend
       verdict.innerHTML =
-        `<div class="note" style="margin-top:14px">The local resolver isn't running, so
-          the model can't read right now. Start it with
-          <span class="mono">cargo run -p qwen --release --bin resolver</span> and ask again.</div>`;
+        `<div class="note" style="margin-top:14px">The local resolver isn't running, so the
+          model can't read right now. Start it with <span class="mono">./demos/prediction-market/go.sh</span>
+          (or <span class="mono">cargo run -p qwen --release --bin resolver</span>) and ask again.</div>`;
       return;
     }
+    const c = color[v] || 'var(--dim)';
     verdict.innerHTML =
-      `<div class="step done" style="margin-top:14px"><div class="n">✓</div><div class="t">
-        Verdict: <b>${v}</b> · read by the real Qwen-0.6B, deterministic, perplexity 34.60 = the published model.
-      </div></div>`;
+      `<div class="step done" style="margin-top:14px;border-color:${c}"><div class="n" style="background:${c};border-color:${c}">✓</div>
+        <div class="t">Verdict: <b style="color:${c}">${v}</b> · read by the real Qwen3-1.7B, deterministic (committed-float, bit-identical on any CPU or GPU).</div></div>`;
   };
+
+  const wb = document.getElementById('wallet');
+  wb.onclick = () => import('./veritas.js').then(m => m.connect());
+  document.addEventListener('wallet', (e) => { wb.textContent = e.detail.address.slice(0, 6) + '…' + e.detail.address.slice(-4); });
 </script>

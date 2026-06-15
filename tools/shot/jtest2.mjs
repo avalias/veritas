@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+const b=await chromium.launch();const p=await b.newPage();
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.goto('http://127.0.0.1:8777/judge.html',{waitUntil:'networkidle'});
+await p.waitForTimeout(1200);
+await p.fill('#custom','the launch was scrubbed and the rocket never left the ground');
+await p.click('#ask');
+await p.waitForFunction(()=>!document.getElementById('ask').disabled && document.body.innerText.includes('Verdict:'),{timeout:45000}).catch(()=>{});
+await p.waitForTimeout(800);
+console.log('PROMPT shown:', JSON.stringify((await p.$eval('#prompt',e=>e.textContent).catch(()=>'')).slice(0,70)));
+console.log('ANSWER     :', JSON.stringify((await p.$eval('#out',e=>e.textContent).catch(()=>'')).slice(0,120)));
+console.log('VERDICT    :', (await p.evaluate(()=>document.body.innerText.match(/Verdict:\s*\w+/)?.[0]||'')));
+console.log('ERRORS     :', errs.filter(e=>!/8899|CONNECTION/.test(e)).join('|')||'none');
+await p.screenshot({path:'/tmp/judge2.png',fullPage:true});
+await b.close();

@@ -158,10 +158,12 @@ export const tx = {
   },
 };
 
-// Stream the real Qwen judge reading a piece of evidence. onToken(text) is
-// called per token; resolves to "YES"/"NO". The resolver runs the model
-// off-chain; the chain only re-runs one micro-op if the verdict is disputed.
-export function askJudge(question, evidence, onToken) {
+// Stream the real Qwen judge reading a piece of evidence. The resolver sends the
+// exact prompt first (onPrompt), then each token (onToken), and resolves to the
+// verdict "YES" / "NO" / "UNKNOWN". It runs the model off-chain; the chain only
+// re-runs one micro-op if the verdict is disputed. Returns null if the resolver
+// is unreachable.
+export function askJudge(question, evidence, { onPrompt, onToken } = {}) {
   const url = (new URLSearchParams(location.search).get('resolver') || CFG.resolver_url || 'http://127.0.0.1:8899');
   return new Promise((resolve) => {
     let es;
@@ -170,8 +172,9 @@ export function askJudge(question, evidence, onToken) {
     es.onmessage = (ev) => {
       try {
         const d = JSON.parse(ev.data);
-        if (d.t) onToken(d.t);
-        if (d.done) { es.close(); resolve(d.verdict || 'NO'); }
+        if (d.prompt && onPrompt) onPrompt(d.prompt);
+        if (d.t && onToken) onToken(d.t);
+        if (d.done) { es.close(); resolve(d.verdict || 'UNKNOWN'); }
       } catch { /* ignore keep-alives */ }
     };
     es.onerror = () => { es.close(); resolve(null); };
