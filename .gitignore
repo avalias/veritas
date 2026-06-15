@@ -4,8 +4,9 @@
 /target
 **/build/
 **/node_modules/
-# 1.5 GB weights stay out of git, pinned by hash in opml/models/qwen/artifacts/
+# model weights stay out of git (fetch with the scripts in opml/models/qwen/)
 opml/models/qwen/artifacts/model.safetensors
+opml/models/qwen/artifacts-1.7b/model.safetensors
 # self-hosted zkTLS attestor: a third-party clone plus its downloaded zk files
 tools/zktls/attestor-core/
 .DS_Store

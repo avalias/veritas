@@ -8,11 +8,18 @@ set -e
 cd "$(git rev-parse --show-toplevel)"
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# 1. the AI judge (real Qwen-0.6B) on :8899
+# 1. the AI judge on :8899. Use the smarter Qwen3-1.7B if it has been fetched
+# (opml/models/qwen/fetch-1.7b.sh); otherwise fall back to the 0.6B reference.
 if ! curl -s -m1 http://127.0.0.1:8899/ >/dev/null 2>&1; then
-  echo "· starting the AI judge (loading Qwen-0.6B)…"
+  QDIR=""
+  if [ -f opml/models/qwen/artifacts-1.7b/model.safetensors ]; then
+    QDIR="$PWD/opml/models/qwen/artifacts-1.7b"; echo "· starting the AI judge (Qwen3-1.7B)…"
+  else
+    echo "· starting the AI judge (Qwen3-0.6B; run opml/models/qwen/fetch-1.7b.sh for the smarter 1.7B)…"
+  fi
   [ -x target/release/resolver ] || cargo build -q -p qwen --release --bin resolver
-  nohup ./target/release/resolver >/tmp/resolver.log 2>&1 &
+  if [ -n "$QDIR" ]; then QWEN_DIR="$QDIR" nohup ./target/release/resolver >/tmp/resolver.log 2>&1 &
+  else nohup ./target/release/resolver >/tmp/resolver.log 2>&1 & fi
   for i in $(seq 1 90); do curl -s -m1 http://127.0.0.1:8899/ >/dev/null 2>&1 && break; sleep 1; done
 fi
 curl -s -m2 http://127.0.0.1:8899/ >/dev/null 2>&1 && echo "· AI judge up (:8899)" || { echo "!! resolver failed — see /tmp/resolver.log"; exit 1; }

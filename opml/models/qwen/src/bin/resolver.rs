@@ -20,15 +20,18 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
 
-const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/artifacts");
 const MAX_SEQ: usize = 512;
-const N_GEN: usize = 64;
+const N_GEN: usize = 96;
 
 fn main() {
-    let cfg = QwenConfig::load(&format!("{DIR}/config.json"));
-    let tok = tokenizers::Tokenizer::from_file(format!("{DIR}/tokenizer.json")).expect("tokenizer");
-    eprintln!("· loading committed-float Qwen3-0.6B (published weights)…");
-    let st = SafeTensors::load(&format!("{DIR}/model.safetensors"));
+    // QWEN_DIR lets us point at a bigger model (e.g. artifacts-1.7b) without a
+    // rebuild; defaults to the vendored 0.6B artifacts next to the crate.
+    let dir = std::env::var("QWEN_DIR").ok().filter(|s| !s.is_empty())
+        .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/artifacts").to_string());
+    let cfg = QwenConfig::load(&format!("{dir}/config.json"));
+    let tok = tokenizers::Tokenizer::from_file(format!("{dir}/tokenizer.json")).expect("tokenizer");
+    eprintln!("· committed-float Qwen3 from {dir} ({} layers, hidden {})…", cfg.num_hidden_layers, cfg.hidden_size);
+    let st = SafeTensors::load(&format!("{dir}/model.safetensors"));
     let model = FModel::load(&cfg, &st, MAX_SEQ);
     drop(st);
     let threads = std::env::var("QWEN_THREADS").ok().and_then(|s| s.parse().ok()).unwrap_or(4);
@@ -68,16 +71,24 @@ fn handle(
     }
 
     let (q, e) = parse_qe(path);
-    // Qwen3-0.6B is an instruct model, so use its chat template (non-thinking
-    // mode: the empty <think></think> tells it to answer directly). A raw
-    // completion prompt wastes the post-training; this is the same weights,
-    // prompted the way the model expects.
+    // The instruction the judge actually reads. Kept readable so the dApp can
+    // show it verbatim — there is no hidden prompt. YES/NO are only allowed when
+    // the report is clear; otherwise the judge must say UNKNOWN, not guess.
+    let instr = format!(
+        "You are a strict fact-checker for a prediction market. You are given a QUESTION and one \
+         REPORT, and you decide what the report says about the question.\n\n\
+         Answer YES only if the report clearly states the event happened or is true.\n\
+         Answer NO only if the report clearly states it did not happen, failed, was cancelled, or is false.\n\
+         Answer UNKNOWN if the report does not give enough information to decide, or is about something else.\n\n\
+         Reply in exactly this format and nothing else:\n\
+         VERDICT: YES or NO or UNKNOWN\n\
+         REASON: one short sentence citing the report.\n\n\
+         QUESTION: {q}\nREPORT: \"{e}\""
+    );
+    // Qwen3 is an instruct model: wrap the instruction in its chat template
+    // (empty <think></think> = answer directly, no chain-of-thought ramble).
     let prompt_text = format!(
-        "<|im_start|>user\nDecide whether a news report supports a YES answer to a question. \
-         If the report describes the event happening or being confirmed, answer YES. If it \
-         describes the event NOT happening, failing, scrubbed, delayed, or cancelled, answer NO.\n\n\
-         Question: {q}\nReport: \"{e}\"\n\nAnswer YES or NO, then one short reason.\
-         <|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        "<|im_start|>user\n{instr}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     );
 
     // SSE headers
@@ -85,6 +96,9 @@ fn handle(
         b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
     )?;
     s.flush()?;
+    // first event: the exact prompt, so the UI can show what the model was asked
+    let _ = write!(s, "data:{}\n\n", json_str("prompt", &instr));
+    let _ = s.flush();
 
     let pool = kernels::Pool::new(threads);
     let mut fs = FState::new(cfg, MAX_SEQ);
@@ -111,14 +125,13 @@ fn handle(
                     let _ = write!(s, "data:{}\n\n", json_str("t", &delta));
                     let _ = s.flush();
                     emitted = full;
-                    // stop at the end of the first full sentence of the reason
-                    // (a period/!/? after the verdict) so we get "YES … <reason>."
-                    // The model emits <|im_end|> (eos) on its own; this just keeps
-                    // it to one clean sentence instead of a ramble.
+                    // stop once the REASON sentence is complete (the model emits
+                    // <|im_end|> on its own too; this trims any trailing ramble).
+                    let up = emitted.to_uppercase();
                     let trimmed = emitted.trim_end();
-                    let has_verdict = emitted.to_uppercase().contains("YES") || emitted.to_uppercase().contains("NO");
+                    let has_reason = up.contains("REASON");
                     let sentence_end = trimmed.ends_with('.') || trimmed.ends_with('!') || trimmed.ends_with('?');
-                    if out.len() >= 6 && has_verdict && sentence_end {
+                    if out.len() >= 8 && has_reason && sentence_end {
                         break;
                     }
                 }
@@ -133,17 +146,22 @@ fn handle(
     s.flush()
 }
 
-/// First standalone YES/NO in the model's answer (defaults to NO — silence
-/// is the occurrence null hypothesis).
+/// Read the model's VERDICT line. The earliest standalone YES/NO/UNKNOWN after
+/// "VERDICT:" wins; if the model never gives a clear one, default to UNKNOWN
+/// (not a guess). find_word respects word boundaries, so the "NO" inside
+/// "UNKNOWN" is not matched.
 fn extract_verdict(text: &str) -> &'static str {
     let up = text.to_uppercase();
-    let yi = find_word(&up, "YES");
-    let ni = find_word(&up, "NO");
-    match (yi, ni) {
-        (Some(y), Some(n)) => if y <= n { "YES" } else { "NO" },
-        (Some(_), None) => "YES",
-        _ => "NO",
+    let scan = up.find("VERDICT:").map(|i| &up[i + 8..]).unwrap_or(&up[..]);
+    let mut best: (usize, &'static str) = (usize::MAX, "UNKNOWN");
+    for (w, v) in [("YES", "YES"), ("NO", "NO"), ("UNKNOWN", "UNKNOWN")] {
+        if let Some(i) = find_word(scan, w) {
+            if i < best.0 {
+                best = (i, v);
+            }
+        }
     }
+    best.1
 }
 
 fn find_word(hay: &str, w: &str) -> Option<usize> {
