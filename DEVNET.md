@@ -37,6 +37,49 @@ python3 demo/web/serve.py        # → http://127.0.0.1:8777/app.html
   create_market) **builds and dry-runs successfully** against devnet; the
   position display reads real on-chain state via `position_of`.
 
+## The Fraud Lab — convict a liar on-chain, from a click
+
+The dApp has a live fraud proof. A resolver has staked a bond on a
+**fraudulent AI-judge result** (on devnet); a challenger disputed it; the
+two **bisected 85,937 micro-operations down to one**, on-chain. Open the
+Fraud Lab, watch the bisection collapse to a single culprit step, and click
+**"Convict & slash the liar"** — your wallet signs the `verify_step`
+transaction, the Sui contract re-runs that one micro-op, and the resolver's
+bond is slashed. Proven end-to-end: a wallet clicked convict and the Fact's
+on-chain status went to REJECTED. The toy judge keeps the bisection fast to
+stage; the identical machinery convicts the real Qwen judge
+(`fqwen_conviction.move`). Re-stage a fresh one with:
+
+```
+cargo run -p client --bin devnet_stage_dispute -- <PKG> <resolver> <challenger>
+```
+
+## Prove your own data (Reclaim zkTLS, in-app)
+
+One market pins **Reclaim's real attestor**. Add your free Reclaim
+`app_id` / `app_secret` / `provider_id` (dev.reclaimprotocol.org) to
+`demo/web/config.json`, and the "Generate a real zkTLS proof" button runs
+the Reclaim flow in-app — you prove a real website's data yourself, and the
+proof is mapped straight into `submit_web_proof` and verified on-chain by
+native `ecrecover`. The on-chain format already matches Reclaim's exactly
+(`reclaim_tests`), so only the client credentials are needed.
+
+## Deploy to testnet / mainnet
+
+The dApp is network-configurable (it reads `network`/`rpc` from
+`config.json`). To move it to testnet or mainnet:
+
+```
+./dispute/deploy.sh testnet      # fund the address first at faucet.sui.io
+python3 demo/seed_all.py && python3 demo/add_markets.py   # seed markets
+# then set demo/web/config.json network+rpc to testnet (or re-run from there)
+```
+
+(Currently the public testnet faucet is IP-rate-limited, so the live
+instance runs on **devnet**, which is a real public network. `mainnet`
+works the same with a funded address — the package is 70-tests-green and
+hardened.)
+
 ## The clever evidence design (why this isn't a vote)
 
 This is the UMA problem, solved — and the dApp makes it visceral (open the
