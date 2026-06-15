@@ -65,6 +65,31 @@
   .lbanner .lt{flex:1;min-width:0} .lbanner .lt b{font-size:14px;display:block} .lbanner .lt span{font-size:12px;color:var(--dim)}
   .lbanner .lc{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--red);white-space:nowrap}
   .lanok{border-color:var(--teal-deep);background:var(--teal-fill)} .lanok .li{background:var(--teal);color:#04201c} .lanok .lc{color:var(--teal)}
+  .btn.mini{padding:6px 12px;font-size:12px;border-radius:8px;flex-shrink:0;margin-left:auto}
+  .src{display:flex;gap:11px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:11px;background:var(--inset);margin-bottom:7px}
+  .src .ico{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;font-weight:700;font-size:11px;flex-shrink:0;background:var(--surface2);color:var(--dim)}
+  .src.ok{border-color:var(--teal-deep);background:var(--teal-fill)} .src.ok .ico{background:var(--teal);color:#04201c}
+  .src .b{flex:1;min-width:0} .src .s{font-weight:600;font-size:13px} .src .m{font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* guided tour rail */
+  #tour{position:fixed;right:18px;bottom:18px;width:330px;max-width:calc(100vw - 36px);background:var(--surface2);border:1px solid var(--border2);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.5);z-index:150;overflow:hidden;font-size:13px}
+  #tour.min{width:auto}
+  .tr-h{display:flex;align-items:center;gap:8px;padding:12px 15px;background:var(--inset);border-bottom:1px solid var(--border);cursor:pointer}
+  .tr-h b{font-size:13px} .tr-h .prog{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--teal)}
+  .tr-now{padding:14px 15px;border-bottom:1px solid var(--border)}
+  .tr-tag{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;color:#2a0606;background:var(--amber,#f0b132);padding:2px 8px;border-radius:20px;margin-bottom:7px}
+  .tr-now.go .tr-tag{background:var(--teal);color:#04201c}
+  .tr-title{font-size:15px;font-weight:700;margin-bottom:4px}
+  .tr-how{color:var(--dim);line-height:1.5;margin-bottom:6px}
+  .tr-proves{color:var(--faint);font-size:11.5px;line-height:1.5;border-left:2px solid var(--border2);padding-left:8px}
+  .tr-go{margin-top:10px;width:100%}
+  .tr-list{max-height:210px;overflow-y:auto;padding:8px 8px 10px}
+  .tr-item{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:9px}
+  .tr-item.cur{background:var(--inset)}
+  .tr-ck{width:19px;height:19px;border-radius:50%;border:1.5px solid var(--border2);display:grid;place-items:center;font-size:11px;flex-shrink:0;color:var(--faint)}
+  .tr-item.done .tr-ck{background:var(--teal);border-color:var(--teal);color:#04201c}
+  .tr-item .tl{flex:1;min-width:0;font-size:12.5px} .tr-item.done .tl{color:var(--dim)}
+  .tr-item a{font-family:var(--mono);font-size:10px}
+  .tr-done{padding:13px 15px;background:var(--teal-fill);border-top:1px solid var(--teal-deep);font-size:12.5px;line-height:1.55}
   .modalbg{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);z-index:100;display:none;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
   .modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px;max-width:620px;width:100%;padding:24px}
   .modal .x{float:right;cursor:pointer;color:var(--faint);font-size:20px}
@@ -186,6 +211,7 @@ async function connect(){
     account=(r.accounts&&r.accounts[0])||wallet.accounts[0];
     document.getElementById('walletBtn').textContent=account.address.slice(0,6)+'…'+account.address.slice(-4);
     toast('Connected to '+wallet.name+'. Make sure it is on <b>devnet</b>.');
+    if(typeof tourDone==='function') tourDone('connect');
   }catch(e){toast('Connect failed: '+e.message,false);}
 }
 document.getElementById('walletBtn').onclick=connect;
@@ -312,27 +338,36 @@ async function openMarket(id,kind){
   const st=await loadMarket(id);
   const m=[...CFG.markets,...runtimeMarkets,CFG.evidence_market,CFG.reclaim_market,CFG.live_market,CFG.resolve_ready_market].filter(Boolean).find(x=>x.id===id);
   const modal=document.getElementById('modal');
-  let evHtml='';
+  let evHtml='', proofs=[], judgeSrc=null;
   if(kind==='evidence'||kind==='live'){
-    const items=(st.evidence||[]).map(e=>{const ef=e.fields||e;return `<div class="ev"><div class="ico">zk</div><div class="b"><div class="s">zkTLS web proof <span class="badge"><i class="ti ti-shield-check"></i> ecrecover verified</span></div><div class="m">attestor group ${ef.group} · claim ${ef.claim==1?'YES':'NO'}</div></div></div>`;}).join('')||'<div class="dim" style="font-size:13px">No evidence admitted yet.</div>';
-    evHtml=`<h3>Evidence — zkTLS proofs, not opinions</h3>
-      <div class="kvs" style="margin-bottom:10px"><span>real proof: <b>${m.proof.source}</b> served "${m.proof.headline}"</span><span>witnessed by pinned attestor <b>${CFG.attestors[0].slice(0,10)}…</b></span></div>
-      ${items}
-      <h3 style="margin-top:14px">The AI judge reads it — live</h3>
-      <div class="dim" style="font-size:13px;line-height:1.55">Run the real <b style="color:var(--tx)">Qwen-0.6B</b> on the proven evidence. It reads what the source actually served and types its verdict. The resolver runs Qwen off-chain (here, a local server); the chain only re-runs one micro-op if the verdict is disputed.</div>
+    proofs=(m.proofs&&m.proofs.length?m.proofs:(m.proof?[m.proof]:[]));
+    const admitted=new Set((st.evidence||[]).map(e=>String((e.fields||e).group)));
+    judgeSrc=proofs.find(pf=>admitted.has(String(pf.attestor_idx)))||proofs[0];
+    const need=(m.k||1);
+    const srcRows=proofs.map((pf,i)=>{
+      const ok=admitted.has(String(pf.attestor_idx)); const canAdd=st.phase===1 && !ok;
+      return `<div class="src ${ok?'ok':''}"><div class="ico">${ok?'✓':'zk'}</div>
+        <div class="b"><div class="s">${pf.source} <span class="badge" style="font-size:9px;padding:1px 6px">${pf.domain||'zkTLS'}</span></div>
+          <div class="m">${ok?'admitted · independent group '+pf.attestor_idx+' · ecrecover-verified':'“'+(pf.headline||'').slice(0,54)+'…”'}</div></div>
+        ${ok?'<span class="badge" style="margin-left:auto;flex-shrink:0">on-chain</span>':canAdd?`<button class="btn mini primary" data-add="${i}">Add</button>`:''}</div>`;
+    }).join('');
+    evHtml=`<h3>Evidence — pick a real source, prove it on-chain</h3>
+      <div class="dim" style="font-size:12.5px;line-height:1.55;margin-bottom:9px">Each source below is an <b>independent</b> pinned attestor. Admitting one submits its real zkTLS proof, verified on-chain by native <span class="mono">ecrecover</span>. This market needs <b>${need}</b> independent confirmation${need>1?'s':''} — copies of the same source don't add up.</div>
+      ${srcRows}
+      ${st.phase===0?`<div class="note" style="margin-top:2px">Evidence opens when the short trading buffer closes — then you can admit a source.</div>`:''}
+      <h3 style="margin-top:16px">The AI judge reads it — live</h3>
+      <div class="dim" style="font-size:12.5px;line-height:1.5">The real <b style="color:var(--tx)">Qwen-0.6B</b> reads what the source served and types its verdict, deterministically. It <b>reads</b> the evidence; the committed counting rule <b>decides</b>. Off-chain — the chain re-runs one micro-op only on dispute.</div>
       <button class="btn" id="runJudgeBtn" style="margin-top:8px"><i class="ti ti-cpu"></i> Ask the AI judge to read the evidence</button>
       <div id="judgeOut" style="display:none;margin-top:10px;padding:12px 14px;border-radius:10px;background:var(--inset);border:1px solid var(--border);font-size:14px;line-height:1.65;font-family:var(--mono)"></div>
       <div id="judgeVerdict"></div>
-      ${st.phase===1?`<button class="btn primary" id="submitEv" style="margin-top:10px;display:none"><i class="ti ti-shield-check"></i> Admit this zkTLS proof on-chain</button>`
-        : st.phase===3?`<button class="btn primary" id="resolveEv" style="margin-top:10px"><i class="ti ti-gavel"></i> Resolve — apply the committed rule</button>`
-        : st.phase===0?`<div class="note" style="margin-top:4px">The evidence window opens when the short trading buffer closes — then this proof can be admitted on-chain.</div>`:''}
+      ${st.phase===3?`<button class="btn primary" id="resolveEv" style="margin-top:12px"><i class="ti ti-gavel"></i> Resolve — apply the committed rule</button>`:''}
       <h3 style="margin-top:18px">…now try to vote the other way</h3>
       <div class="seg" style="margin-bottom:8px">
         <input type="text" id="fakeClaim" placeholder="type a claim that it's NO…" style="flex:1;background:var(--inset);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--tx);font-size:14px" />
         <button class="btn" id="fakeBtn">Submit as NO</button>
       </div>
       <div id="fakeOut"></div>
-      <div class="note">This is exactly how we avoid becoming a token vote. You <b>cannot</b> submit an opinion. The only admissible evidence is a zkTLS proof of what a <b>pinned source actually served</b> — verified on-chain by native <span class="mono">ecrecover</span>. There is no proof of a source saying NO, so there is nothing to submit. And copies don't add up: confirmations are counted <b>per independent source</b>, never per submission. The AI judge reads the real content; nobody votes the result.</div>`;
+      <div class="note">This is how we avoid becoming a token vote. You <b>cannot</b> submit an opinion — only a zkTLS proof of what a <b>pinned source actually served</b>, verified on-chain by native <span class="mono">ecrecover</span>. There is no proof of a source saying NO, so there is nothing to submit. Confirmations are counted <b>per independent source</b>, never per submission. The AI judge reads the real content; nobody votes the result.</div>`;
   }
   if(kind==='reclaim'){
     const rc=CFG.reclaim||{};
@@ -356,8 +391,8 @@ async function openMarket(id,kind){
       <div class="note">Buying shares is a bet, not a vote. Your money never decides the outcome — it only prices it. Winners redeem 1 SUI per share; every YES+NO pair is backed 1:1, so the market can't go insolvent.</div>`:''}
     ${evHtml}
     ${st.phase===2?`<button class="btn primary" id="redeemBtn" style="width:100%;margin-top:12px">Redeem winnings</button>`:''}`;
-  document.getElementById('modalbg').style.display='flex';
-  document.getElementById('closeX').onclick=()=>{stopLive();document.getElementById('modalbg').style.display='none';};
+  document.getElementById('modalbg').style.display='flex'; if(typeof renderTour==='function')renderTour();
+  document.getElementById('closeX').onclick=()=>{stopLive();document.getElementById('modalbg').style.display='none';if(typeof renderTour==='function')renderTour();};
   side='yes';
   const sy=document.getElementById('sy'),sn=document.getElementById('sn');
   if(sy){sy.onclick=()=>{side='yes';sy.classList.add('on');sn.classList.remove('on');document.getElementById('buyside').textContent='YES';};
@@ -365,10 +400,10 @@ async function openMarket(id,kind){
          const amt=document.getElementById('amt'); amt.oninput=()=>document.getElementById('buyamt').textContent=amt.value;
          document.getElementById('buyBtn').onclick=()=>buy(id,side,parseFloat(amt.value));
          myPosition(id).then(p=>{const el=document.getElementById('mypos'); if(el&&p&&(p.yes||p.no)) el.textContent='your position: '+(p.yes/1e9).toFixed(3)+' YES · '+(p.no/1e9).toFixed(3)+' NO';});}
-  const se=document.getElementById('submitEv'); if(se) se.onclick=()=>submitEvidence(id,m.proof);
+  modal.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>submitEvidence(id, proofs[+b.dataset.add]));
   const re=document.getElementById('resolveEv'); if(re) re.onclick=()=>resolveMarket(id);
   const rb2=document.getElementById('reclaimBtn'); if(rb2) rb2.onclick=()=>reclaimProve(id, m.attestor_idx||0);
-  const jb=document.getElementById('runJudgeBtn'); if(jb) jb.onclick=()=>runJudge(m.question, (m.proof&&m.proof.headline)||m.question);
+  const jb=document.getElementById('runJudgeBtn'); if(jb) jb.onclick=()=>runJudge(m.question, (judgeSrc&&judgeSrc.headline)||m.question);
   const fb=document.getElementById('fakeBtn'); if(fb) fb.onclick=()=>{
     const v=(document.getElementById('fakeClaim').value||'').trim();
     document.getElementById('fakeOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill)"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-ban"></i></div><div class="b"><div class="s" style="color:var(--red)">Refused — no proof exists</div><div class="m" style="color:var(--dim)">${v?('"'+v.slice(0,48)+'" ')+'is an opinion. ':''}There is no zkTLS proof that a pinned source reported NO, so it cannot be submitted. You can't vote — you can only prove what a source served.</div></div></div>`;
@@ -395,7 +430,8 @@ async function buy(id,which,sui){
   const tx=new Transaction();
   const [coin]=tx.splitCoins(tx.gas,[amount]);
   tx.moveCall({target:`${PKG}::market::${which==='yes'?'buy_yes':'buy_no'}`,arguments:[tx.object(id),coin,tx.object(CLOCK)]});
-  const r=await sign(tx,'Bought '+which.toUpperCase()); if(r){setTimeout(()=>{openMarket(id,'trading');renderGrid();},1500);}
+  const kindNow=(CFG.live_market&&id===CFG.live_market.id)||(CFG.resolve_ready_market&&id===CFG.resolve_ready_market.id)?'live':'trading';
+  const r=await sign(tx,'Bought '+which.toUpperCase()); if(r){ if(kindNow==='live')tourDone('buy',r.digest); setTimeout(()=>{openMarket(id,kindNow);renderGrid();},1500);}
 }
 async function submitEvidence(id,p){
   const tx=new Transaction();
@@ -404,12 +440,13 @@ async function submitEvidence(id,p){
     tx.pure.vector('u8',hexToBytes(p.provider)),tx.pure.vector('u8',hexToBytes(p.parameters)),
     tx.pure.vector('u8',hexToBytes(p.context)),tx.pure.vector('u8',hexToBytes(p.owner)),
     tx.pure.u64(p.timestamp_s),tx.pure.u64(p.epoch),tx.pure.vector('u8',hexToBytes(p.signature)),tx.object(CLOCK)]});
-  const r=await sign(tx,'zkTLS proof admitted'); if(r){setTimeout(()=>openMarket(id,'evidence'),1500);}
+  const knd=(CFG.live_market&&id===CFG.live_market.id)||(CFG.resolve_ready_market&&id===CFG.resolve_ready_market.id)?'live':'evidence';
+  const r=await sign(tx,`zkTLS proof admitted (${p.source||'source'})`); if(r){tourDone('evidence',r.digest);setTimeout(()=>{stopLive();openMarket(id,knd);renderGrid();},1500);}
 }
 async function redeem(id){
   const tx=new Transaction();
   tx.moveCall({target:`${PKG}::market::redeem_to_sender`,arguments:[tx.object(id)]});
-  await sign(tx,'Redeemed');
+  const r=await sign(tx,'Redeemed — winnings paid out'); if(r){tourDone('redeem',r.digest);setTimeout(()=>{openMarket(id,'live');renderGrid();},1500);}
 }
 const delay=(ms)=>new Promise(r=>setTimeout(r,ms));
 // ---- the live AI judge: stream the REAL Qwen-0.6B reading the evidence ----
@@ -425,7 +462,7 @@ function runJudge(question, evidenceText){
     if(d.done){ es.close();
       const v=d.verdict||'NO';
       document.getElementById('judgeVerdict').innerHTML=`<div class="ev" style="margin-top:8px;border-color:var(--teal-deep);background:var(--teal-fill)"><div class="ico"><i class="ti ti-gavel"></i></div><div class="b"><div class="s" style="color:var(--teal)">Verdict: ${v}</div><div class="m">read by the real Qwen-0.6B · deterministic · perplexity 34.60 = published</div></div></div>`;
-      const sb=document.getElementById('submitEv'); if(sb) sb.style.display='block';
+      if(typeof tourDone==='function') tourDone('judge');
       btn.innerHTML='<i class="ti ti-check"></i> Judge finished';
     }
   }catch(e){} };
@@ -470,7 +507,7 @@ async function resolveMarket(id){
   await delay(1700);
   const tx=new Transaction();
   tx.moveCall({target:`${PKG}::market::resolve`,arguments:[tx.object(id),tx.object(CLOCK)]});
-  const r=await sign(tx,'Resolved by the committed rule'); if(r){setTimeout(()=>{stopLive();openMarket(id,'live');renderGrid();},1500);}
+  const r=await sign(tx,'Resolved by the committed rule'); if(r){tourDone('resolve',r.digest);setTimeout(()=>{stopLive();openMarket(id,'live');renderGrid();},1500);}
 }
 
 // ---- Fraud Lab: deliver a real on-chain conviction ----
@@ -494,8 +531,8 @@ function openFraud(){
     <button class="btn primary" id="convictBtn" style="width:100%;background:var(--red);border-color:var(--red);color:#2a0606"><i class="ti ti-scale"></i> Convict & slash the liar (deliver the one-step proof)</button>
     <div id="convictOut"></div>
     <div class="note">This uses the toy judge so the bisection is fast to stage. The exact same machinery convicts the real Qwen-0.6B judge — proven in <span class="mono">fqwen_conviction.move</span>. The on-chain step-verifier is a few hundred lines; one micro-op costs the minimum gas bucket.</div>`;
-  document.getElementById('modalbg').style.display='flex';
-  document.getElementById('closeX').onclick=()=>document.getElementById('modalbg').style.display='none';
+  document.getElementById('modalbg').style.display='flex'; if(typeof renderTour==='function')renderTour();
+  document.getElementById('closeX').onclick=()=>{document.getElementById('modalbg').style.display='none';if(typeof renderTour==='function')renderTour();};
   // bisection animation: bars collapsing to one red culprit
   const bis=document.getElementById('bis'); const N=36;
   for(let i=0;i<N;i++){const b=document.createElement('div');b.style.cssText='flex:1;border-radius:3px;background:var(--surface2);height:'+(18+(i*37%40))+'px;transition:.4s';bis.appendChild(b);}
@@ -515,9 +552,47 @@ async function convict(){
     tx.pure.vector('u8',Array.from(hexToBytes(v.page_b))),tx.pure.vector('vector<u8>',v.sibs_b.map(h=>Array.from(hexToBytes(h)))),
     tx.pure.vector('u8',Array.from(hexToBytes(v.page_w))),tx.pure.vector('vector<u8>',v.sibs_w.map(h=>Array.from(hexToBytes(h))))]});
   const r=await sign(tx,'Fraud proven · resolver slashed');
-  if(r){document.getElementById('convictOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill);margin-top:10px"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-coin-off"></i></div><div class="b"><div class="s" style="color:var(--red)">Fraud proven on-chain — bond slashed to the challenger.</div><div class="m"><a href="https://suiscan.xyz/devnet/tx/${r.digest}" target="_blank">view the conviction tx →</a></div></div></div>`;
+  if(r){tourDone('fraud',r.digest);document.getElementById('convictOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill);margin-top:10px"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-coin-off"></i></div><div class="b"><div class="s" style="color:var(--red)">Fraud proven on-chain — bond slashed to the challenger.</div><div class="m"><a href="https://suiscan.xyz/devnet/tx/${r.digest}" target="_blank">view the conviction tx →</a></div></div></div>`;
     document.getElementById('convictBtn').disabled=true;}
 }
+
+// ===== guided tour: hand-hold the judge, accumulate every tx receipt =====
+const TOUR=[
+ {k:'connect',t:'Connect your wallet',how:'Click “Connect wallet” (top-right). Use Slush, set to <b>devnet</b>.',proves:'You personally sign every action — nothing here trusts a server.'},
+ {k:'buy',t:'Buy YES on the ⚡ LIVE market',how:'Opens the red ⚡ card. Buy 0.05 YES.',proves:'A real on-chain CPMM trade; the price moves. Money <i>prices</i> the market — it never decides it.'},
+ {k:'evidence',t:'Add evidence from a real source',how:'In ⚡ (once it shows EVIDENCE) pick BBC / Reuters / AP → <b>Add</b>.',proves:'A zkTLS proof verified on-chain by native <span class="mono">ecrecover</span>. You cannot submit an opinion — only a proof.'},
+ {k:'judge',t:'Watch the AI judge read it',how:'Click “Ask the AI judge to read the evidence”.',proves:'The real deterministic Qwen-0.6B reads the proof and types its verdict. It reads; the rule decides.'},
+ {k:'resolve',t:'Resolve the market',how:'When ⚡ shows RESOLVE click it. (Or use the ⚖️ READY card any time.)',proves:'Outcome = count of <i>independent</i> trust-groups vs k. Not a vote, not the AI’s opinion.'},
+ {k:'redeem',t:'Redeem your winnings',how:'Click “Redeem winnings” on the resolved ⚡.',proves:'Winning shares pay 1 SUI each — paid out on-chain to your wallet.'},
+ {k:'fraud',t:'Convict a lying resolver',how:'Open the Fraud Lab (red banner) → Convict & slash.',proves:'A one-micro-op fraud proof, re-run on-chain, slashes the liar. This is what makes the AI judge <b>trustless</b>.'},
+];
+const tour={done:{},tx:{},min:false};
+const tx=d=>`https://suiscan.xyz/devnet/tx/${d}`;
+function tourOpen(k){ if(k==='connect')return connect(); if(k==='fraud')return (DISPUTE?openFraud():toast('Fraud Lab loading…')); const lm=CFG.live_market; if(lm)openMarket(lm.id,'live'); }
+function tourDone(k,digest){ if(tour.done[k])return; tour.done[k]=true; if(digest)tour.tx[k]=digest; renderTour(); }
+function renderTour(){
+  let el=document.getElementById('tour');
+  if(!el){ el=document.createElement('div'); el.id='tour'; document.body.appendChild(el); }
+  const ndone=TOUR.filter(s=>tour.done[s.k]).length;
+  const modalOpen=document.getElementById('modalbg').style.display==='flex';
+  if(tour.min||modalOpen){ el.className='min'; el.innerHTML=`<div class="tr-h" id="trToggle"><b>Tour</b><span class="prog">${ndone}/7 ▸</span></div>`;
+    document.getElementById('trToggle').onclick=()=>{tour.min=false;document.getElementById('modalbg').style.display='none';stopLive();renderTour();}; return; }
+  el.className='';
+  const cur=TOUR.find(s=>!tour.done[s.k]);
+  const list=TOUR.map(s=>{const d=tour.done[s.k];const isCur=cur&&s.k===cur.k;
+    return `<div class="tr-item ${d?'done':''} ${isCur?'cur':''}"><div class="tr-ck">${d?'✓':''}</div>
+      <div class="tl">${s.t}</div>${d&&tour.tx[s.k]?`<a href="${tx(tour.tx[s.k])}" target="_blank">view tx ↗</a>`:''}</div>`;}).join('');
+  const now=cur?`<div class="tr-now ${tour.done.connect?'':''}"><div class="tr-tag">👉 DO THIS NOW · STEP ${TOUR.indexOf(cur)+1}/7</div>
+      <div class="tr-title">${cur.t}</div><div class="tr-how">${cur.how}</div><div class="tr-proves">${cur.proves}</div>
+      <button class="btn primary tr-go" id="trGo">Take me there</button></div>`
+    : `<div class="tr-done"><b style="color:var(--teal)">✓ All 7 done — the whole product, on-chain.</b><br>You signed every step yourself. Open any “view tx” to verify it on suiscan: trade, zkTLS proof (ecrecover), AI-judge read, resolve by the committed rule, redeem, and a fraud conviction that slashed a liar.</div>`;
+  el.innerHTML=`<div class="tr-h" id="trToggle"><b>Guided tour</b><span class="prog">${ndone}/7 ▾</span></div>${now}<div class="tr-list">${list}</div>`;
+  document.getElementById('trToggle').onclick=()=>{tour.min=true;renderTour();};
+  const go=document.getElementById('trGo'); if(go&&cur) go.onclick=()=>tourOpen(cur.k);
+}
+renderTour();
+// expose a few handles for console debugging + headless verification
+Object.assign(window,{CFG,openMarket,openFraud,tour,renderTour});
 
 renderGrid();
 // keep the board live: re-read on-chain phases (cards tick through their

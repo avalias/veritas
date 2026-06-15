@@ -30,31 +30,6 @@ def fields(obj_id):
         return None
 
 
-def fact_status():
-    try:
-        d = json.load(open(f"{L.ROOT}/demo/web/dispute.json"))
-        f = fields(d["fact"])
-        return int(f["status"]) if f else None
-    except Exception:
-        return None
-
-
-def restage_fraud():
-    """Best-effort re-arm of the Fraud Lab (single-use Fact → fresh CHALLENGED)."""
-    addrs = subprocess.run(["sui", "client", "addresses", "--json"], capture_output=True, text=True).stdout
-    try:
-        al = [a[1] if isinstance(a, list) else a for a in json.loads(addrs)["addresses"]]
-    except Exception:
-        al = []
-    if len(al) < 2:
-        print("  fraud: need two funded addresses to re-stage; skipping", file=sys.stderr)
-        return
-    print("  fraud: convicted → re-staging a fresh dispute…")
-    r = subprocess.run(["cargo", "run", "-q", "-p", "client", "--bin", "devnet_stage_dispute",
-                        "--", L.PKG, al[0], al[1]], capture_output=True, text=True, cwd=L.ROOT)
-    print("  fraud:", "re-armed" if r.returncode == 0 else f"FAILED {r.stderr[-200:]}")
-
-
 def main():
     print(f"replenisher watching devnet every {POLL}s …  (Ctrl-C to stop)")
     while True:
@@ -87,8 +62,9 @@ def main():
             if changed:
                 L.save_markets(m)
 
-            if fact_status() == 4:  # REJECTED == convicted
-                restage_fraud()
+            if L.fact_status() == 4:  # REJECTED == convicted → re-arm
+                print("  🔪 fraud convicted → re-staging a fresh dispute…")
+                L.stage_fraud()
 
         except KeyboardInterrupt:
             print("\nstopped.")

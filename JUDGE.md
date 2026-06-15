@@ -7,56 +7,51 @@ resolver on-chain. Each action surfaces a clickable suiscan transaction.
 
 ---
 
-## 1. Operator setup — three terminals, ~60 seconds
+## 1. Operator setup — ONE command
 
 ```bash
-# 1) the AI judge (loads the real committed-float Qwen-0.6B, serves :8899)
-cargo run -p qwen --release --bin resolver
-
-# 2) the dApp
-python3 demo/web/serve.py                     # → http://127.0.0.1:8777/app.html
-
-# 3) stage the live markets  ← run this LAST, right before handing over
-python3 demo/judge_setup.py
+./demo/go.sh
 ```
 
-Optional 4th terminal — keep the board fresh for back-to-back judges (it stages a
-new ⚡/⚖️ the instant one is resolved, and re-arms the Fraud Lab after a conviction):
+It starts the AI-judge resolver (real Qwen-0.6B on :8899) and the dApp server
+(:8777) if they aren't already up, stages fresh **⚡ LIVE** and **⚖️ READY**
+markets, arms the **Fraud Lab**, launches the **auto-replenisher** (so the board
+resets itself for the next judge), and opens the dApp. **Re-run it any time** to
+reset for a new judge.
 
-```bash
-python3 demo/replenish.py
-```
-
-Then **have the judge connect Slush (set to devnet) and fund it** before they start:
+Then **have the judge connect Slush (set to devnet) and fund it**:
 
 ```bash
 curl -s -X POST https://faucet.devnet.sui.io/v2/gas -H 'Content-Type: application/json' \
   -d '{"FixedAmountRequest":{"recipient":"<JUDGE_ADDRESS>"}}'
 ```
 
-> Run `judge_setup.py` **last**: the ⚡ market opens a ~100s trading window from
-> that moment, so the judge catches it in trading. If they take longer, just
-> re-run `judge_setup.py` (or let `replenish.py` do it) — the ⚖️ market resolves
-> on one click regardless of timing.
+> The ⚡ market opens a ~150s trading window from staging; the auto-replenisher
+> keeps a fresh one available and re-arms the Fraud Lab after each conviction, so
+> back-to-back judges always get a clean board. The ⚖️ READY card resolves on one
+> click regardless of timing.
 
 ---
 
 ## 2. The 5-minute script — what the judge clicks, what they see
 
-The **⚡ LIVE** card is the spine: one market the judge walks through its entire
-lifecycle, live, each step a real signed tx. The board guides them with a phase
-countdown banner (🛒 Buy → 🛡️ Submit → ⚖️ Resolve → 🏆 Redeem).
+**The judge does not need this page.** A **Guided Tour** panel (bottom-right of
+the dApp) walks them through all 7 steps one at a time — "👉 DO THIS NOW", a
+**Take me there** button that opens the right market, and a ✓ + **view tx** link
+for every completed step. The **⚡ LIVE** card is the spine; it also shows a phase
+countdown banner (🛒 Buy → 🛡️ Submit → ⚖️ Resolve → 🏆 Redeem). All 7 steps were
+verified end-to-end with a real wallet (7/7, 0 errors).
 
-| # | Action | Market | What appears on-chain |
-|---|--------|--------|-----------------------|
-| 1 | Connect Slush (devnet). Open any trading market, buy **0.05 YES**. Watch the price tick up. | BTC $150k (or any of 8) | `buy_yes` tx → **view tx** suiscan link; CPMM price moves |
-| 2 | Open the **⚡ LIVE** card (in trading). Buy **0.05 YES** — this is the position you'll redeem. | ⚡ LIVE | `buy_yes` tx → suiscan; "your position: 0.05 YES" |
-| 3 | While it trades, click **"Ask the AI judge to read the evidence."** Watch the real **Qwen-0.6B** stream tokens and type its verdict. | ⚡ LIVE (or the Evidence market) | live SSE token stream → **Verdict: YES** (off-chain by design — this is the judge *reading*, not deciding) |
-| 4 | Banner flips to 🛡️ **EVIDENCE**. Click **"Admit this zkTLS proof on-chain."** | ⚡ LIVE | `submit_web_proof` tx → suiscan; a pinned-attestor signature verified by **native ecrecover** |
-| 5 | Try the **"Submit as NO"** box — type any opinion. It's **refused** ("no proof exists"). | ⚡ LIVE | *no tx* — you literally cannot vote; you can only prove |
-| 6 | Open the **Fraud Lab** (red banner). Watch 85,937 micro-ops bisect to one. Click **"Convict & slash the liar."** | Fraud Lab | `verify_step` tx → suiscan; the Fact's status flips to **REJECTED**, bond slashed |
-| 7 | Banner flips to ⚖️ **RESOLVE**. Click **"Resolve — apply the committed rule."** | ⚡ LIVE | `resolve` tx → suiscan; outcome computed by counting **independent trust-groups** (1 YES ≥ k=1) → **YES** |
-| 8 | Banner flips to 🏆 **REDEEM**. Click **"Redeem winnings."** Winning SUI lands in the wallet. | ⚡ LIVE | `redeem_to_sender` tx → suiscan; SUI paid out |
+| # | Action (the tour says exactly this) | What appears on-chain |
+|---|--------|-----------------------|
+| 1 | **Connect** Slush (devnet). | wallet connects — you sign everything yourself |
+| 2 | Open **⚡ LIVE**, buy **0.05 YES**. | `buy_yes` tx → **view tx**; CPMM price moves. This is the position you'll redeem. |
+| 3 | Once it shows **EVIDENCE**, pick a source — **BBC / Reuters / AP** — and click **Add**. | `submit_web_proof` tx → suiscan; that source's pinned-attestor signature verified by **native ecrecover**. Each source is an *independent* trust-group. |
+| 4 | Click **"Ask the AI judge to read the evidence."** | the real **Qwen-0.6B** streams tokens and types its **Verdict: YES** (off-chain — it *reads*; the rule decides) |
+| 5 | Try the **"Submit as NO"** box — any opinion. | **refused** ("no proof exists") — *no tx*. You cannot vote, only prove. |
+| 6 | Banner shows **RESOLVE** → click **"Resolve — apply the committed rule."** | `resolve` tx → suiscan; outcome = count of **independent trust-groups** vs k → **YES** |
+| 7 | Banner shows **REDEEM** → click **"Redeem winnings."** | `redeem_to_sender` tx → suiscan; winning SUI paid to the wallet |
+| 8 | Open the **Fraud Lab** (red banner) → **"Convict & slash the liar."** | `verify_step` tx → suiscan; 85,937 micro-ops bisected to one; the Fact flips to **REJECTED**, bond slashed |
 
 **Fallback if ⚡ timing slips:** the **⚖️ READY** card is already past its window
 with a YES proof admitted — one click on **Resolve** decides it on-chain instantly.
