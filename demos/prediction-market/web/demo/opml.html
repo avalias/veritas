@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Build on opML — the standard library for verifiable AI on Sui</title>
+<meta name="description" content="opML is a new Sui primitive for verifiable AI verdicts — in the lineage of zkLogin, ecrecover, ed25519 and groth16. One Move dependency, three steps, a ~330-line on-chain referee. Build on it." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@300;400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/veritas.css" />
+
+<style>
+/* ============ BUILD ON opML · page-specific (noir tokens only) ============ */
+
+/* No-JS / screenshot safety: reveals are visible by DEFAULT, JS only adds polish */
+.reveal{opacity:1;transform:none;}
+.reveal.in{opacity:1;transform:none;}
+@media (prefers-reduced-motion:no-preference){
+  .js .reveal{opacity:0;transform:translateY(28px);}
+  .js .reveal.in{opacity:1;transform:none;}
+}
+
+.section{position:relative;padding:84px 0;}
+.section.tight{padding:54px 0;}
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent);max-width:var(--maxw);margin:0 auto;}
+
+/* generic shared heads */
+.kick{font-size:12px;letter-spacing:.28em;text-transform:uppercase;color:var(--teal-deep);}
+.sec-head2{max-width:680px;margin:0 auto 42px;text-align:center;}
+.sec-head2 h2{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(28px,3.6vw,44px);line-height:1.06;margin:16px 0 0;color:#fff;letter-spacing:-0.01em;}
+.sec-head2 h2 em{font-style:italic;font-weight:300;color:var(--gold);}
+.sec-head2 p{margin:16px 0 0;color:var(--fg-dim);font-weight:300;font-size:15.5px;line-height:1.6;}
+
+/* ---- hero ---- */
+.hero-b{position:relative;min-height:100svh;display:flex;flex-direction:column;justify-content:center;padding:128px 0 60px;}
+.hero-b .grid{display:grid;grid-template-columns:1.06fr 0.94fr;gap:56px;align-items:center;}
+@media(max-width:940px){.hero-b .grid{grid-template-columns:1fr;gap:46px;}}
+.eyebrow-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+h1.head-b{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(40px,6.0vw,82px);line-height:0.99;letter-spacing:-0.02em;margin:26px 0 0;color:#fff;}
+h1.head-b .l2{display:block;color:transparent;background:linear-gradient(180deg,#eafffb,#7fe9dd 55%,#27a99a);-webkit-background-clip:text;background-clip:text;}
+h1.head-b em{font-style:italic;font-weight:300;color:var(--gold);}
+.lede{margin:28px 0 0;max-width:33em;font-size:clamp(16px,1.4vw,19px);line-height:1.62;color:var(--fg-dim);font-weight:300;}
+.lede .em{color:var(--fg);font-weight:400;}
+.authorline{margin-top:24px;font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.05em;color:var(--fg-faint);overflow-wrap:anywhere;}
+.authorline b{color:var(--fg-dim);font-weight:500;overflow-wrap:anywhere;}
+
+/* hero side: the install card (the one dependency) */
+.install{padding:0;}
+.install .ih{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line-soft);}
+.install .ih .ttl{display:flex;align-items:center;gap:8px;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;color:var(--fg-faint);}
+.install .ih .ttl .d{width:9px;height:9px;border-radius:50%;border:1px solid var(--line);}
+.install .ih .pg{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.12em;color:var(--fg-faint);text-transform:uppercase;}
+.install pre{margin:0;padding:20px 22px;font-family:"JetBrains Mono",monospace;font-size:13px;line-height:1.85;color:var(--fg-dim);overflow-x:auto;white-space:pre;}
+.install pre .cm{color:var(--fg-faint);}
+.install pre .sect{color:var(--cyan);}
+.install pre .teal{color:var(--teal);}
+.install pre .gold{color:var(--gold);}
+.install .ifoot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 22px 20px;}
+.i-tag{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.06em;color:var(--fg-dim);padding:5px 10px;border:1px solid var(--line);border-radius:7px;background:rgba(120,170,180,0.03);}
+.one-dep{display:flex;align-items:center;gap:10px;margin-top:18px;font-size:13px;color:var(--fg-dim);font-weight:300;}
+.one-dep .pill{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);border:1px solid rgba(51,230,208,.3);background:rgba(51,230,208,0.06);border-radius:7px;padding:5px 10px;white-space:nowrap;}
+
+/* ---- primitive lineage band ---- */
+.lineage{display:grid;grid-template-columns:0.92fr 1.08fr;gap:48px;align-items:center;}
+@media(max-width:940px){.lineage{grid-template-columns:1fr;gap:34px;}}
+.lineage .copy h2{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(28px,3.6vw,44px);line-height:1.06;margin:16px 0 0;color:#fff;letter-spacing:-0.01em;}
+.lineage .copy h2 em{font-style:italic;font-weight:300;color:var(--gold);}
+.lineage .copy p{margin:18px 0 0;color:var(--fg-dim);font-weight:300;font-size:16px;line-height:1.64;max-width:34em;}
+.lineage .copy p .em{color:var(--fg);font-weight:400;}
+.prims{display:flex;flex-direction:column;gap:1px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--line-soft);}
+.prim{display:grid;grid-template-columns:140px 1fr auto;align-items:center;gap:16px;padding:17px 22px;background:linear-gradient(180deg,rgba(13,20,27,0.78),rgba(7,11,16,0.85));}
+.prim .nm{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--fg);letter-spacing:.01em;}
+.prim .ds{font-size:13px;color:var(--fg-dim);font-weight:300;}
+.prim .badge{font-family:"JetBrains Mono",monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);border:1px solid var(--line);border-radius:6px;padding:3px 9px;white-space:nowrap;}
+.prim.new{background:linear-gradient(90deg,rgba(51,230,208,0.09),rgba(51,230,208,0.02));}
+.prim.new .nm{color:#fff;text-shadow:0 0 18px var(--teal-glow);}
+.prim.new .ds{color:var(--fg-dim);}
+.prim.new .badge{color:var(--teal);border-color:rgba(51,230,208,.34);background:rgba(51,230,208,0.06);}
+@media(max-width:560px){.prim{grid-template-columns:1fr auto;}.prim .ds{grid-column:1 / -1;}}
+
+/* ---- 3 steps + dependency ---- */
+.steps3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+@media(max-width:880px){.steps3{grid-template-columns:1fr;}}
+.step3{position:relative;padding:28px 26px 30px;border-radius:16px;background:linear-gradient(180deg,rgba(13,20,27,0.82),rgba(7,11,16,0.88));border:1px solid var(--line);transition:transform .5s var(--ease),border-color .5s;}
+.step3:hover{transform:translateY(-5px);border-color:var(--line-strong);}
+.step3 .no{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.16em;color:var(--teal);}
+.step3 h4{font-family:"Fraunces",serif;font-weight:400;font-size:19px;color:#fff;margin:14px 0 0;}
+.step3 p{margin:11px 0 0;font-size:13.5px;line-height:1.58;color:var(--fg-dim);font-weight:300;}
+.step3 code{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--cyan);background:rgba(95,217,255,0.06);border:1px solid rgba(95,217,255,0.14);padding:1px 6px;border-radius:5px;overflow-wrap:anywhere;}
+.step3 .mod{display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.06em;color:var(--teal);border:1px solid var(--line);background:rgba(51,230,208,0.05);border-radius:7px;padding:5px 10px;}
+.dep{margin-top:30px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:14px;}
+.dep .code{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--fg-dim);background:var(--ink-2);border:1px solid var(--line);border-radius:10px;padding:12px 18px;overflow-wrap:anywhere;max-width:100%;}
+.dep .code .teal{color:var(--teal);}
+.dep .lic{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.06em;color:var(--fg-faint);}
+
+/* ---- module map ("what's in the box") ---- */
+.boxgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+@media(max-width:980px){.boxgrid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:520px){.boxgrid{grid-template-columns:1fr;}}
+.mod{position:relative;padding:22px 22px 24px;border-radius:15px;background:linear-gradient(180deg,rgba(13,20,27,0.8),rgba(7,11,16,0.86));border:1px solid var(--line);transition:transform .5s var(--ease),border-color .5s,box-shadow .5s;overflow:hidden;}
+.mod:hover{transform:translateY(-5px);border-color:var(--line-strong);box-shadow:0 26px 60px -36px rgba(0,0,0,.9);}
+.mod .ic{width:34px;height:34px;border-radius:9px;background:rgba(51,230,208,0.08);display:grid;place-items:center;margin-bottom:15px;}
+.mod .ic svg{width:18px;height:18px;}
+.mod .name{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:.02em;color:var(--teal);}
+.mod h4{margin:5px 0 0;font-family:"Fraunces",serif;font-weight:400;font-size:16.5px;color:#fff;line-height:1.2;}
+.mod p{margin:9px 0 0;font-size:13px;line-height:1.55;color:var(--fg-dim);font-weight:300;}
+.mod.pkg{background:linear-gradient(180deg,rgba(16,28,30,0.92),rgba(9,16,18,0.94));border-color:rgba(51,230,208,0.22);}
+.mod.pkg .name{color:#fff;}
+
+/* ---- core insight (VM is the math) ---- */
+.insight{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;}
+@media(max-width:880px){.insight{grid-template-columns:1fr;gap:30px;}}
+.insight h2{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(28px,3.6vw,44px);line-height:1.06;margin:16px 0 0;color:#fff;letter-spacing:-0.01em;}
+.insight h2 em{font-style:italic;color:var(--gold);font-weight:300;}
+.insight p{margin:18px 0 0;color:var(--fg-dim);font-weight:300;font-size:16px;line-height:1.64;max-width:34em;}
+.insight p .em{color:var(--fg);font-weight:400;}
+.opcode{font-family:"JetBrains Mono",monospace;background:rgba(51,230,208,0.06);border:1px solid rgba(51,230,208,0.18);color:var(--teal);padding:1px 7px;border-radius:6px;font-size:0.86em;}
+.codecard{padding:0;}
+.codecard .ch{display:flex;align-items:center;gap:8px;padding:13px 18px;border-bottom:1px solid var(--line-soft);font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.06em;color:var(--fg-faint);overflow-wrap:anywhere;}
+.codecard .ch .d{width:9px;height:9px;border-radius:50%;border:1px solid var(--line);flex-shrink:0;}
+.codecard pre{margin:0;padding:20px 22px;font-family:"JetBrains Mono",monospace;font-size:12.5px;line-height:1.78;color:var(--fg-dim);overflow-x:auto;white-space:pre;}
+.codecard pre .cm{color:var(--fg-faint);}
+.codecard pre .kw{color:var(--cyan);}
+.codecard pre .op{color:var(--teal);}
+.codecard pre .fn{color:var(--gold);}
+
+/* ---- spec strip (reference benchmarks) ---- */
+.spec{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:linear-gradient(180deg,rgba(13,20,27,0.6),rgba(7,11,16,0.74));}
+.spec .spec-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:16px 24px;border-bottom:1px solid var(--line-soft);background:rgba(120,170,180,0.03);}
+.spec .spec-head .l{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg-dim);}
+.spec .spec-head .r{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.06em;color:var(--fg-faint);}
+.spec .spec-head .r b{color:var(--teal-deep);font-weight:500;}
+.spec-rows{display:grid;grid-template-columns:repeat(2,1fr);}
+@media(max-width:720px){.spec-rows{grid-template-columns:1fr;}}
+.spec-row{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:18px;padding:20px 24px;border-bottom:1px solid var(--line-soft);border-right:1px solid var(--line-soft);}
+.spec-rows .spec-row:nth-child(2n){border-right:none;}
+.spec-row .k{font-size:13.5px;color:var(--fg-dim);font-weight:300;line-height:1.4;}
+.spec-row .k .sub{display:block;margin-top:5px;font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.02em;color:var(--fg-faint);}
+.spec-row .v{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(22px,2.4vw,28px);line-height:1;color:#fff;letter-spacing:-0.01em;white-space:nowrap;}
+.spec-row .v .u{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--teal);letter-spacing:0;margin-left:3px;}
+.spec-foot{padding:15px 24px;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.04em;color:var(--fg-faint);text-align:center;}
+.spec-foot b{color:var(--teal);font-weight:500;}
+
+/* ---- comparison table ---- */
+.tbl-wrap{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:linear-gradient(180deg,rgba(13,20,27,0.55),rgba(7,11,16,0.7));}
+.tbl-scroll{overflow-x:auto;}
+table.compare{width:100%;border-collapse:collapse;min-width:720px;}
+table.compare th,table.compare td{padding:16px 18px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:middle;}
+table.compare thead th{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-faint);font-weight:400;background:rgba(120,170,180,0.03);}
+table.compare tbody th{font-weight:400;color:var(--fg);font-size:14.5px;}
+table.compare tbody th .sub{display:block;margin-top:3px;font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.02em;color:var(--fg-faint);}
+table.compare td{text-align:center;font-size:13px;color:var(--fg-dim);}
+table.compare td .yes{color:var(--teal);font-weight:500;}
+table.compare td .no{color:var(--danger);}
+table.compare td .meh{color:var(--gold);}
+table.compare tr.ours{background:linear-gradient(90deg,rgba(51,230,208,0.07),rgba(51,230,208,0.02));}
+table.compare tr.ours th{color:#fff;}
+table.compare tr.ours th .badge{display:inline-block;margin-left:8px;font-family:"JetBrains Mono",monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);border:1px solid rgba(51,230,208,.3);background:rgba(51,230,208,0.06);border-radius:6px;padding:2px 7px;vertical-align:middle;}
+table.compare tr.ours td .yes{color:var(--teal);text-shadow:0 0 16px var(--teal-glow);}
+.glyph-y{font-size:15px;}
+.tbl-foot{padding:16px 18px;font-size:13px;color:var(--fg-dim);font-weight:300;text-align:center;border-top:1px solid var(--line);}
+.tbl-foot b{color:var(--teal);font-weight:500;}
+
+/* ---- inputs band ---- */
+.inputs{display:grid;grid-template-columns:0.95fr 1.05fr;gap:48px;align-items:center;}
+@media(max-width:880px){.inputs{grid-template-columns:1fr;gap:32px;}}
+.inputs .copy h2{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(26px,3.2vw,40px);line-height:1.08;margin:16px 0 0;color:#fff;letter-spacing:-0.01em;}
+.inputs .copy p{margin:18px 0 0;color:var(--fg-dim);font-weight:300;font-size:16px;line-height:1.64;max-width:32em;}
+.inputs .copy p .em{color:var(--fg);font-weight:400;}
+.src{display:flex;flex-direction:column;gap:12px;}
+.src-row{display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:13px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(13,20,27,0.78),rgba(7,11,16,0.85));}
+.src-row .ic{width:32px;height:32px;border-radius:9px;background:rgba(95,217,255,0.07);display:grid;place-items:center;flex-shrink:0;}
+.src-row .ic svg{width:17px;height:17px;}
+.src-row .tx .t{font-size:14px;color:var(--fg);font-weight:400;}
+.src-row .tx .d{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.02em;color:var(--fg-faint);margin-top:3px;}
+.src-row .ok{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);}
+
+/* ---- unlocks ---- */
+.unlocks{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+@media(max-width:880px){.unlocks{grid-template-columns:1fr;}}
+.unlock{padding:24px 24px 26px;border-radius:16px;background:linear-gradient(180deg,rgba(13,20,27,0.8),rgba(7,11,16,0.85));border:1px solid var(--line);transition:transform .5s var(--ease),border-color .5s;}
+.unlock:hover{transform:translateY(-5px);border-color:var(--line-strong);}
+.unlock .ic{width:34px;height:34px;border-radius:9px;background:rgba(51,230,208,0.08);display:grid;place-items:center;margin-bottom:16px;}
+.unlock .ic svg{width:18px;height:18px;}
+.unlock h4{margin:0;font-family:"Fraunces",serif;font-weight:400;font-size:18px;color:#fff;}
+.unlock p{margin:9px 0 0;font-size:13.5px;line-height:1.58;color:var(--fg-dim);font-weight:300;}
+
+/* ---- boundary note ---- */
+.boundary{max-width:760px;margin:0 auto;padding:26px 30px;border-radius:16px;border:1px solid var(--line);border-left:2px solid var(--gold);background:linear-gradient(180deg,rgba(13,20,27,0.6),rgba(7,11,16,0.7));}
+.boundary .lab{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);}
+.boundary p{margin:12px 0 0;color:var(--fg-dim);font-weight:300;font-size:14.5px;line-height:1.66;}
+.boundary p .em{color:var(--fg);font-weight:400;}
+
+/* ---- closer ---- */
+.closer-b{text-align:center;padding:96px 0 30px;}
+.closer-b .line{font-family:"Fraunces",serif;font-style:italic;font-weight:300;font-size:clamp(24px,3.4vw,38px);color:var(--fg);max-width:18em;margin:0 auto;line-height:1.3;}
+.closer-b .line b{font-style:normal;font-weight:400;color:var(--teal);}
+.closer-b .cta-row{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:40px;flex-wrap:wrap;}
+
+footer .foot-links a{color:var(--fg-faint);}
+.docrow{display:flex;gap:18px;flex-wrap:wrap;}
+.docrow a{font-family:"JetBrains Mono",monospace;font-size:11.5px;letter-spacing:.04em;}
+</style>
+</head>
+<body>
+
+<div class="atmos" aria-hidden="true">
+  <div class="grid-drift"></div>
+  <div class="sweep"></div>
+  <canvas id="stars"></canvas>
+</div>
+
+<div class="shell">
+  <nav>
+    <a class="brand" href="index.html" aria-label="Veritas home">
+      <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2 21 6.5V12c0 5.2-3.6 8.6-9 10C6.6 20.6 3 17.2 3 12V6.5L12 2Z" stroke="#33e6d0" stroke-width="1.3" opacity=".55"/>
+        <path d="m8.4 12.2 2.7 2.7 4.7-5.6" stroke="#33e6d0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Veritas
+    </a>
+    <div class="nav-meta">
+      <a href="index.html">Home</a>
+      <a href="flow.html">How it works</a>
+      <a href="opml.html" style="color:var(--teal);" aria-current="page">Build on opML</a>
+      <a class="hide-sm" href="../app.html">Full dApp →</a>
+    </div>
+  </nav>
+
+  <!-- ===================== HERO ===================== -->
+  <header class="hero-b" id="top">
+    <div class="wrap">
+      <div class="grid">
+        <div class="hero-copy">
+          <div class="eyebrow-row stage d1">
+            <span class="eyebrow"><b>Build on opML</b> &nbsp;·&nbsp; Sui Overflow 2026</span>
+            <span class="eyebrow">a new Sui primitive &nbsp;·&nbsp; <b>first on Move</b></span>
+          </div>
+
+          <h1 class="head-b stage d2">
+            The standard library
+            <span class="l2">for verifiable AI</span>
+            <em>on Sui.</em>
+          </h1>
+
+          <p class="lede stage d3">
+            <span class="em">opML</span> is a foundational building block, not an app —
+            a way to make a <span class="em">verifiable AI verdict</span> a native Sui primitive.
+            zkLogin turned OAuth into something trustless on Sui; opML does the same for an
+            <span class="em">AI's judgment</span>. One Move dependency, three steps, and a
+            <span class="em">~330-line on-chain referee</span> anyone can build on.
+          </p>
+
+          <div class="cta-row stage d4"><a class="btn btn-primary" href="https://github.com/arty-arty/veritas">View on GitHub<span class="arr" aria-hidden="true">&rarr;</span></a><a class="btn btn-ghost" href="https://github.com/arty-arty/veritas/blob/main/opml/docs/SPEC.md">Read the SPEC &#8599;</a></div>
+
+          <p class="authorline stage d5">
+            One dependency &nbsp;·&nbsp; <b>opml = { local = "../opml/move" }</b> &nbsp;·&nbsp; Apache-2.0
+          </p>
+        </div>
+
+        <!-- INSTALL CARD (the one dependency, the 3 steps in code) -->
+        <div class="visual stage" style="min-height:auto;display:block;" data-parallax="6">
+          <div class="card glow install">
+            <div class="ih">
+              <span class="ttl"><span class="d"></span> Move.toml</span>
+              <span class="pg">add one dependency</span>
+            </div>
+<pre><span class="cm"># 1 — depend on opML</span>
+[dependencies]
+<span class="teal">opml</span> = { local = <span class="gold">"../opml/move"</span> }
+
+<span class="cm"># 2 — run off-chain, commit the trace root</span>
+$ opml run model.bin --commit
+  <span class="cm">→ root 0x9af3… committed (free)</span>
+
+<span class="cm"># 3 — anyone disputes → bisection</span>
+  <span class="cm">~25 rounds → ONE on-chain</span>
+  <span class="sect">dispute::verify_step</span>
+  <span class="cm">→ chain-minimum gas</span></pre>
+            <div class="ifoot">
+              <span class="i-tag">compiler</span>
+              <span class="i-tag">kernels · CPU</span>
+              <span class="i-tag">gpu · Metal</span>
+              <span class="i-tag">move package</span>
+            </div>
+          </div>
+          <div class="one-dep">
+            <span class="pill">No ZK · No TEE</span>
+            <span>Runs the real model bit-exact, off-chain, at near-native speed.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="divider"></div>
+
+  <!-- ===================== A NEW SUI PRIMITIVE (lineage) ===================== -->
+  <section class="section">
+    <div class="wrap">
+      <div class="lineage">
+        <div class="copy reveal">
+          <span class="kick">A new Sui primitive</span>
+          <h2>In the lineage of Sui's <em>trust primitives.</em></h2>
+          <p>
+            Sui ships native building blocks that turn things you once had to trust into things you can
+            <span class="em">prove</span>: identity, signatures, proofs, attestation. zkLogin took OAuth — a
+            web login — and made it a <span class="em">native, trustless Sui primitive</span>.
+          </p>
+          <p>
+            opML belongs in that same lineage, for the one verdict no primitive could settle before:
+            <span class="em">did this AI actually run, correctly, on real evidence?</span> It is a
+            foundational building block — potentially a core piece of Sui infrastructure that many teams build on.
+          </p>
+        </div>
+
+        <div class="prims reveal">
+          <div class="prim">
+            <span class="nm">zkLogin</span>
+            <span class="ds">Web2 OAuth identity, made trustless</span>
+            <span class="badge">identity</span>
+          </div>
+          <div class="prim">
+            <span class="nm">ecrecover</span>
+            <span class="ds">Recover a signer from a signature</span>
+            <span class="badge">signatures</span>
+          </div>
+          <div class="prim">
+            <span class="nm">ed25519</span>
+            <span class="ds">Native signature verification</span>
+            <span class="badge">signatures</span>
+          </div>
+          <div class="prim">
+            <span class="nm">groth16</span>
+            <span class="ds">Zero-knowledge proof verification</span>
+            <span class="badge">proofs</span>
+          </div>
+          <div class="prim">
+            <span class="nm">nitro&nbsp;attest.</span>
+            <span class="ds">Hardware enclave attestation</span>
+            <span class="badge">attestation</span>
+          </div>
+          <div class="prim new">
+            <span class="nm">opML</span>
+            <span class="ds">A verifiable AI verdict — proven per micro-op</span>
+            <span class="badge">verifiable&nbsp;AI</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ===================== BUILD ON IT: 3 STEPS ===================== -->
+  <section class="section">
+    <div class="wrap">
+      <div class="sec-head2 reveal">
+        <span class="kick">Build on opML</span>
+        <h2>You write none of the <em>hard part.</em></h2>
+        <p>Three steps. The bisection always ends in one place — <code style="font-family:'JetBrains Mono',monospace;color:var(--cyan)">dispute::verify_step</code> — and the referee is already written.</p>
+      </div>
+
+      <div class="steps3">
+        <div class="step3 reveal">
+          <div class="no">STEP 01</div>
+          <h4>Compile your model once</h4>
+          <p><code>opml/compiler</code> turns any quantized LLM (float activations) into a VM program plus genesis pages.</p>
+          <span class="mod">opml/compiler</span>
+        </div>
+        <div class="step3 reveal">
+          <div class="no">STEP 02</div>
+          <h4>Run anywhere, commit the root</h4>
+          <p>Run it on CPU (<code>opml/kernels</code>) or Metal (<code>opml/gpu</code>) and commit a Merkle root of the trace — built for free as the forward pass runs.</p>
+          <span class="mod">opml/kernels · opml/gpu</span>
+        </div>
+        <div class="step3 reveal">
+          <div class="no">STEP 03</div>
+          <h4>Add the Move package</h4>
+          <p>Drop in the package — now anyone can dispute. Bisection ends in <code>verify_step</code>; integer + float conviction settle on-chain.</p>
+          <span class="mod">opml/move</span>
+        </div>
+      </div>
+
+      <div class="dep reveal">
+        <span class="code">opml = { local = <span class="teal">"../opml/move"</span> }</span>
+        <span class="lic">One Move dependency · Apache-2.0</span>
+        <a class="chainlink" href="https://github.com/arty-arty/veritas">github.com/arty-arty/veritas →</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ===================== MODULE MAP — what's in the box ===================== -->
+  <section class="section">
+    <div class="wrap">
+      <div class="sec-head2 reveal">
+        <span class="kick">What's in the box</span>
+        <h2>A clean module map.</h2>
+        <p>A compiler, deterministic engines, a dispute game, and the Sui package — each one a piece you can reach for.</p>
+      </div>
+
+      <div class="boxgrid">
+        <div class="mod reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6M7 13h10M7 17h4"/></svg></div>
+          <div class="name">vm</div>
+          <h4>The fraud-proof VM</h4>
+          <p>ISA, soft-float, and the one-step verifier — the ~21 tensor micro-ops a transformer needs.</p>
+        </div>
+        <div class="mod reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V7l4 5 4-7 4 9 4-4"/></svg></div>
+          <div class="name">kernels</div>
+          <h4>Deterministic CPU</h4>
+          <p>Reference kernels that run the real model bit-for-bit, the same every time.</p>
+        </div>
+        <div class="mod reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg></div>
+          <div class="name">gpu</div>
+          <h4>Bit-exact Metal / wgpu</h4>
+          <p>The same logits as the CPU path — Metal-vs-CPU bit-identical, as a speed path.</p>
+        </div>
+        <div class="mod reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h7v7H4zM13 13h7v7h-7z"/><path d="M11 7h6v6"/></svg></div>
+          <div class="name">compiler</div>
+          <h4>LLM → VM program</h4>
+          <p>Turns any quantized LLM with float activations into a VM program plus genesis pages.</p>
+        </div>
+        <div class="mod reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></div>
+          <div class="name">game</div>
+          <h4>Dispute & bisection</h4>
+          <p>The interactive bisection, dispute logic, and fuzzers that drive a challenge to one step.</p>
+        </div>
+        <div class="mod reveal pkg">
+          <div class="ic" style="background:rgba(51,230,208,0.14);"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4 3.5 7 8 9 4.5-2 8-5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <div class="name">move</div>
+          <h4>The Sui package</h4>
+          <p>The ~330-line referee — your one dependency. <code style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);">verify_step</code> lives here.</p>
+        </div>
+        <div class="mod reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v4h4M8 13h8M8 17h6"/></svg></div>
+          <div class="name">docs</div>
+          <h4>SPEC · ANALYSIS · PRIOR_ART</h4>
+          <p>The written spec, security analysis, and how opML compares to the field.</p>
+        </div>
+        <div class="mod reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/></svg></div>
+          <div class="name">demos</div>
+          <h4>Application #1</h4>
+          <p>The prediction market — the first thing built on the engine, not the engine itself.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  
+
+  <div class="divider"></div>
+
+  <!-- ===================== SPEC STRIP — reference benchmarks ===================== -->
+  <section class="section tight">
+    <div class="wrap">
+      <div class="sec-head2 reveal" style="margin-bottom:30px;">
+        <span class="kick">Reference benchmarks</span>
+        <h2>Measured, not projected.</h2>
+        <p>Engine reference numbers on committed-float Qwen3-0.6B — the published model, not a toy.</p>
+      </div>
+
+      <div class="spec reveal">
+        <div class="spec-head">
+          <span class="l">opML · reference spec</span>
+          <span class="r">model <b>Qwen3-0.6B</b> &nbsp;·&nbsp; platform <b>Apple M4</b> &nbsp;·&nbsp; committed-float</span>
+        </div>
+        <div class="spec-rows">
+          <div class="spec-row">
+            <div class="k">Committed-float perplexity<span class="sub">libm float 34.60 · llama.cpp Q8 34.99 · the real model</span></div>
+            <div class="v">34.5974</div>
+          </div>
+          <div class="spec-row">
+            <div class="k">Logits, all bit-identical<span class="sub">1-vs-10 CPU threads · Metal-vs-CPU</span></div>
+            <div class="v">151,936</div>
+          </div>
+          <div class="spec-row">
+            <div class="k">Honest-path overhead vs bare predictor<span class="sub">Merkle commitment built for free as the pass runs</span></div>
+            <div class="v">0–3<span class="u">%</span></div>
+          </div>
+          <div class="spec-row">
+            <div class="k">On-chain referee, in Move<span class="sub">int + float conviction · 1 verify_step / dispute</span></div>
+            <div class="v">~330<span class="u">LoC</span></div>
+          </div>
+        </div>
+        <div class="spec-foot">Not projected — <b>measured</b> on a laptop. First time any of this exists on Sui Move.</div>
+      </div>
+    </div>
+  </section>
+
+  
+
+  <div class="divider"></div>
+
+  <!-- ===================== AUTHENTICATED INPUTS ===================== -->
+  <section class="section">
+    <div class="wrap">
+      <div class="inputs">
+        <div class="copy reveal">
+          <span class="kick">Authenticated inputs</span>
+          <h2>The judge reads only signed statements.</h2>
+          <p>
+            A fraud proof of garbage is still garbage. So the judge only reads evidence the chain can
+            <span class="em">verify itself</span> — signed by native crypto — with
+            <span class="em">k-of-n independent pinned issuers</span> for safety. No committee, no vote.
+          </p>
+          <p>
+            The world already signs its facts; opML makes the answer an
+            <span class="em">on-chain object no one has to trust</span>.
+          </p>
+        </div>
+
+        <div class="src reveal">
+          <div class="src-row">
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#5fd9ff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4 3.5 7 8 9 4.5-2 8-5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+            <div class="tx"><div class="t">zkTLS web-proof</div><div class="d">verified on-chain by native crypto</div></div>
+            <span class="ok">signed</span>
+          </div>
+          <div class="src-row">
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#5fd9ff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V7l4 5 4-7 4 9 4-4"/></svg></div>
+            <div class="tx"><div class="t">Signed feeds</div><div class="d">ed25519 · pinned issuers</div></div>
+            <span class="ok">signed</span>
+          </div>
+          <div class="src-row">
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#5fd9ff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-5.5 7-5.5s7 1.9 7 5.5"/></svg></div>
+            <div class="tx"><div class="t">OAuth-JWT via zkLogin</div><div class="d">native identity primitive</div></div>
+            <span class="ok">signed</span>
+          </div>
+          <div class="src-row">
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#5fd9ff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></div>
+            <div class="tx"><div class="t">DKIM email</div><div class="d">domain-signed, verifiable on-chain</div></div>
+            <span class="ok">signed</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ===================== WHAT IT UNLOCKS ===================== -->
+  <section class="section">
+    <div class="wrap">
+      <div class="sec-head2 reveal">
+        <span class="kick">What it unlocks</span>
+        <h2>Apps built on the engine.</h2>
+        <p>One claim's verdict becomes another claim's signed input — a verifiable computation graph on Sui.</p>
+      </div>
+
+      <div class="unlocks">
+        <div class="unlock reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
+          <h4>Markets with no oracle</h4>
+          <p>Prediction markets for events and news no oracle could settle before — settled by proof, not a vote.</p>
+        </div>
+        <div class="unlock reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4 3.5 7 8 9 4.5-2 8-5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <h4>Real-world oracles & insurance</h4>
+          <p>Any signed fact on-chain — no node network. Insurance triggers fire on a proven condition.</p>
+        </div>
+        <div class="unlock reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#33e6d0" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-5.5 7-5.5s7 1.9 7 5.5"/></svg></div>
+          <h4>Identity & agent gating</h4>
+          <p>On-chain KYC via zkLogin; an agent acts only on a proven condition. Verdicts compose into a graph.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  
+
+  <!-- ===================== CLOSER ===================== -->
+  <section class="closer-b">
+    <div class="wrap">
+      <p class="line reveal">
+        Not another AI app — the <b>primitive</b> everyone builds the next one on.
+      </p>
+      <div class="cta-row reveal"><a class="btn btn-primary" href="https://github.com/arty-arty/veritas">View on GitHub<span class="arr" aria-hidden="true">&rarr;</span></a><a class="btn btn-ghost" href="https://github.com/arty-arty/veritas/blob/main/opml/docs/SPEC.md">Read the SPEC &#8599;</a><a class="btn btn-ghost" href="flow.html">See it live &#8599;</a></div>
+    </div>
+  </section>
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer>
+    <div class="wrap">
+      <div class="foot-in">
+        <div class="built">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2 21 6.5V12c0 5.2-3.6 8.6-9 10C6.6 20.6 3 17.2 3 12V6.5L12 2Z" stroke="#33e6d0" stroke-width="1.3" opacity=".55"/>
+            <path d="m8.4 12.2 2.7 2.7 4.7-5.6" stroke="#33e6d0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Veritas · opML — first fraud-proof LLM inference on Sui Move
+        </div>
+        <div class="foot-links docrow">
+          <a href="https://github.com/arty-arty/veritas">GitHub</a>
+          <a href="https://github.com/arty-arty/veritas/blob/main/opml/docs/SPEC.md">SPEC</a>
+          <a href="https://github.com/arty-arty/veritas/blob/main/opml/docs/ANALYSIS.md">ANALYSIS</a>
+          <a href="https://github.com/arty-arty/veritas/blob/main/opml/docs/PRIOR_ART.md">PRIOR_ART</a>
+          <a href="https://github.com/arty-arty/veritas/blob/main/VISION.md">VISION</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<script>document.documentElement.classList.add('js');</script>
+<script src="assets/atmos.js"></script>
+</body>
+</html>

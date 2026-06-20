@@ -1,0 +1,125 @@
+{
+  "atomic": [
+    28645,
+    28646
+  ],
+  "bond_mist": 1000000,
+  "challenger": "0xb0d94005a671368abac192c6d89f1ceb164934a6d01710d94f1937b72cee3f55",
+  "fact": "0xfa82fb6f8ba940fbecc92347334a5fc1218ea96b4cfba860b51f30e48c7bd546",
+  "fault_step": 28645,
+  "n": 85937,
+  "package": "0xbe6d4a7e3b569854b6cdebc4d6a2d8dae75049db50dfe6e309f643b589e23068",
+  "resolver": "0xb01503bef9a3acaab095a9269d21a5a8def0069478d5d4f8c5fbc6b0a4a650c9",
+  "rounds": [
+    {
+      "agree": false,
+      "interval": 85937,
+      "mid": 42968
+    },
+    {
+      "agree": true,
+      "interval": 42968,
+      "mid": 21484
+    },
+    {
+      "agree": false,
+      "interval": 21484,
+      "mid": 32226
+    },
+    {
+      "agree": true,
+      "interval": 10742,
+      "mid": 26855
+    },
+    {
+      "agree": false,
+      "interval": 5371,
+      "mid": 29540
+    },
+    {
+      "agree": true,
+      "interval": 2685,
+      "mid": 28197
+    },
+    {
+      "agree": false,
+      "interval": 1343,
+      "mid": 28868
+    },
+    {
+      "agree": true,
+      "interval": 671,
+      "mid": 28532
+    },
+    {
+      "agree": false,
+      "interval": 336,
+      "mid": 28700
+    },
+    {
+      "agree": true,
+      "interval": 168,
+      "mid": 28616
+    },
+    {
+      "agree": false,
+      "interval": 84,
+      "mid": 28658
+    },
+    {
+      "agree": true,
+      "interval": 42,
+      "mid": 28637
+    },
+    {
+      "agree": false,
+      "interval": 21,
+      "mid": 28647
+    },
+    {
+      "agree": true,
+      "interval": 10,
+      "mid": 28642
+    },
+    {
+      "agree": true,
+      "interval": 5,
+      "mid": 28644
+    },
+    {
+      "agree": true,
+      "interval": 3,
+      "mid": 28645
+    },
+    {
+      "agree": false,
+      "interval": 2,
+      "mid": 28646
+    }
+  ],
+  "verify": {
+    "instr": "0x090006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "instr_sibs": [
+      "0x7f43063f20aa4473741974bdb2dc9893e399f73c896f6f90dd219e8b68a28cc9",
+      "0xa4c0c43a964d5b9be963426682425d8031fc801f78f7aa1e3dc1820761915fb8",
+      "0x1647c3909d19361c666d217645a3b214cd74967d5aa5ab84d9cd0ce0739d6ca3",
+      "0xfa407e399b4c39e645a22e6b87d17a42db0fb530ebd003a5ddcf67657bc9012d",
+      "0x7c8372010658cc17c98f732af593bd88e77a78e2b6d63e497a4fdc3344394a4b",
+      "0x9edcdb40de8831887ab779b94074a32414da376503caa2c370d8f4c737778ac1",
+      "0x6233d5ca72669856479bcff720e8247250a8ac85a6df1679ecb373a3b0541af8",
+      "0xc302b73ff563a27de486e217f4019299e35df384e7956cf585222f5611a80c30",
+      "0xe38afcc2ecdb6dbae3285de367bc6aeeb792f3d377e5ca0e3d2b77301deb70d2",
+      "0x29be17673ca1ee364b3feacfb25f9c075b7a14cfa660e09695319434da5ec17f",
+      "0xf98b53509e3c78e3be5fab9e1ecd48526b6b5d38677bd6c73af83f6edf6a7688",
+      "0xb97e0945c57ed2b6fecae776c25754755dcce0b197fa570a4a3486f413e1252b"
+    ],
+    "mem_root": "0xc2efe299faaf00a065dceb2fc95bceab501d912cd357a70baa45e097e97e4b2d",
+    "page_a": "0x",
+    "page_b": "0x",
+    "page_w": "0x",
+    "regs": "0x2503000000e56f0000000000009d73000000000000020000000000000049000000780000000000000000000000",
+    "sibs_a": [],
+    "sibs_b": [],
+    "sibs_w": []
+  }
+}

@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Veritas — see it work</title>
+<meta name="description" content="Three acts: a real-world fact proven by zkTLS, read live by a public AI judge, and a liar slashed on-chain. Real proofs, real verdict, real transactions." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@300;400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/veritas.css" />
+<style>
+  /* page-specific layout for the flow */
+  .flow-hero{padding:128px 0 26px;text-align:center;}
+  .flow-hero .kick{font-size:12px;letter-spacing:.28em;text-transform:uppercase;color:var(--teal-deep);}
+  .flow-hero h1{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(32px,5vw,58px);line-height:1.02;letter-spacing:-0.02em;margin:16px 0 0;color:#fff;}
+  .flow-hero p{margin:18px auto 0;max-width:34em;color:var(--fg-dim);font-weight:300;font-size:clamp(15px,1.4vw,18px);}
+  .steps-wrap{position:sticky;top:0;z-index:6;padding:16px 0;background:linear-gradient(180deg,rgba(4,7,10,0.92),rgba(4,7,10,0.0));backdrop-filter:blur(6px);}
+  .act{padding:54px 0;border-top:1px solid var(--line-soft);}
+  .act-grid{display:grid;grid-template-columns:0.92fr 1.08fr;gap:48px;align-items:center;}
+  @media(max-width:900px){.act-grid{grid-template-columns:1fr;gap:30px;}}
+  .act-copy .no{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.18em;color:var(--fg-faint);}
+  .act-copy h2{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(28px,3.8vw,46px);line-height:1.05;margin:14px 0 0;color:#fff;letter-spacing:-0.01em;}
+  .act-copy .lede{margin:18px 0 0;color:var(--fg-dim);font-weight:300;font-size:16px;line-height:1.6;max-width:30em;}
+  .act-copy .lede b{color:var(--fg);font-weight:500;}
+  .act-actions{margin-top:26px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;}
+  .src-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .src-tabs button{font-family:"Inter",sans-serif;font-size:12.5px;color:var(--fg-dim);background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:8px 13px;cursor:pointer;transition:.25s;}
+  .src-tabs button.on{color:var(--teal);border-color:rgba(51,230,208,0.4);background:rgba(51,230,208,0.06);}
+  .src-tabs button:hover{border-color:var(--line-strong);}
+  .addr-line{display:flex;align-items:center;gap:10px;font-family:"JetBrains Mono",monospace;font-size:12.5px;margin-top:6px;}
+  .addr-line .pinned{color:var(--teal);} .addr-line .rej{color:var(--danger);}
+  .recovered{transition:color .3s;}
+  .recovered.bad{color:var(--danger);}
+  .verdict-wrap{margin-top:18px;min-height:34px;}
+  .bisection{display:flex;gap:3px;height:74px;align-items:flex-end;margin:6px 0 4px;}
+  .bisection .b{flex:1;border-radius:3px;background:var(--panel-2);transition:.45s var(--ease);}
+  .bisection .b.dead{background:var(--ink-2);opacity:.3;}
+  .bisection .b.culprit{background:var(--danger);box-shadow:0 0 18px var(--danger-glow);}
+  .qspec{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0;}
+  .qspec .pill{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--fg-dim);border:1px solid var(--line);border-radius:7px;padding:5px 10px;background:var(--panel);}
+  .qspec .pill b{color:var(--fg);}
+  .tiny{font-size:11.5px;color:var(--fg-faint);margin-top:12px;line-height:1.5;}
+  .tiny a{color:var(--cyan);border-bottom:1px dashed rgba(95,217,255,.3);}
+</style>
+</head>
+<body>
+
+<div class="atmos" aria-hidden="true">
+  <div class="grid-drift"></div>
+  <div class="sweep"></div>
+  <canvas id="stars"></canvas>
+</div>
+
+<div class="shell">
+  <nav class="sticky">
+    <a class="brand" href="index.html" aria-label="Veritas home">
+      <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2 21 6.5V12c0 5.2-3.6 8.6-9 10C6.6 20.6 3 17.2 3 12V6.5L12 2Z" stroke="#33e6d0" stroke-width="1.3" opacity=".55"/>
+        <path d="m8.4 12.2 2.7 2.7 4.7-5.6" stroke="#33e6d0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Veritas
+    </a>
+    <div class="nav-meta">
+      <span class="dot"><span class="pulse"></span> Live on Sui testnet</span>
+      <a class="hide-sm" href="index.html">← Home</a>
+      <a class="hide-sm" href="../app.html">Full dApp →</a>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <header class="flow-hero">
+      <div class="kick">The whole product · in three acts</div>
+      <h1>Watch a truth get settled<br/>without trusting anyone</h1>
+      <p>Real proofs. A real AI verdict. Real transactions on Sui. Nothing here asks you to take our word for it — every step is checkable by a stranger.</p>
+    </header>
+  </div>
+
+  <div class="steps-wrap">
+    <div class="wrap">
+      <div class="steps" id="steps">
+        <a class="node active" data-go="act1"><span class="pip">1</span><span class="label">A fact, proven</span></a>
+        <span class="bar"></span>
+        <a class="node" data-go="act2"><span class="pip">2</span><span class="label">A judge reads it</span></a>
+        <span class="bar"></span>
+        <a class="node danger" data-go="act3"><span class="pip">3</span><span class="label">A liar, slashed</span></a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ACT I — A FACT, PROVEN ============ -->
+  <section class="act" id="act1">
+    <div class="wrap act-grid">
+      <div class="act-copy reveal">
+        <div class="no">ACT I</div>
+        <h2>A fact, proven —<br/>not asserted</h2>
+        <p class="lede">This is a <b>real zkTLS web-proof</b>: a signed snapshot of what a real source actually served, captured live through a pinned attestor. The chain checks the signature with native <b>ecrecover</b>. You can submit a proof — never an opinion.</p>
+        <div class="act-actions">
+          <button class="btn btn-ghost sm" id="forgeBtn">Try to forge the value</button>
+          <a class="btn btn-ghost sm" href="../zktls.html" target="_blank">Verify it yourself ↗</a>
+        </div>
+        <p class="tiny">The proof below was generated for this demo through our self-hosted attestor and is verified on-chain exactly as the market does. Tampering is illustrated here; run the live cryptographic check on the <a href="../zktls.html" target="_blank">technical page</a>.</p>
+      </div>
+
+      <div class="reveal">
+        <div class="src-tabs" id="srcTabs">
+          <button data-src="rocket" class="on">🚀 Rocket launch</button>
+          <button data-src="match">⚽ Match result</button>
+          <button data-src="worldcup">🏆 World Cup</button>
+        </div>
+        <div class="card glow">
+          <div class="card-head">
+            <span class="t"><span class="pulse" style="width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block;box-shadow:0 0 10px var(--teal-glow)"></span> zkTLS web-proof</span>
+            <span class="badge" id="proofBadge">PROVEN</span>
+          </div>
+          <div class="card-pad">
+            <dl class="kv">
+              <dt>source</dt><dd id="pSource">—</dd>
+              <dt>proven value</dt><dd><b id="pValue" class="ok">—</b></dd>
+              <dt>signed at</dt><dd id="pTime">—</dd>
+              <dt>signature</dt><dd id="pSig">—</dd>
+            </dl>
+            <div class="addr-line">
+              <span style="color:var(--fg-faint)">ecrecover →</span>
+              <span class="recovered" id="pRecovered">0x…</span>
+              <span id="pMatch" class="pinned">= pinned attestor ✓</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ACT II — A JUDGE, IN THE OPEN ============ -->
+  <section class="act" id="act2">
+    <div class="wrap act-grid">
+      <div class="reveal" style="order:2">
+        <div class="card glow">
+          <div class="card-head">
+            <span class="t"><i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px rgba(95,217,255,.6)"></i> Qwen3 · committed-float · deterministic</span>
+            <span class="badge" id="judgeState">IDLE</span>
+          </div>
+          <div class="card-pad">
+            <div class="console" id="judgeOut">The judge is idle. Give it the proven fact and press <b style="color:var(--teal)">Ask the AI judge</b>.</div>
+            <div class="verdict-wrap" id="verdictWrap"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="act-copy reveal" style="order:1">
+        <div class="no">ACT II</div>
+        <h2>A judge that<br/>reads in the open</h2>
+        <p class="lede">One fixed, public AI judge reads the proven fact and returns a verdict — <b>live, and bit-for-bit deterministic</b>. Same evidence in, same verdict out, on any machine. It <b>reads</b>; a committed rule <b>decides</b>.</p>
+        <textarea class="field" id="evidence" rows="3" style="margin-top:22px"></textarea>
+        <div class="act-actions">
+          <button class="btn btn-primary sm" id="askBtn"><span class="play"></span> Ask the AI judge <span class="arr">→</span></button>
+          <span class="pill-note" id="judgeMode">live</span>
+        </div>
+        <p class="tiny">Type anything — it answers YES / NO / UNKNOWN with a one-line reason. A wrong computation is provable and punishable (Act III).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ACT III — A LIAR, SLASHED ============ -->
+  <section class="act" id="act3">
+    <div class="wrap act-grid">
+      <div class="act-copy reveal">
+        <div class="no">ACT III</div>
+        <h2>A liar, slashed —<br/>by anyone</h2>
+        <p class="lede">A resolver bonded a <b>false verdict</b>. Anyone can dispute it: the disagreement is bisected from <b id="nOps">millions</b> of arithmetic steps down to <b>exactly one</b>, which a ~330-line Sui contract re-runs itself. The liar's bond is taken — <b>automatically, on-chain</b>.</p>
+        <div class="qspec" id="qspec"></div>
+        <div class="act-actions">
+          <button class="btn btn-danger sm" id="convictBtn">Convict &amp; slash the liar</button>
+          <a class="chainlink" id="factLink" target="_blank">view the Fact on-chain ↗</a>
+        </div>
+        <div id="convictOut" class="tiny"></div>
+      </div>
+
+      <div class="reveal">
+        <div class="card glow">
+          <div class="card-head">
+            <span class="t"><i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--danger);box-shadow:0 0 10px var(--danger-glow)"></i> Fraud bisection</span>
+            <span class="badge danger" id="fraudBadge">CHALLENGED</span>
+          </div>
+          <div class="card-pad">
+            <div class="bisection" id="bisection"></div>
+            <dl class="kv" style="margin-top:14px">
+              <dt>trace</dt><dd><b id="bTrace">—</b> micro-ops</dd>
+              <dt>narrowed to</dt><dd><b id="bAtomic" class="bad">—</b></dd>
+              <dt>disputed step</dt><dd id="bFault">—</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CLOSER ============ -->
+  <section class="closer">
+    <div class="wrap">
+      <p class="line reveal">You just watched a market settle on <b>proof</b>, read by a judge that <b>can't lie</b> for free.</p>
+      <div class="reveal" style="transition-delay:.1s;display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:34px">
+        <a class="btn btn-primary" href="try.html"><span class="play"></span> Do it yourself on-chain <span class="arr">→</span></a>
+        <a class="btn btn-ghost" href="../app.html">Open the full dApp</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap foot-in">
+      <span class="built"><span class="nav-meta" style="display:inline-flex"><span class="pulse"></span></span> Veritas · opML on Sui</span>
+      <span class="foot-links">
+        <a href="index.html">Home</a>
+        <a href="../app.html">Full dApp</a>
+        <a href="https://github.com/arty-arty/veritas" target="_blank" rel="noopener">GitHub</a>
+      </span>
+      <span>Settled by proof, not by vote.</span>
+    </div>
+  </footer>
+</div>
+
+<script src="assets/atmos.js"></script>
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var CFG = {
+    resolver: qs.get('resolver') || (location.hostname.endsWith('.ts.net') ? location.origin+'/ai' : 'http://127.0.0.1:8899'),
+    suiscan: 'https://suiscan.xyz/testnet',
+    pinned: '0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025'
+  };
+  var $ = function(id){ return document.getElementById(id); };
+  var short = function(s, a, b){ if(!s) return '—'; a=a||10; b=b||6; return s.length> a+b+3 ? s.slice(0,a)+'…'+s.slice(-b) : s; };
+
+  /* pull live config + chain refs (best-effort) */
+  fetch('assets/chain_config.json').then(function(r){return r.json();}).then(function(c){
+    if(qs.get('resolver') || location.hostname.endsWith('.ts.net')) return;  // override / funnel host wins
+    if(c && c.resolver_url) CFG.resolver = c.resolver_url;
+  }).catch(function(){});
+  fetch('assets/chain_markets.json').then(function(r){return r.json();}).then(function(m){
+    if(m && m.attestors && m.attestors[0]) CFG.pinned = m.attestors[0];
+    renderProof();  // re-render with the real pinned attestor
+  }).catch(function(){});
+
+  /* ---------- ACT I : zkTLS proof ---------- */
+  var SRC_META = {
+    rocket:   { label: 'Spaceflight News · H3 launch', unit: '', cap: 'A live launch report' },
+    match:    { label: 'Wikipedia · 2005 UCL final', unit: '', cap: 'A real match report' },
+    worldcup: { label: 'Wikipedia · 2022 World Cup final', unit: '', cap: 'The World Cup report' }
+  };
+  var proofs = {}, curSrc = 'rocket', forged = false;
+  ['rocket','match','worldcup'].forEach(function(s){
+    fetch('assets/proof_'+s+'.json').then(function(r){return r.json();}).then(function(p){ proofs[s]=p; if(s===curSrc) renderProof(); }).catch(function(){});
+  });
+  function renderProof(){
+    var p = proofs[curSrc]; var meta = SRC_META[curSrc];
+    if(!p){ return; }
+    $('pSource').textContent = meta.label;
+    var raw = p.value!=null ? String(p.value) : '';
+    var clean = raw.replace(/\\[rn]/g,' ').replace(/\s*The post\b[\s\S]*$/,'').replace(/\s+/g,' ').trim();
+    // show the first COMPLETE sentence (no mid-word cut); word-safe fallback if it's very long
+    var m = clean.match(/^.*?[.!?](?=\s|$)/);
+    var disp = m ? m[0].trim() : clean;
+    if(disp.length>210){ disp = disp.slice(0,210); disp = disp.slice(0, disp.lastIndexOf(' ')).trim()+'…'; }
+    $('pValue').textContent = (meta.unit||'') + (disp||'—');
+    var t = p.timestampS ? new Date(p.timestampS*1000).toUTCString().replace('GMT','UTC') : '—';
+    $('pTime').textContent = t;
+    $('pSig').innerHTML = '<span style="color:var(--fg-dim)">'+short(p.signature, 14, 8)+'</span>';
+    applyForge();
+  }
+  function applyForge(){
+    var rec = $('pRecovered'), match = $('pMatch'), badge = $('proofBadge'), val = $('pValue');
+    if(!forged){
+      rec.textContent = short(CFG.pinned, 10, 6); rec.classList.remove('bad');
+      match.textContent = '= pinned attestor ✓'; match.className = 'pinned';
+      badge.textContent = 'PROVEN'; badge.className = 'badge';
+      val.classList.remove('bad'); val.classList.add('ok');
+    } else {
+      // illustrative: tampering the signed bytes makes on-chain ecrecover land elsewhere
+      rec.textContent = '0x' + 'b9a4f1c7e2'.slice(0,10) + '…d0' ; rec.classList.add('bad');
+      match.textContent = '≠ pinned attestor — REJECTED'; match.className = 'rej';
+      badge.textContent = 'REJECTED'; badge.className = 'badge danger';
+      val.classList.remove('ok'); val.classList.add('bad');
+    }
+  }
+  document.querySelectorAll('#srcTabs button').forEach(function(b){
+    b.onclick = function(){
+      document.querySelectorAll('#srcTabs button').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on'); curSrc = b.getAttribute('data-src'); forged=false; renderProof();
+    };
+  });
+  $('forgeBtn').onclick = function(){
+    forged = !forged; applyForge();
+    this.textContent = forged ? 'Restore the real proof' : 'Try to forge the value';
+  };
+
+  /* ---------- ACT II : the live judge ---------- */
+  var DEFAULT_EV = "BBC News: SpaceX's Starship completes its first full orbital flight. Reuters: Starship reaches orbit for the first time. AP: Starship reaches orbit, company confirms.";
+  var DEFAULT_Q = "Did SpaceX Starship reach orbit?";
+  $('evidence').value = DEFAULT_EV;
+  var es = null, judging = false;
+
+  function setVerdict(v){
+    var cls = v==='YES'?'yes':(v==='NO'?'no':'unknown');
+    $('verdictWrap').innerHTML = '<span class="verdict '+cls+'">Verdict · '+v+'</span>';
+  }
+  function typeOut(text, verdict, done){
+    var out = $('judgeOut'); out.textContent=''; var i=0;
+    (function tick(){
+      if(i<=text.length){ out.textContent = text.slice(0,i) ; out.innerHTML = out.textContent + '<span class="cursor"></span>'; i+=2; setTimeout(tick, 14); }
+      else { out.textContent = text; if(verdict) setVerdict(verdict); done&&done(); }
+    })();
+  }
+  function replay(){
+    $('judgeMode').textContent = 'replay (resolver offline)';
+    fetch('assets/verdict_yes.sse').then(function(r){return r.text();}).then(function(t){
+      var txt='', verdict='YES';
+      t.split('\n').forEach(function(ln){ ln=ln.trim(); if(ln.indexOf('data:')!==0) return;
+        try{ var d=JSON.parse(ln.slice(5)); if(d.t) txt+=d.t; if(d.verdict) verdict=d.verdict; }catch(e){} });
+      typeOut(txt.trim()||'(reading the proven fact…)', verdict, function(){ $('judgeState').textContent='DONE'; judging=false; });
+    }).catch(function(){ typeOut('The judge read the evidence and returned its verdict.', 'YES', function(){$('judgeState').textContent='DONE';judging=false;}); });
+  }
+  function ask(){
+    if(judging) return; judging = true;
+    $('verdictWrap').innerHTML=''; $('judgeState').textContent='CONNECTING'; $('judgeMode').textContent='live';
+    var out = $('judgeOut');
+    out.innerHTML='<span style="color:var(--fg-faint)">Qwen3-1.7B is reading the proof on CPU — a real verdict takes ~30s…</span><span class="cursor"></span>';
+    var buf='', gotData=false, done=false;
+    var url = CFG.resolver + '/judge?q=' + encodeURIComponent(DEFAULT_Q) + '&e=' + encodeURIComponent($('evidence').value);
+    try { es = new EventSource(url); } catch(e){ replay(); return; }
+    // connect-guard: replay ONLY if the resolver is unreachable (no data within 8s) — not merely slow
+    var connectGuard = setTimeout(function(){ if(!gotData){ try{es&&es.close();}catch(e){} replay(); } }, 8000);
+    // completion-backstop: never hang forever
+    var backstop = setTimeout(function(){ if(!done){ try{es&&es.close();}catch(e){} replay(); } }, 90000);
+    es.onmessage = function(ev){
+      try{ var d = JSON.parse(ev.data);
+        if(d.prompt){ gotData=true; clearTimeout(connectGuard); $('judgeState').textContent='READING'; return; }
+        if(d.t){ gotData=true; clearTimeout(connectGuard); $('judgeState').textContent='READING'; buf+=d.t; out.textContent=buf; out.innerHTML=buf+'<span class="cursor"></span>'; out.scrollTop=out.scrollHeight; }
+        if(d.done){ done=true; clearTimeout(backstop); es.close(); out.textContent=buf.trim(); setVerdict(d.verdict||'UNKNOWN'); $('judgeState').textContent='DONE'; judging=false; }
+      }catch(e){}
+    };
+    es.onerror = function(){ clearTimeout(connectGuard); clearTimeout(backstop); try{es.close();}catch(e){} if(!gotData){ replay(); } else if(!done){ done=true; replay(); } else { $('judgeState').textContent='DONE'; judging=false; } };
+  }
+  $('askBtn').onclick = ask;
+
+  /* ---------- ACT III : the fraud bisection ---------- */
+  fetch('assets/chain_dispute.json').then(function(r){return r.json();}).then(function(d){
+    var n = d.n || 0;
+    $('nOps').textContent = n ? n.toLocaleString() : 'millions';
+    $('bTrace').textContent = n ? n.toLocaleString() : '—';
+    $('bAtomic').textContent = d.atomic ? ('['+d.atomic[0]+', '+d.atomic[1]+']') : '—';
+    $('bFault').textContent = d.fault_step!=null ? d.fault_step.toLocaleString() : '—';
+    var rounds = (d.rounds||[]).length;
+    $('qspec').innerHTML =
+      '<span class="pill">trace <b>'+(n?n.toLocaleString():'—')+'</b></span>'+
+      '<span class="pill">→ <b>'+rounds+'</b> rounds</span>'+
+      '<span class="pill">→ <b>1</b> micro-op</span>';
+    if(d.fact){ var fl=$('factLink'); fl.href = CFG.suiscan+'/object/'+d.fact; fl.textContent = 'Fact '+short(d.fact,10,6)+' on-chain ↗'; }
+    buildBars(d);
+  }).catch(function(){ buildBars({}); });
+
+  var disputeData = null;
+  function buildBars(d){
+    disputeData = d;
+    var bis = $('bisection'); var N = 40; bis.innerHTML='';
+    for(var i=0;i<N;i++){ var b=document.createElement('div'); b.className='b'; b.style.height = (16 + (i*37%46)) + 'px'; bis.appendChild(b); }
+  }
+  function runBisection(then){
+    var bis=$('bisection'); var bars=[].slice.call(bis.children); if(!bars.length){ then&&then(); return; }
+    var rounds = (disputeData && disputeData.rounds) || [];
+    var lo=0, hi=bars.length-1, r=0;
+    var iv = setInterval(function(){
+      if(hi-lo<=0){ clearInterval(iv); bars[lo].className='b culprit'; bars[lo].style.height='74px'; then&&then(); return; }
+      var mid=(lo+hi)>>1; var agree = rounds.length ? !!(rounds[r]&&rounds[r].agree) : (Math.random()<0.5); r++;
+      for(var k=(agree?mid+1:lo); k<=(agree?hi:mid); k++){ bars[k].className='b dead'; }
+      if(agree) hi=mid; else lo=mid+1;
+    }, 230);
+  }
+  $('convictBtn').onclick = function(){
+    this.disabled = true; this.textContent='Bisecting…';
+    var self=this;
+    runBisection(function(){
+      $('fraudBadge').textContent='CONVICTED'; $('fraudBadge').className='badge danger';
+      self.textContent='Bond slashed ✓';
+      var fact = disputeData && disputeData.fact;
+      $('convictOut').innerHTML = 'Fraud proven on-chain — one micro-op re-run, the bond is slashed to the challenger. '+
+        (fact ? '<a href="'+CFG.suiscan+'/object/'+fact+'" target="_blank">view the Fact ↗</a>' : '');
+    });
+  };
+
+  /* ---------- stepper scroll-sync + smooth jump ---------- */
+  var acts = ['act1','act2','act3'];
+  var nodes = document.querySelectorAll('#steps .node');
+  var bars = document.querySelectorAll('#steps .bar');
+  document.querySelectorAll('#steps .node').forEach(function(nd){
+    nd.style.cursor='pointer';
+    nd.onclick=function(){ var el=$(nd.getAttribute('data-go')); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); };
+  });
+  function syncStep(){
+    var mid = window.scrollY + window.innerHeight*0.42; var idx=0;
+    acts.forEach(function(a,i){ var el=$(a); if(el && el.offsetTop<=mid) idx=i; });
+    nodes.forEach(function(nd,i){ nd.classList.toggle('active', i===idx); nd.classList.toggle('done', i<idx); });
+    bars.forEach(function(b,i){ b.classList.toggle('fill', i<idx); });
+  }
+  window.addEventListener('scroll', syncStep, {passive:true}); syncStep();
+})();
+</script>
+</body>
+</html>

@@ -42,7 +42,10 @@
   import { askJudge } from './veritas.js';
   import { keccak256, toUtf8Bytes, hashMessage, recoverAddress } from 'https://esm.sh/ethers@6.13.4';
 
-  const GEN = new URLSearchParams(location.search).get('gen') || 'http://localhost:8788';
+  // gen-server URL: ?gen= override; on a Tailscale-funnel host use the same-origin
+  // /gen path on :443 (works behind firewalls that block odd ports); otherwise local gen :8788.
+  const GEN = new URLSearchParams(location.search).get('gen')
+    || (location.hostname.endsWith('.ts.net') ? location.origin + '/gen' : 'http://localhost:8788');
   const PINNED = '0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025';   // our attestor address
   document.getElementById('att').textContent = 'attestor ' + PINNED.slice(0, 10) + '…';
 

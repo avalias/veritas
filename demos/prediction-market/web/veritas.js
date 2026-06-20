@@ -164,7 +164,10 @@ export const tx = {
 // re-runs one micro-op if the verdict is disputed. Returns null if the resolver
 // is unreachable.
 export function askJudge(question, evidence, { onPrompt, onToken } = {}) {
-  const url = (new URLSearchParams(location.search).get('resolver') || CFG.resolver_url || 'http://127.0.0.1:8899');
+  // resolver URL: ?resolver= override; on a Tailscale-funnel host use the same-origin
+  // /ai path on :443 (works behind firewalls that block odd ports); otherwise config / local :8899.
+  const url = (new URLSearchParams(location.search).get('resolver')
+    || (location.hostname.endsWith('.ts.net') ? location.origin + '/ai' : (CFG.resolver_url || 'http://127.0.0.1:8899')));
   return new Promise((resolve) => {
     let es;
     try { es = new EventSource(`${url}/judge?q=${encodeURIComponent(question)}&e=${encodeURIComponent(evidence)}`); }

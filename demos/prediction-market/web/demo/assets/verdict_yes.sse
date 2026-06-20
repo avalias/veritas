@@ -1,0 +1,52 @@
+data:{"prompt":"You are a strict fact-checker for a prediction market. You are given a QUESTION and one REPORT, and you decide what the report says about the question.\n\nAnswer YES only if the report clearly states the event happened or is true.\nAnswer NO only if the report clearly states it did not happen, failed, was cancelled, or is false.\nAnswer UNKNOWN if the report does not give enough information to decide, or is about something else.\n\nReply in exactly this format and nothing else:\nVERDICT: YES or NO or UNKNOWN\nREASON: one short sentence citing the report.\n\nQUESTION: Did SpaceX Starship reach orbit?\nREPORT: \"BBC News: SpaceX's Starship completes its first full orbital flight. Reuters: Starship reaches orbit for the first time. AP: Starship reaches orbit, company confirms.\""}
+
+data:{"t":"VER"}
+
+data:{"t":"D"}
+
+data:{"t":"ICT"}
+
+data:{"t":":"}
+
+data:{"t":" YES"}
+
+data:{"t":"\n"}
+
+data:{"t":"RE"}
+
+data:{"t":"ASON"}
+
+data:{"t":":"}
+
+data:{"t":" The"}
+
+data:{"t":" report"}
+
+data:{"t":" states"}
+
+data:{"t":" that"}
+
+data:{"t":" SpaceX"}
+
+data:{"t":"'s"}
+
+data:{"t":" Star"}
+
+data:{"t":"ship"}
+
+data:{"t":" reached"}
+
+data:{"t":" orbit"}
+
+data:{"t":" for"}
+
+data:{"t":" the"}
+
+data:{"t":" first"}
+
+data:{"t":" time"}
+
+data:{"t":"."}
+
+data:{"verdict":"YES","done":true}
+

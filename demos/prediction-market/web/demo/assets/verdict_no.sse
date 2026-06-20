@@ -1,0 +1,94 @@
+data:{"prompt":"You are a strict fact-checker for a prediction market. You are given a QUESTION and one REPORT, and you decide what the report says about the question.\n\nAnswer YES only if the report clearly states the event happened or is true.\nAnswer NO only if the report clearly states it did not happen, failed, was cancelled, or is false.\nAnswer UNKNOWN if the report does not give enough information to decide, or is about something else.\n\nReply in exactly this format and nothing else:\nVERDICT: YES or NO or UNKNOWN\nREASON: one short sentence citing the report.\n\nQUESTION: Did Bitcoin trade above 100000 USD?\nREPORT: \"Coinbase spot price for BTC-USD is 62960 USD as of today.\""}
+
+data:{"t":"VER"}
+
+data:{"t":"D"}
+
+data:{"t":"ICT"}
+
+data:{"t":":"}
+
+data:{"t":" NO"}
+
+data:{"t":"  \n"}
+
+data:{"t":"RE"}
+
+data:{"t":"ASON"}
+
+data:{"t":":"}
+
+data:{"t":" The"}
+
+data:{"t":" report"}
+
+data:{"t":" states"}
+
+data:{"t":" that"}
+
+data:{"t":" Coinbase"}
+
+data:{"t":"'s"}
+
+data:{"t":" spot"}
+
+data:{"t":" price"}
+
+data:{"t":" for"}
+
+data:{"t":" BTC"}
+
+data:{"t":"-"}
+
+data:{"t":"USD"}
+
+data:{"t":" is"}
+
+data:{"t":" "}
+
+data:{"t":"6"}
+
+data:{"t":"2"}
+
+data:{"t":"9"}
+
+data:{"t":"6"}
+
+data:{"t":"0"}
+
+data:{"t":" USD"}
+
+data:{"t":" as"}
+
+data:{"t":" of"}
+
+data:{"t":" today"}
+
+data:{"t":","}
+
+data:{"t":" which"}
+
+data:{"t":" is"}
+
+data:{"t":" below"}
+
+data:{"t":" "}
+
+data:{"t":"1"}
+
+data:{"t":"0"}
+
+data:{"t":"0"}
+
+data:{"t":"0"}
+
+data:{"t":"0"}
+
+data:{"t":"0"}
+
+data:{"t":" USD"}
+
+data:{"t":"."}
+
+data:{"verdict":"NO","done":true}
+

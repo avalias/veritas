@@ -1,0 +1,18 @@
+{
+  "package": "0x128f9a3c051da659ba7bb94f18d77c553f08603d96a35b3d8cea8905e610c19a",
+  "opml_package": "0xbe6d4a7e3b569854b6cdebc4d6a2d8dae75049db50dfe6e309f643b589e23068",
+  "network": "testnet",
+  "rpc": "https://fullnode.testnet.sui.io:443",
+  "admin": "0xb0d94005a671368abac192c6d89f1ceb164934a6d01710d94f1937b72cee3f55",
+  "clock": "0x6",
+  "reclaim_attestor": "0xDa11C9Da04Ab02C4AF9374B27A5E727944D3E1dD",
+  "reclaim": {
+    "app_id": "",
+    "app_secret": "",
+    "provider_id": "",
+    "attestor": "0xda11c9da04ab02c4af9374b27a5e727944d3e1dd"
+  },
+  "resolver_url": "http://127.0.0.1:8899",
+  "gas_budget": 40000000,
+  "seed_liq": 70000000
+}

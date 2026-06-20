@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Veritas — live on Sui devnet</title>
+<title>Veritas — live on Sui testnet</title>
 <style>
   :root{
     --bg:#0B0E13;--surface:#141922;--surface2:#1C2430;--inset:#10151D;
@@ -118,7 +118,7 @@
 <nav><div class="wrap">
   <div class="brand"><span class="dot"></span> Veritas</div>
   <div class="navright">
-    <span class="netpill">● Sui devnet · live</span>
+    <span class="netpill">● Sui testnet · live</span>
     <button class="btn" id="createBtn"><i class="ti ti-plus"></i> <span class="ct">Create market</span></button>
     <button class="btn" id="walletBtn">Connect wallet</button>
   </div>
@@ -127,7 +127,7 @@
 <div class="wrap">
   <div class="hero">
     <h1>Bet on the real world. The truth is decided by proof, not a vote.</h1>
-    <p>These are real markets, live on Sui devnet. Connect a wallet and trade. When a market comes due, it resolves on what BBC, Reuters and AP actually published — proven with zkTLS and read by a fraud-provable AI judge. Nobody votes the outcome.</p>
+    <p>These are real markets, live on Sui testnet. Connect a wallet and trade. When a market comes due, it resolves on what BBC, Reuters and AP actually published — proven with zkTLS and read by a fraud-provable AI judge. Nobody votes the outcome.</p>
     <div class="why">
       <div class="c"><div class="h"><i class="ti ti-ban" style="color:var(--red)"></i> You can't vote the result</div><div class="d">Evidence isn't an opinion. It's a zkTLS proof of what a pinned source actually served. You cannot forge what BBC published.</div></div>
       <div class="c"><div class="h"><i class="ti ti-users-group" style="color:var(--amber)"></i> Counted per source</div><div class="d">1,000 copies of one article = one source. k independent sources must agree — submissions don't add up to a vote.</div></div>
@@ -137,7 +137,7 @@
   <div id="fraudBanner" style="display:none;background:var(--red-fill);border:1px solid rgba(255,107,107,.4);border-radius:14px;padding:16px 18px;margin:6px 0 4px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
     <div style="display:flex;align-items:center;gap:12px">
       <i class="ti ti-gavel" style="font-size:24px;color:var(--red)"></i>
-      <div><div style="font-weight:600">A resolver is lying right now — on devnet.</div>
+      <div><div style="font-weight:600">A resolver is lying right now — on testnet.</div>
       <div class="dim" style="font-size:13px">A fraudulent AI-judge result, bonded and disputed. The lie is bisected down to one micro-op. Deliver the proof and slash them.</div></div>
     </div>
     <button class="btn" id="fraudBtn" style="white-space:nowrap"><i class="ti ti-scale"></i> Open the Fraud Lab</button>
@@ -149,15 +149,15 @@
     <div class="why" style="grid-template-columns:repeat(4,1fr)">
       <div class="c"><div class="h" style="color:var(--teal)"><i class="ti ti-cpu"></i> Real AI judge</div><div class="d">Qwen3-1.7B in a deterministic VM · committed-float, <b style="color:var(--tx)">bit-identical</b> on any CPU or GPU. The model as published, not dumbed down.</div></div>
       <div class="c"><div class="h" style="color:var(--blue)"><i class="ti ti-copy-check"></i> Bit-identical</div><div class="d">Same output on any CPU or GPU, to the last bit. "Run it yourself" is real, not a slogan.</div></div>
-      <div class="c"><div class="h" style="color:var(--purple)"><i class="ti ti-shield-lock"></i> zkTLS on-chain</div><div class="d">A real attestor signature verified by Sui-native <span class="mono">ecrecover</span>. <a href="https://suiscan.xyz/devnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1" target="_blank">see the tx</a></div></div>
+      <div class="c"><div class="h" style="color:var(--purple)"><i class="ti ti-shield-lock"></i> zkTLS on-chain</div><div class="d">A real attestor signature verified by Sui-native <span class="mono">ecrecover</span>. <a href="https://suiscan.xyz/testnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1" target="_blank">see the tx</a></div></div>
       <div class="c"><div class="h" style="color:var(--red)"><i class="ti ti-gavel"></i> Fraud-provable</div><div class="d">A real judge fault was bisected to one micro-op and <b style="color:var(--tx)">convicted on-chain</b>. Lying is slashable.</div></div>
     </div>
-    <div class="note" style="margin-top:12px">Could you run the Qwen judge yourself in a TEE? Yes — on <b>Sui Nautilus</b> (AWS Nitro), with its attestation verified on-chain as a second layer behind the fraud proof. The whole package — markets, zkTLS, the judge, the dispute game — is <b>70 passing Move tests</b>, deployed here on devnet.</div>
+    <div class="note" style="margin-top:12px">Could you run the Qwen judge yourself in a TEE? Yes — on <b>Sui Nautilus</b> (AWS Nitro), with its attestation verified on-chain as a second layer behind the fraud proof. The whole package — markets, zkTLS, the judge, the dispute game — is <b>70 passing Move tests</b>, deployed here on testnet.</div>
   </div>
 </div>
 
 <footer><div class="wrap">
-  Package <a id="pkglink" class="mono" target="_blank">…</a> on Sui devnet · 70 Move tests · fraud-provable AI judge ·
+  Package <a id="pkglink" class="mono" target="_blank">…</a> on Sui testnet · 70 Move tests · fraud-provable AI judge ·
   <a href="index.html">the walkthrough</a> · <a href="../../PRODUCT.md">how it works</a>
   <div style="margin-top:8px" class="faint">This is the anti-UMA: in a token-vote oracle, whoever holds the most tokens decides the outcome after the fact. Here the outcome is a function of zkTLS-proven sources + a deterministic AI — no amount of money changes a secp256k1 verification or a fraud proof.</div>
 </div></footer>
@@ -176,7 +176,7 @@ const client = new SuiClient({ url: CFG.rpc });
 const CLOCK = '0x6';
 const PKG = CFG.package;
 document.getElementById('pkglink').textContent = PKG.slice(0,10)+'…'+PKG.slice(-4);
-document.getElementById('pkglink').href = `https://suiscan.xyz/devnet/object/${PKG}`;
+document.getElementById('pkglink').href = `https://suiscan.xyz/testnet/object/${PKG}`;
 
 let wallet=null, account=null;
 const toast=(m,ok=true)=>{const t=document.getElementById('toast');t.innerHTML=m;t.style.display='block';t.style.borderColor=ok?'var(--teal-deep)':'var(--red)';setTimeout(()=>t.style.display='none',7000);};
@@ -205,12 +205,12 @@ function stopLive(){ if(liveTimer){clearInterval(liveTimer);liveTimer=null;} }
 function findWallet(){return getWallets().get().find(w=>w.features['standard:connect'] && (w.features['sui:signAndExecuteTransaction']||w.features['sui:signAndExecuteTransactionBlock']));}
 async function connect(){
   wallet=findWallet();
-  if(!wallet){toast('No Sui wallet found. Install <a href="https://slush.app" target="_blank">Slush</a> and set it to devnet.',false);return;}
+  if(!wallet){toast('No Sui wallet found. Install <a href="https://slush.app" target="_blank">Slush</a> and set it to testnet.',false);return;}
   try{
     const r=await wallet.features['standard:connect'].connect();
     account=(r.accounts&&r.accounts[0])||wallet.accounts[0];
     document.getElementById('walletBtn').textContent=account.address.slice(0,6)+'…'+account.address.slice(-4);
-    toast('Connected to '+wallet.name+'. Make sure it is on <b>devnet</b>.');
+    toast('Connected to '+wallet.name+'. Make sure it is on <b>testnet</b>.');
     if(typeof tourDone==='function') tourDone('connect');
   }catch(e){toast('Connect failed: '+e.message,false);}
 }
@@ -222,12 +222,12 @@ async function sign(tx,label){
   try{
     let res;
     if(wallet.features['sui:signAndExecuteTransaction']){
-      res=await wallet.features['sui:signAndExecuteTransaction'].signAndExecuteTransaction({transaction:tx,account,chain:'sui:devnet'});
+      res=await wallet.features['sui:signAndExecuteTransaction'].signAndExecuteTransaction({transaction:tx,account,chain:'sui:testnet'});
     }else{ // legacy
       const bytes=await tx.build({client});
-      res=await wallet.features['sui:signAndExecuteTransactionBlock'].signAndExecuteTransactionBlock({transactionBlock:tx,account,chain:'sui:devnet'});
+      res=await wallet.features['sui:signAndExecuteTransactionBlock'].signAndExecuteTransactionBlock({transactionBlock:tx,account,chain:'sui:testnet'});
     }
-    toast(label+' ✓ <a href="https://suiscan.xyz/devnet/tx/'+(res.digest||res.effectsDigest)+'" target="_blank">view tx</a>');
+    toast(label+' ✓ <a href="https://suiscan.xyz/testnet/tx/'+(res.digest||res.effectsDigest)+'" target="_blank">view tx</a>');
     return res;
   }catch(e){toast(label+' failed: '+(e.message||e),false);return null;}
 }
@@ -263,7 +263,7 @@ document.getElementById('createBtn').onclick=()=>{
   const modal=document.getElementById('modal');
   modal.innerHTML=`<span class="x" id="closeX">✕</span>
     <h2 style="font-size:20px;margin-bottom:4px">Create a market</h2>
-    <div class="dim" style="font-size:13px">Real, on Sui devnet. It will resolve on what your pinned sources publish, via zkTLS + the AI judge — same rules as every market here.</div>
+    <div class="dim" style="font-size:13px">Real, on Sui testnet. It will resolve on what your pinned sources publish, via zkTLS + the AI judge — same rules as every market here.</div>
     <h3>Question</h3>
     <input type="text" id="cmQ" placeholder="Will … happen by …?" style="width:100%;background:var(--inset);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--tx);font-size:15px" />
     <h3>Resolves in</h3>
@@ -305,7 +305,7 @@ async function renderGrid(){
     ...(CFG.live_market?[{...CFG.live_market,kind:'live'}]:[]),
     ...(CFG.resolve_ready_market?[{...CFG.resolve_ready_market,kind:'live'}]:[]),
     ...CFG.markets.map(m=>({...m,kind:'trading'})), ...runtimeMarkets,
-    {...CFG.evidence_market,kind:'evidence'},
+    ...(CFG.evidence_market?[{...CFG.evidence_market,kind:'evidence'}]:[]),
     ...(CFG.reclaim_market?[{...CFG.reclaim_market,kind:'reclaim'}]:[])];
   grid.innerHTML=all.map(m=>`<div class="mcard ${m.kind==='live'?'live':''}" data-id="${m.id}" data-kind="${m.kind}">
     <div class="cat">${m.kind==='live'?'<span class="livebadge"><span class="livedot"></span>LIVE</span> ':''}${m.category}</div>
@@ -374,7 +374,7 @@ async function openMarket(id,kind){
     evHtml=`<h3>Prove it yourself — zkTLS via Reclaim</h3>
       <div class="dim" style="font-size:13px;line-height:1.6">This market pins <b style="color:var(--tx)">Reclaim's real attestor</b> (<span class="mono">${(CFG.reclaim&&CFG.reclaim.attestor||'').slice(0,12)}…</span>). Generate your OWN zkTLS proof of a real website with the Reclaim app, and submit it — verified on-chain by native <span class="mono">ecrecover</span>, exactly like every other proof here. Nobody mediates; you bring the receipt.</div>
       ${rc.app_id?`<button class="btn primary" id="reclaimBtn" style="margin-top:10px"><i class="ti ti-world-share"></i> Generate a real zkTLS proof</button>`
-        :`<div class="note">The on-chain wiring (<span class="mono">reclaim::verify → submit_web_proof</span>) is done and this market pins Reclaim's real attestor — proven on devnet (<a href="https://suiscan.xyz/devnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1" target="_blank">see the tx</a>). To generate a fresh proof in-app, add your free <a href="https://dev.reclaimprotocol.org" target="_blank">Reclaim</a> <span class="mono">app_id / app_secret / provider_id</span> to <span class="mono">config.json</span>.</div>`}`;
+        :`<div class="note">The on-chain wiring (<span class="mono">reclaim::verify → submit_web_proof</span>) is done and this market pins Reclaim's real attestor — proven on testnet (<a href="https://suiscan.xyz/testnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1" target="_blank">see the tx</a>). To generate a fresh proof in-app, add your free <a href="https://dev.reclaimprotocol.org" target="_blank">Reclaim</a> <span class="mono">app_id / app_secret / provider_id</span> to <span class="mono">config.json</span>.</div>`}`;
   }
   modal.innerHTML=`<span class="x" id="closeX">✕</span>
     <div class="cat mono dim">${m.category}</div>
@@ -520,14 +520,14 @@ function openFraud(){
   const d=DISPUTE; const modal=document.getElementById('modal');
   modal.innerHTML=`<span class="x" id="closeX">✕</span>
     <h2 style="font-size:20px;margin-bottom:4px"><i class="ti ti-gavel" style="color:var(--red)"></i> Fraud Lab — convict a lying resolver</h2>
-    <div class="dim" style="font-size:13px;line-height:1.6">A resolver asserted a <b style="color:var(--tx)">fraudulent AI-judge result</b> and staked a bond on it. A challenger disputed it. The two bisected the disputed computation <b style="color:var(--tx)">live on devnet</b> — narrowing ${d.n.toLocaleString()} micro-operations to exactly one. The disagreement is now pinned to a single step the Sui contract can re-run itself.</div>
+    <div class="dim" style="font-size:13px;line-height:1.6">A resolver asserted a <b style="color:var(--tx)">fraudulent AI-judge result</b> and staked a bond on it. A challenger disputed it. The two bisected the disputed computation <b style="color:var(--tx)">live on testnet</b> — narrowing ${d.n.toLocaleString()} micro-operations to exactly one. The disagreement is now pinned to a single step the Sui contract can re-run itself.</div>
     <div class="bis" id="bis" style="display:flex;gap:3px;height:60px;align-items:flex-end;margin:16px 0"></div>
     <div class="qspec" style="margin-bottom:6px">
       <span class="pill">trace <b id="bn">${d.n.toLocaleString()} steps</b></span>
       <span class="pill">→ <b id="br">${d.rounds.length} rounds</b></span>
       <span class="pill">disputed step <b>${d.fault_step.toLocaleString()}</b></span>
     </div>
-    <div class="kvs" style="margin-bottom:8px"><span>fact <a href="https://suiscan.xyz/devnet/object/${d.fact}" target="_blank">${d.fact.slice(0,14)}…</a> · status CHALLENGED · atomic [${d.atomic[0]}, ${d.atomic[1]}]</span></div>
+    <div class="kvs" style="margin-bottom:8px"><span>fact <a href="https://suiscan.xyz/testnet/object/${d.fact}" target="_blank">${d.fact.slice(0,14)}…</a> · status CHALLENGED · atomic [${d.atomic[0]}, ${d.atomic[1]}]</span></div>
     <button class="btn primary" id="convictBtn" style="width:100%;background:var(--red);border-color:var(--red);color:#2a0606"><i class="ti ti-scale"></i> Convict & slash the liar (deliver the one-step proof)</button>
     <div id="convictOut"></div>
     <div class="note">This uses the toy judge so the bisection is fast to stage. The exact same machinery convicts a real committed-float Qwen judge — proven in <span class="mono">fqwen_conviction.move</span>. The on-chain step-verifier is a few hundred lines; one micro-op costs the minimum gas bucket.</div>`;
@@ -552,13 +552,13 @@ async function convict(){
     tx.pure.vector('u8',Array.from(hexToBytes(v.page_b))),tx.pure.vector('vector<u8>',v.sibs_b.map(h=>Array.from(hexToBytes(h)))),
     tx.pure.vector('u8',Array.from(hexToBytes(v.page_w))),tx.pure.vector('vector<u8>',v.sibs_w.map(h=>Array.from(hexToBytes(h))))]});
   const r=await sign(tx,'Fraud proven · resolver slashed');
-  if(r){tourDone('fraud',r.digest);document.getElementById('convictOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill);margin-top:10px"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-coin-off"></i></div><div class="b"><div class="s" style="color:var(--red)">Fraud proven on-chain — bond slashed to the challenger.</div><div class="m"><a href="https://suiscan.xyz/devnet/tx/${r.digest}" target="_blank">view the conviction tx →</a></div></div></div>`;
+  if(r){tourDone('fraud',r.digest);document.getElementById('convictOut').innerHTML=`<div class="ev" style="border-color:rgba(255,107,107,.4);background:var(--red-fill);margin-top:10px"><div class="ico" style="background:var(--red-fill);color:var(--red)"><i class="ti ti-coin-off"></i></div><div class="b"><div class="s" style="color:var(--red)">Fraud proven on-chain — bond slashed to the challenger.</div><div class="m"><a href="https://suiscan.xyz/testnet/tx/${r.digest}" target="_blank">view the conviction tx →</a></div></div></div>`;
     document.getElementById('convictBtn').disabled=true;}
 }
 
 // ===== guided tour: hand-hold the judge, accumulate every tx receipt =====
 const TOUR=[
- {k:'connect',t:'Connect your wallet',how:'Click “Connect wallet” (top-right). Use Slush, set to <b>devnet</b>.',proves:'You personally sign every action — nothing here trusts a server.'},
+ {k:'connect',t:'Connect your wallet',how:'Click “Connect wallet” (top-right). Use Slush, set to <b>testnet</b>.',proves:'You personally sign every action — nothing here trusts a server.'},
  {k:'buy',t:'Buy YES on the ⚡ LIVE market',how:'Opens the red ⚡ card. Buy 0.05 YES.',proves:'A real on-chain CPMM trade; the price moves. Money <i>prices</i> the market — it never decides it.'},
  {k:'evidence',t:'Add evidence from a real source',how:'In ⚡ (once it shows EVIDENCE) pick BBC / Reuters / AP → <b>Add</b>.',proves:'A zkTLS proof verified on-chain by native <span class="mono">ecrecover</span>. You cannot submit an opinion — only a proof.'},
  {k:'judge',t:'Watch the AI judge read it',how:'Click “Ask the AI judge to read the evidence”.',proves:'The real deterministic Qwen3-1.7B reads the proof and types its verdict. It reads; the rule decides.'},
@@ -567,7 +567,7 @@ const TOUR=[
  {k:'fraud',t:'Convict a lying resolver',how:'Open the Fraud Lab (red banner) → Convict & slash.',proves:'A one-micro-op fraud proof, re-run on-chain, slashes the liar. This is what makes the AI judge <b>trustless</b>.'},
 ];
 const tour={done:{},tx:{},min:false};
-const tx=d=>`https://suiscan.xyz/devnet/tx/${d}`;
+const tx=d=>`https://suiscan.xyz/testnet/tx/${d}`;
 function tourOpen(k){ if(k==='connect')return connect(); if(k==='fraud')return (DISPUTE?openFraud():toast('Fraud Lab loading…')); const lm=CFG.live_market; if(lm)openMarket(lm.id,'live'); }
 function tourDone(k,digest){ if(tour.done[k])return; tour.done[k]=true; if(digest)tour.tx[k]=digest; renderTour(); }
 function renderTour(){

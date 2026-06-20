@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Veritas — do it yourself</title>
+<meta name="description" content="Spin up your OWN market on Sui, trade it, prove a real news report with zkTLS, let the AI judge read it, and settle by the rule — every step a real transaction you sign yourself." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@300;400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/veritas.css" />
+<style>
+  .try-hero{padding:128px 0 22px;text-align:center;}
+  .try-hero .kick{font-size:12px;letter-spacing:.28em;text-transform:uppercase;color:var(--teal-deep);}
+  .try-hero h1{font-family:"Fraunces",serif;font-weight:400;font-size:clamp(32px,5vw,58px);line-height:1.02;letter-spacing:-0.02em;margin:16px 0 0;color:#fff;}
+  .try-hero p{margin:18px auto 0;max-width:36em;color:var(--fg-dim);font-weight:300;font-size:clamp(15px,1.4vw,18px);}
+  .try-hero p b{color:var(--fg);font-weight:500;}
+  .ladder{display:grid;gap:18px;max-width:760px;margin:26px auto 0;}
+  .rung{display:grid;grid-template-columns:46px 1fr;gap:20px;align-items:start;padding:24px 26px;}
+  .rung .idx{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;font-family:"Fraunces",serif;font-size:20px;color:var(--fg-dim);background:var(--panel);transition:.4s var(--ease);}
+  .rung.active .idx{border-color:var(--teal);color:var(--teal);box-shadow:0 0 0 5px rgba(51,230,208,0.08);}
+  .rung.done .idx{background:var(--teal);border-color:var(--teal);color:#04201d;}
+  .rung h3{font-family:"Fraunces",serif;font-weight:400;font-size:22px;margin:2px 0 0;color:#fff;}
+  .rung p{margin:8px 0 0;font-size:14.5px;color:var(--fg-dim);font-weight:300;line-height:1.55;}
+  .rung p b{color:var(--fg);font-weight:500;}
+  .rung .body{margin-top:16px;}
+  .rung.locked{opacity:.45;pointer-events:none;}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+  .price{display:flex;gap:10px;margin:14px 0;}
+  .price .leg{flex:1;border:1px solid var(--line);border-radius:11px;padding:12px 14px;background:var(--ink-2);cursor:pointer;transition:border-color .25s, box-shadow .25s, background .25s;}
+  .price .leg:hover{border-color:var(--line-strong);}
+  .price .leg .lab{font-size:11px;letter-spacing:.06em;color:var(--fg-faint);text-transform:uppercase;}
+  .price .leg .v{font-family:"Fraunces",serif;font-size:24px;margin-top:3px;}
+  .price .leg.yes .v{color:var(--teal);} .price .leg.no .v{color:var(--cyan);}
+  .price .leg .pick{font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin-top:6px;opacity:0;transition:.25s;}
+  .price .leg.sel.yes{border-color:rgba(51,230,208,.6);box-shadow:0 0 0 1px rgba(51,230,208,.35),0 0 28px -10px var(--teal-glow);background:rgba(51,230,208,0.05);}
+  .price .leg.sel.no{border-color:rgba(95,217,255,.6);box-shadow:0 0 0 1px rgba(95,217,255,.35),0 0 28px -10px rgba(95,217,255,.45);background:rgba(95,217,255,0.05);}
+  .price .leg.sel .pick{opacity:1;color:var(--teal);} .price .leg.sel.no .pick{color:var(--cyan);}
+  .pbar{height:8px;border-radius:5px;background:var(--ink-2);overflow:hidden;display:flex;border:1px solid var(--line);margin-top:4px;}
+  .pbar .y{background:var(--teal);} .pbar .n{background:var(--cyan);}
+  .qtxt{font-size:15px;color:var(--fg);font-weight:400;line-height:1.55;}
+  .mono-sm{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--fg-faint);word-break:break-all;}
+  .phasechip{display:inline-flex;align-items:center;gap:8px;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:5px 11px;border-radius:7px;border:1px solid var(--line);color:var(--fg-dim);background:var(--panel);}
+  .phasechip.trading{color:var(--teal);border-color:rgba(51,230,208,.4);} .phasechip.evidence{color:var(--gold);border-color:rgba(233,201,122,.4);} .phasechip.closed,.phasechip.resolved{color:var(--cyan);border-color:rgba(95,217,255,.4);}
+  .ok-row{margin-top:12px;font-size:13px;color:var(--teal);display:none;}
+  .ok-row.show{display:block;} .ok-row a{color:var(--cyan);border-bottom:1px dashed rgba(95,217,255,.35);}
+  .ok-row.err{color:var(--danger);}
+  .warn{font-size:12.5px;color:var(--gold);margin-top:10px;} .warn a{color:var(--gold);border-bottom:1px dashed;}
+  .walletpill{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--teal);border:1px solid rgba(51,230,208,.3);background:rgba(51,230,208,.06);border-radius:100px;padding:7px 13px;}
+  .hint{font-size:12px;color:var(--fg-faint);margin-top:10px;line-height:1.5;}
+  .judgestats{margin-top:8px;display:none;align-items:center;gap:8px;font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--fg-faint);letter-spacing:.04em;}
+  .judgestats .jspulse{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal-glow);animation:jspulse 1.1s ease-in-out infinite;flex:0 0 auto;}
+  .judgestats.done .jspulse{animation:none;background:var(--teal-deep);box-shadow:none;}
+  @keyframes jspulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
+  .proofbox{margin-top:14px;padding:15px 17px;border:1px solid var(--line);border-radius:12px;background:var(--ink-2);display:none;}
+  .reportcard{margin-top:14px;padding:13px 15px;border:1px solid var(--line);border-radius:11px;background:var(--panel);}
+  .reportcard .src{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.05em;color:var(--gold);text-transform:uppercase;}
+  .contrast{margin-top:14px;padding:13px 15px;border:1px dashed var(--line-strong);border-radius:11px;background:rgba(95,217,255,0.03);font-size:13px;color:var(--fg-dim);line-height:1.6;}
+  .contrast b{color:var(--fg);font-weight:500;} .contrast .no{color:var(--cyan);font-weight:600;}
+  /* ---- countdown chip: depleting border + iridescent sheen (no running comet) ---- */
+  .rt-5{--rt5-accent:var(--teal);--rt5-glow:var(--teal-glow);--rt5-sheen:var(--cyan);--rt5-hi:#eafffb;
+    display:inline-flex;align-items:center;justify-content:center;position:relative;
+    width:168px;height:44px;padding:0 14px;box-sizing:border-box;vertical-align:middle;
+    border-radius:12px;background:var(--ink-2);}
+  .rt-5 .rt5-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;}
+  .rt-5 .rt5-track{fill:none;stroke:var(--line);stroke-width:1.5;}
+  .rt-5 .rt5-progress{fill:none;stroke-width:2.25;stroke-linecap:round;stroke-dasharray:397.115 397.115;stroke-dashoffset:0;filter:drop-shadow(0 0 5px var(--rt5-glow));transition:filter .45s var(--ease);}
+  .rt-5 .rt5-g-base{stop-color:var(--rt5-accent);}
+  .rt-5 .rt5-g-sheen{stop-color:var(--rt5-sheen);}
+  .rt-5 .rt5-g-hi{stop-color:var(--rt5-hi);}
+  .rt-5 .rt5-num{position:relative;z-index:2;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:20px;font-weight:600;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:var(--rt5-accent);text-shadow:0 0 10px var(--rt5-glow);transition:color .45s var(--ease);}
+  /* ---- step-4 zkTLS proof forge (generating -> proven) ---- */
+.ps-1{position:relative;box-sizing:border-box;width:100%;font-family:"Inter",sans-serif;color:var(--fg);background:var(--ink-2);border:1px solid var(--line);border-radius:12px;padding:16px;overflow:hidden}
+.ps-1 *{box-sizing:border-box}
+.ps-1 .ps1-scan{position:absolute;left:0;right:0;top:0;height:56px;pointer-events:none;opacity:0;background:linear-gradient(180deg,transparent,rgba(51,230,208,0.08) 46%,rgba(95,217,255,0.14) 50%,rgba(51,230,208,0.08) 54%,transparent);mix-blend-mode:screen;z-index:3}
+.ps-1.ps1-gen .ps1-scan{opacity:1;animation:kf1_scan 2.6s linear infinite}
+.ps-1 .ps1-scan::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--teal);box-shadow:0 0 8px var(--teal-glow)}
+.ps-1 .ps1-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;position:relative;z-index:2}
+.ps-1 .ps1-eyebrow{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold)}
+.ps-1 .ps1-tag{display:flex;align-items:center;gap:7px;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-dim);white-space:nowrap}
+.ps-1 .ps1-dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 7px var(--teal-glow);animation:kf1_blink 1.1s steps(2,end) infinite}
+.ps-1 .ps1-stage{position:relative;z-index:2;transition:opacity .5s var(--ease),transform .5s var(--ease),max-height .55s var(--ease);max-height:260px}
+.ps-1 .ps1-step{display:flex;align-items:flex-start;gap:12px;padding:11px 2px;border-bottom:1px solid var(--line)}
+.ps-1 .ps1-step:last-child{border-bottom:none}
+.ps-1 .ps1-glyph{position:relative;flex:0 0 auto;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);display:flex;align-items:center;justify-content:center;margin-top:1px;transition:border-color .4s var(--ease),background .4s var(--ease),box-shadow .4s var(--ease)}
+.ps-1 .ps1-glyph::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--fg-faint);transition:all .4s var(--ease)}
+.ps-1 .ps1-glyph .ps1-tick{position:absolute;font-size:11px;line-height:1;color:var(--teal);opacity:0;transform:scale(.4);transition:opacity .4s var(--ease),transform .4s var(--ease)}
+.ps-1 .ps1-step.is-active .ps1-glyph{border-color:var(--teal-deep);box-shadow:0 0 10px -2px var(--teal-glow)}
+.ps-1 .ps1-step.is-active .ps1-glyph::before{background:var(--teal);box-shadow:0 0 8px var(--teal-glow);animation:kf1_pulse 1.05s var(--ease) infinite}
+.ps-1 .ps1-step.is-done .ps1-glyph{border-color:var(--teal-deep);background:rgba(16,179,166,0.12)}
+.ps-1 .ps1-step.is-done .ps1-glyph::before{opacity:0;transform:scale(0)}
+.ps-1 .ps1-step.is-done .ps1-tick{opacity:1;transform:scale(1)}
+.ps-1 .ps1-bd{min-width:0;flex:1}
+.ps-1 .ps1-label{font-family:"JetBrains Mono",monospace;font-size:12.5px;letter-spacing:.01em;color:var(--fg-dim);transition:color .4s var(--ease);overflow-wrap:anywhere}
+.ps-1 .ps1-step.is-active .ps1-label,.ps-1 .ps1-step.is-done .ps1-label{color:var(--fg)}
+.ps-1 .ps1-sub{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.04em;color:var(--fg-faint);margin-top:3px;min-height:13px}
+.ps-1 .ps1-step.is-active .ps1-sub{color:var(--teal-deep)}
+.ps-1 .ps1-meter{margin-top:6px;height:2px;width:100%;background:var(--line);border-radius:2px;overflow:hidden;opacity:0;transition:opacity .3s var(--ease)}
+.ps-1 .ps1-step.is-active .ps1-meter{opacity:1}
+.ps-1 .ps1-meter span{display:block;height:100%;width:38%;background:linear-gradient(90deg,transparent,var(--teal),transparent);animation:kf1_meter 1.1s linear infinite}
+.ps-1.ps1-resolved .ps1-stage{opacity:0;transform:translateY(-8px);max-height:0;overflow:hidden;pointer-events:none;margin:0;padding:0}
+.ps-1 .ps1-result{position:relative;z-index:2;opacity:0;transform:translateY(12px);transition:opacity .55s var(--ease) .14s,transform .55s var(--ease) .14s;pointer-events:none;max-height:0;overflow:hidden}
+.ps-1.ps1-resolved .ps1-result{opacity:1;transform:translateY(0);max-height:420px;pointer-events:auto}
+.ps-1 .ps1-rEyebrow{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
+.ps-1 .ps1-report{font-family:"Fraunces","Inter",serif;font-size:16px;line-height:1.5;color:var(--fg);margin:0 0 14px;font-weight:400}
+.ps-1 .ps1-report .ps1-q{color:var(--teal-deep)}
+.ps-1 .ps1-verify{display:flex;gap:10px;align-items:flex-start;padding-top:12px;border-top:1px solid var(--line)}
+.ps-1 .ps1-vcheck{flex:0 0 auto;width:18px;height:18px;border-radius:50%;background:rgba(16,179,166,0.14);border:1px solid var(--teal-deep);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--teal);margin-top:1px;box-shadow:0 0 9px var(--teal-glow)}
+.ps-1 .ps1-recover{font-family:"JetBrains Mono",monospace;font-size:10.5px;line-height:1.7;color:var(--fg-faint);overflow-wrap:anywhere;word-break:break-word}
+.ps-1 .ps1-recover .ps1-addr{color:var(--teal)}
+.ps-1 .ps1-recover .ps1-ok{color:var(--teal)}
+@keyframes kf1_scan{0%{transform:translateY(-56px)}100%{transform:translateY(248px)}}
+@keyframes kf1_blink{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes kf1_pulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.55}100%{transform:scale(1);opacity:1}}
+@keyframes kf1_meter{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+</style>
+</head>
+<body>
+
+<div class="atmos" aria-hidden="true">
+  <div class="grid-drift"></div><div class="sweep"></div><canvas id="stars"></canvas>
+</div>
+
+<div class="shell">
+  <nav class="sticky">
+    <a class="brand" href="index.html" aria-label="Veritas home">
+      <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2 21 6.5V12c0 5.2-3.6 8.6-9 10C6.6 20.6 3 17.2 3 12V6.5L12 2Z" stroke="#33e6d0" stroke-width="1.3" opacity=".55"/>
+        <path d="m8.4 12.2 2.7 2.7 4.7-5.6" stroke="#33e6d0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Veritas
+    </a>
+    <div class="nav-meta">
+      <a class="hide-sm" href="flow.html">← The demo</a>
+      <button class="btn btn-ghost sm" id="connectNav">Connect wallet</button>
+    </div>
+  </nav>
+
+  <div class="wrap">
+    <header class="try-hero">
+      <div class="kick">Your turn · on Sui testnet</div>
+      <h1>Do it yourself</h1>
+      <p>Spin up <b>your own market</b> on a real-world question, trade it, prove a live <b>news report</b> with a real zkTLS web-proof, then watch the fixed <b>AI judge read it</b> and settle by the rule — <b>each step a transaction you sign yourself</b>. Your market, nobody else's, always fresh.</p>
+    </header>
+
+    <div class="ladder">
+
+      <!-- 1 — CONNECT -->
+      <div class="card glow rung active" id="rung1">
+        <div class="idx">1</div>
+        <div>
+          <h3>Connect your wallet</h3>
+          <p>Use <b>Slush</b> on <b>testnet</b>. You sign every step — nothing here is custodial.</p>
+          <div class="body">
+            <div class="row">
+              <button class="btn btn-primary sm" id="connectBtn">Connect Slush</button>
+              <span class="walletpill" id="addrPill" style="display:none"></span>
+            </div>
+            <div class="warn" id="needGas" style="display:none">Need testnet SUI (~0.3 for the whole demo)? Grab some from the <a href="https://faucet.sui.io/?network=testnet" target="_blank">testnet faucet</a>, then continue.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2 — CREATE -->
+      <div class="card glow rung locked" id="rung2">
+        <div class="idx">2</div>
+        <div>
+          <h3>Create your market</h3>
+          <p>One signed transaction mints a fresh market with its rules fixed up front: the question, the pinned source, <b>k=1 independent proof</b>, and a short trading + evidence window. It's <b>yours</b> — a clean run no matter who came before.</p>
+          <div class="body">
+            <div class="reportcard">
+              <div class="src">The question · settled from a real news report</div>
+              <div class="qtxt" style="margin-top:5px" id="qPreview">“Did this rocket reach orbit?”</div>
+            </div>
+            <div class="row" style="margin-top:14px">
+              <button class="btn btn-primary sm" id="createBtn">Create my market</button>
+              <span class="phasechip" id="phase2" style="display:none"></span>
+            </div>
+            <div class="ok-row" id="createOk"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 — TRADE -->
+      <div class="card glow rung locked" id="rung3">
+        <div class="idx">3</div>
+        <div>
+          <h3>Take a position</h3>
+          <p>Buy <b>YES</b> or <b>NO</b> — a real CPMM trade. Your money <i>prices</i> the market, it never decides the outcome.</p>
+          <div class="body">
+            <div class="qtxt" id="mktQ">—</div>
+            <div class="mono-sm" id="mktId" style="margin-top:3px">—</div>
+            <div class="price">
+              <div class="leg yes sel" data-side="yes" id="legY"><div class="lab">YES</div><div class="v" id="pyY">—</div><div class="pick">✓ selected</div></div>
+              <div class="leg no" data-side="no" id="legN"><div class="lab">NO</div><div class="v" id="pyN">—</div><div class="pick">click to pick</div></div>
+            </div>
+            <div class="pbar"><div class="y" id="barY" style="width:50%"></div><div class="n" id="barN" style="width:50%"></div></div>
+            <div class="row" style="margin-top:16px">
+              <button class="btn btn-primary sm" id="buyBtn">Buy 0.03 <span id="buySide">YES</span></button>
+              <div class="rt-5" id="rt5a" aria-label="Trading closes countdown" style="display:none">
+                <svg class="rt5-svg" viewBox="0 0 168 44" aria-hidden="true">
+                  <defs><linearGradient id="rt5grad-a" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+                    <stop class="rt5-g-base" offset="0"></stop><stop class="rt5-g-base" offset="0.36"></stop>
+                    <stop class="rt5-g-sheen" offset="0.46"></stop><stop class="rt5-g-hi" offset="0.5"></stop><stop class="rt5-g-sheen" offset="0.54"></stop>
+                    <stop class="rt5-g-base" offset="0.64"></stop><stop class="rt5-g-base" offset="1"></stop>
+                    <animateTransform attributeName="gradientTransform" type="translate" from="-1 0" to="1 0" dur="2.8s" repeatCount="indefinite"></animateTransform>
+                  </linearGradient></defs>
+                  <rect class="rt5-track" x="1" y="1" width="166" height="42" rx="11"></rect>
+                  <rect class="rt5-progress" x="1" y="1" width="166" height="42" rx="11" style="stroke:url(#rt5grad-a)"></rect>
+                </svg>
+                <span class="rt5-num">0:30</span>
+              </div>
+            </div>
+            <div class="ok-row" id="buyOk"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4 — PROVE -->
+      <div class="card glow rung locked" id="rung4">
+        <div class="idx">4</div>
+        <div>
+          <h3>Prove the evidence — real zkTLS</h3>
+          <p>When the evidence window opens, a <b>fresh zkTLS web-proof</b> of a live news report is generated — our self-hosted attestor runs a genuine TLS-MPC handshake and signs the <b>exact bytes the source served</b>. The signature recovers the pinned attestor by native <span class="mono">ecrecover</span>: you can submit a proof, never an opinion.</p>
+          <div class="body">
+            <div class="row">
+              <div class="rt-5" id="rt5b" aria-label="Evidence window countdown" style="display:none">
+                <svg class="rt5-svg" viewBox="0 0 168 44" aria-hidden="true">
+                  <defs><linearGradient id="rt5grad-b" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+                    <stop class="rt5-g-base" offset="0"></stop><stop class="rt5-g-base" offset="0.36"></stop>
+                    <stop class="rt5-g-sheen" offset="0.46"></stop><stop class="rt5-g-hi" offset="0.5"></stop><stop class="rt5-g-sheen" offset="0.54"></stop>
+                    <stop class="rt5-g-base" offset="0.64"></stop><stop class="rt5-g-base" offset="1"></stop>
+                    <animateTransform attributeName="gradientTransform" type="translate" from="-1 0" to="1 0" dur="2.8s" repeatCount="indefinite"></animateTransform>
+                  </linearGradient></defs>
+                  <rect class="rt5-track" x="1" y="1" width="166" height="42" rx="11"></rect>
+                  <rect class="rt5-progress" x="1" y="1" width="166" height="42" rx="11" style="stroke:url(#rt5grad-b)"></rect>
+                </svg>
+                <span class="rt5-num">1:00</span>
+              </div>
+            </div>
+            <div class="ps-1 ps1-gen" id="proofForge" style="display:none">
+              <div class="ps1-scan"></div>
+              <div class="ps1-head">
+                <span class="ps1-eyebrow">zkTLS web proof</span>
+                <span class="ps1-tag"><span class="ps1-dot"></span><span data-statustext>Generating</span></span>
+              </div>
+              <div class="ps1-stage">
+                <div class="ps1-step" data-step="0">
+                  <div class="ps1-glyph"><span class="ps1-tick">&#10003;</span></div>
+                  <div class="ps1-bd"><div class="ps1-label">Opening TLS &middot; api.spaceflightnewsapi.net</div><div class="ps1-sub" data-sub>queued</div><div class="ps1-meter"><span></span></div></div>
+                </div>
+                <div class="ps1-step" data-step="1">
+                  <div class="ps1-glyph"><span class="ps1-tick">&#10003;</span></div>
+                  <div class="ps1-bd"><div class="ps1-label">Multi-party TLS handshake</div><div class="ps1-sub" data-sub>queued</div><div class="ps1-meter"><span></span></div></div>
+                </div>
+                <div class="ps1-step" data-step="2">
+                  <div class="ps1-glyph"><span class="ps1-tick">&#10003;</span></div>
+                  <div class="ps1-bd"><div class="ps1-label">Attestor signs the bytes</div><div class="ps1-sub" data-sub>queued</div><div class="ps1-meter"><span></span></div></div>
+                </div>
+              </div>
+              <div class="ps1-result">
+                <div class="ps1-rEyebrow">PROVEN REPORT &middot; SPACEFLIGHT NEWS</div>
+                <p class="ps1-report"><span class="ps1-q">&ldquo;</span>Japan's H3 rocket launched June 11 on its first flight since a failure in December, placing six smallsats in orbit.<span class="ps1-q">&rdquo;</span></p>
+                <div class="ps1-verify">
+                  <span class="ps1-vcheck">&#10003;</span>
+                  <span class="ps1-recover">signature recovers <span class="ps1-addr">0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025</span> = the pinned attestor <span class="ps1-ok">&#10003;</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="ok-row" id="proveOk"></div>
+            <div class="hint">The proof is generated automatically the moment the window opens (~10s) — no click needed.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5 — JUDGE + SETTLE -->
+      <div class="card glow rung locked" id="rung5">
+        <div class="idx">5</div>
+        <div>
+          <h3>The AI judge reads it — then settle</h3>
+          <p>A regex can read a price; it cannot read a <i>report</i>. The fixed, public <b>Qwen3-1.7B</b> judge reads your proven report and decides YES/NO — live, on CPU, bit-for-bit deterministic. <b>That verdict is what you commit on-chain</b> as the claim; the committed rule settles it — <b>no vote</b>. Then redeem 1:1.</p>
+          <div class="body">
+            <div class="row">
+              <button class="btn btn-primary sm" id="judgeBtn" disabled><span class="play"></span> Ask the AI judge to read it</button>
+              <span class="phasechip" id="judgeState" style="display:none"></span>
+            </div>
+            <div class="console" id="judgeOut" style="display:none;margin-top:12px"></div>
+            <div class="judgestats" id="judgeStats"><span class="jspulse"></span><span id="jsText"></span></div>
+            <div id="verdictWrap" style="margin-top:10px"></div>
+            <div class="contrast">Same question, a different launch: the judge reads the <b>New Glenn</b> report — <i>“the explosion … out of service for a year or more”</i> — and returns <span class="no">NO</span>. The word <b>“orbit” never appears</b>; a keyword regex couldn't call it. The judge reads <b>meaning</b>.</div>
+            <div class="row" style="margin-top:18px">
+              <button class="btn btn-primary sm" id="commitBtn" disabled>Commit the verdict on-chain</button>
+              <button class="btn btn-primary sm" id="resolveBtn" disabled>Resolve by the rule</button>
+              <button class="btn btn-ghost sm" id="redeemBtn" disabled>Redeem</button>
+              <span class="phasechip" id="resolvePhase" style="display:none"></span>
+            </div>
+            <div class="ok-row" id="commitOk"></div>
+            <div class="ok-row" id="resolveOk"></div>
+            <div class="ok-row" id="redeemOk"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <section class="closer">
+      <p class="line reveal">You just ran the whole loop — <b>create</b>, <b>trade</b>, <b>prove</b>, <b>let the judge read it</b>, <b>settle</b> — every step signed by you, on-chain.</p>
+      <div class="reveal" style="transition-delay:.1s;display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:30px">
+        <a class="btn btn-primary" href="../app.html"><span class="play"></span> Open the full dApp <span class="arr">→</span></a>
+        <a class="btn btn-ghost" href="flow.html">Back to the demo</a>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div class="wrap foot-in">
+      <span class="built"><span class="nav-meta" style="display:inline-flex"><span class="pulse"></span></span> Veritas · opML on Sui</span>
+      <span class="foot-links"><a href="index.html">Home</a><a href="flow.html">The demo</a><a href="../app.html">Full dApp</a></span>
+      <span>Settled by proof, not by vote.</span>
+    </div>
+  </footer>
+</div>
+
+<script src="assets/atmos.js"></script>
+<script type="module">
+import { SuiClient } from 'https://esm.sh/@mysten/sui@1.36.0/client';
+import { Transaction } from 'https://esm.sh/@mysten/sui@1.36.0/transactions';
+import { getWallets } from 'https://esm.sh/@mysten/wallet-standard@0.20.3';
+import { keccak256, toUtf8Bytes, hashMessage, recoverAddress } from 'https://esm.sh/ethers@6.13.4';
+
+const $ = id => document.getElementById(id);
+const CLOCK = '0x6';
+const short = (s,a=8,b=6)=> s ? (s.length>a+b+3 ? s.slice(0,a)+'…'+s.slice(-b) : s) : '—';
+const hexToBytes = h => { h=h.replace(/^0x/,''); const a=new Uint8Array(h.length/2); for(let i=0;i<a.length;i++) a[i]=parseInt(h.substr(i*2,2),16); return a; };
+const enc = s => Array.from(new TextEncoder().encode(s));
+
+const CFG = await (await fetch('assets/chain_markets.json')).json();
+const NET = CFG.network || 'testnet';
+const CHAIN = 'sui:'+NET;
+const SUISCAN = 'https://suiscan.xyz/'+NET;
+const PKG = CFG.package;
+const ATT = (CFG.attestors||[]).map(a => Array.from(hexToBytes(a)));   // vector<vector<u8>>
+// gen-server + resolver URLs: funnel-aware (so a remote teammate over Tailscale funnel works too)
+const GEN = new URLSearchParams(location.search).get('gen')
+  || (location.hostname.endsWith('.ts.net') ? location.origin+'/gen' : 'http://localhost:8788');
+const RESOLVER = new URLSearchParams(location.search).get('resolver')
+  || (location.hostname.endsWith('.ts.net') ? location.origin+'/ai' : 'http://127.0.0.1:8899');
+const client = new SuiClient({ url: CFG.rpc });
+
+// The market: a real, fixed news report, proven over zkTLS and READ by the judge.
+// A static article id => a deterministic, repeatable verdict (live news is too volatile
+// to pin a fixed question to). H3 "placing six smallsats in orbit" => the judge reads YES.
+const PINNED = '0x17c5185167401ed00cf5f5b2fc97d9bbfdb7d025';   // our attestor address
+const NEWS = { url:'https://api.spaceflightnewsapi.net/v4/articles/38439/', regex:'"summary":"(?<value>[^"]+)"' };
+const QUESTION = 'Did this rocket reach orbit?';
+// a summary comes back with escaped newlines and a "The post … appeared first on …" trailer
+const clean = v => String(v).replace(/\\[rn]/g,' ').replace(/\s*The post\b[\s\S]*$/,'').replace(/\s+/g,' ').trim();
+
+// short windows so the whole self-serve run is ~2 min; the evidence window must comfortably
+// fit proof-gen (~10s) + a ~30s judge read + the commit signature, with margin for a remote run.
+const TRADE_MS = 30000, WINDOW_MS = 85000;
+
+let wallet=null, account=null, market=null, side='yes', boughtSide=null, poller=null;
+let rtActive=null, rtEnd=0, rtTotal=0;   // the countdown chip currently ticking + its window
+let preparedProof=null, preparing=false, proofReady=false, proofAdmitted=false;
+let judging=false, jes=null, verdict=null;
+
+function findWallet(){ return getWallets().get().find(w=>w.features['standard:connect'] && (w.features['sui:signAndExecuteTransaction']||w.features['sui:signAndExecuteTransactionBlock'])); }
+async function connect(){
+  wallet = findWallet();
+  if(!wallet){ alert('No Sui wallet found. Install Slush and set it to '+NET+'.'); return; }
+  try{
+    const r = await wallet.features['standard:connect'].connect();
+    account = (r.accounts&&r.accounts[0]) || wallet.accounts[0];
+    const a = short(account.address);
+    $('addrPill').textContent=a; $('addrPill').style.display='inline-block';
+    $('connectNav').textContent=a; $('connectBtn').textContent='Connected';
+    $('needGas').style.display='block';
+    rungDone(1); unlock(2);
+  }catch(e){ console.warn(e); }
+}
+async function sign(tx, okEl, label){
+  if(!account){ await connect(); if(!account) return null; }
+  tx.setSenderIfNotSet(account.address);
+  try{
+    let res;
+    if(wallet.features['sui:signAndExecuteTransaction'])
+      res = await wallet.features['sui:signAndExecuteTransaction'].signAndExecuteTransaction({transaction:tx, account, chain:CHAIN});
+    else { await tx.build({client}); res = await wallet.features['sui:signAndExecuteTransactionBlock'].signAndExecuteTransactionBlock({transactionBlock:tx, account, chain:CHAIN}); }
+    if(okEl){ okEl.className='ok-row show'; okEl.innerHTML=(label||'Done')+' &nbsp;·&nbsp; <a href="'+SUISCAN+'/tx/'+(res.digest||res.effectsDigest)+'" target="_blank">view tx ↗</a>'; }
+    return res;
+  }catch(e){ if(okEl){ okEl.className='ok-row show err'; okEl.textContent=(e&&e.message||e); } return null; }
+}
+function rungDone(n){ var r=$('rung'+n); if(r){ r.classList.add('done'); r.classList.remove('active'); } }
+function unlock(n){ var r=$('rung'+n); if(r){ r.classList.remove('locked'); r.classList.add('active'); } }
+
+async function loadMarket(id){
+  const o = await client.getObject({id, options:{showContent:true}});
+  const f = o.data.content.fields;
+  const ry=Number(f.reserve_yes), rn=Number(f.reserve_no);
+  const ra=Number(f.resolve_after_ms), win=Number(f.evidence_window_ms), now=Date.now(), stored=Number(f.phase);
+  const phase = stored===2 ? 2 : now<ra ? 0 : now<ra+win ? 1 : 3;
+  return {id, ry, rn, priceYes: Math.round(rn/(ry+rn)*100), phase, stored, outcome:Number(f.outcome), ra, win,
+          evidence:(f.evidence||[])};
+}
+
+$('connectBtn').onclick=connect; $('connectNav').onclick=connect;
+
+// ---- side selector ----
+function setSide(s){ side=s; $('legY').classList.toggle('sel',s==='yes'); $('legN').classList.toggle('sel',s==='no'); $('buySide').textContent=s.toUpperCase();
+  $('legY').querySelector('.pick').textContent=s==='yes'?'✓ selected':'click to pick'; $('legN').querySelector('.pick').textContent=s==='no'?'✓ selected':'click to pick'; }
+$('legY').onclick=()=>setSide('yes'); $('legN').onclick=()=>setSide('no');
+
+// ---- 2. create my market ----
+$('createBtn').onclick = async function(){
+  this.disabled=true; this.textContent='Sign in your wallet…';
+  const ra = Date.now()+TRADE_MS;
+  const tx = new Transaction();
+  const [seed] = tx.splitCoins(tx.gas, [50000000]); // 0.05 SUI seed liquidity
+  tx.moveCall({ target:`${PKG}::market::create_market_entry`, arguments:[
+    tx.pure.vector('u8', enc(QUESTION)),
+    tx.pure.vector('u8', Array.from(hexToBytes('0x'+'a7'.repeat(32)))), tx.pure.u8(12),
+    tx.pure.vector('vector<u8>', ATT), tx.pure.vector('u8',[3,3,3]), tx.pure.vector('u64',[0,1,2]),
+    tx.pure.u64(1), tx.pure.u8(0), tx.pure.u64(ra), tx.pure.u64(WINDOW_MS), tx.pure.u64(100), seed, tx.object(CLOCK) ]});
+  const r = await sign(tx, $('createOk'), 'Market created');
+  if(!r){ this.disabled=false; this.textContent='Create my market'; return; }
+  try{
+    const tb = await client.getTransactionBlock({digest:r.digest, options:{showObjectChanges:true}});
+    const created = tb.objectChanges.find(c=>c.type==='created' && c.objectType.endsWith('::market::Market'));
+    market = created.objectId;
+    this.textContent='Created ✓'; rungDone(2); unlock(3);
+    $('mktId').innerHTML = '<a href="'+SUISCAN+'/object/'+market+'" target="_blank" style="color:var(--fg-faint)">'+short(market)+' ↗</a>';
+    startPoll();
+  }catch(e){ this.disabled=false; this.textContent='Create my market'; $('createOk').className='ok-row show err'; $('createOk').textContent=String(e); }
+};
+
+// ---- 3. buy ----
+$('buyBtn').onclick = async function(){
+  if(!market) return; this.disabled=true; this.textContent='Sign in your wallet…';
+  const tx = new Transaction();
+  const [coin] = tx.splitCoins(tx.gas, [30000000]); // 0.03 SUI
+  tx.moveCall({ target:`${PKG}::market::`+(side==='yes'?'buy_yes':'buy_no'), arguments:[tx.object(market), coin, tx.object(CLOCK)] });
+  const r = await sign(tx, $('buyOk'), 'Bought '+side.toUpperCase());
+  this.innerHTML = r ? 'Bought ✓' : ('Buy 0.03 <span id="buySide">'+side.toUpperCase()+'</span>');
+  if(r){ boughtSide=side; rungDone(3); } else this.disabled=false;
+};
+
+// ---- 4. generate the zkTLS proof (provenance) — admission happens in step 5 with the judge's verdict ----
+// the proof is auto-prepared the moment the evidence window opens (gen ~10s, in the background).
+async function prepareProof(){
+  if(preparedProof || preparing || proofAdmitted) return;
+  preparing=true;
+  forgeStart();   // "proof forge": animate the real handshake stages while the proof generates
+  const ctrl = new AbortController();
+  const to = setTimeout(()=>ctrl.abort(), 28000);   // never hang forever — the poller retries next tick
+  try{
+    const qs=`url=${encodeURIComponent(NEWS.url)}&regex=${encodeURIComponent(NEWS.regex)}`;
+    const resp = await fetch(`${GEN}/prove?${qs}`, {signal:ctrl.signal});
+    const p = await resp.json();
+    if(p && p.signature){ preparedProof=p; proofReady=true; forgeResolve(p); }
+    else { forgeError((p&&p.error)||'proof gen failed — retrying…'); }
+  }catch(e){ forgeError(e.name==='AbortError' ? 'proof is taking too long — retrying…' : 'gen server unreachable — retrying…'); }
+  finally{ clearTimeout(to); preparing=false; }   // preparing=false ⇒ the phase-1 poller re-fires prepareProof
+}
+// ---- proof forge: real handshake stages animate, then resolve to the proven report ----
+const FORGE_ACTIVE=['handshaking…','deriving session keys…','writing attestation…'];
+const FORGE_DONE=['TLS 1.3 session established','2 MPC parties · transcript sealed','attestor signature emitted'];
+let forgeTimers=[], forgeStatus=null, forgeSteps=null;
+function forgeClear(){ forgeTimers.forEach(clearTimeout); forgeTimers=[]; }
+function forgeStart(){
+  const root=$('proofForge'); if(!root) return;
+  root.style.display='block';
+  $('proveOk').className='ok-row'; $('proveOk').textContent='';   // clear any prior error on (re)try
+  forgeSteps=Array.prototype.slice.call(root.querySelectorAll('.ps1-step'));
+  forgeStatus=root.querySelector('[data-statustext]');
+  forgeClear(); root.classList.remove('ps1-resolved'); root.classList.add('ps1-gen');
+  if(forgeStatus) forgeStatus.textContent='Generating';
+  forgeSteps.forEach((st,i)=>{ st.classList.remove('is-active','is-done'); const s=st.querySelector('[data-sub]'); if(s)s.textContent='queued'; });
+  const setSub=(i,t)=>{ const s=forgeSteps[i].querySelector('[data-sub]'); if(s)s.textContent=t; };
+  const activate=(i)=>{
+    if(i>0){ forgeSteps[i-1].classList.remove('is-active'); forgeSteps[i-1].classList.add('is-done'); setSub(i-1,FORGE_DONE[i-1]); }
+    if(i>=forgeSteps.length) return;                 // hold on the last step until the real proof returns
+    forgeSteps[i].classList.add('is-active'); setSub(i,FORGE_ACTIVE[i]);
+  };
+  const per=[1600,2000,1700]; let acc=160;
+  for(let i=0;i<forgeSteps.length;i++){ const idx=i, at=acc; forgeTimers.push(setTimeout(()=>activate(idx),at)); acc+=per[i]; }
+  forgeTimers.push(setTimeout(()=>activate(forgeSteps.length), acc));
+}
+function forgeResolve(p){
+  const root=$('proofForge'); if(!root){ rungDone(4); unlock(5); return; }
+  forgeClear();
+  const steps=forgeSteps||Array.prototype.slice.call(root.querySelectorAll('.ps1-step'));
+  steps.forEach((st,i)=>{ st.classList.remove('is-active'); st.classList.add('is-done'); const s=st.querySelector('[data-sub]'); if(s)s.textContent=FORGE_DONE[i]; });
+  const txt=clean(p.value);
+  let recovered=''; try{
+    const id=keccak256(toUtf8Bytes(`${p.provider}\n${p.parameters}\n${p.context}`));
+    recovered=recoverAddress(hashMessage(`${id}\n${p.owner}\n${p.timestampS}\n${p.epoch}`), p.signature).toLowerCase();
+  }catch(e){}
+  const ok=recovered===PINNED;
+  const rep=root.querySelector('.ps1-report'); if(rep) rep.innerHTML='<span class="ps1-q">“</span>'+txt+'<span class="ps1-q">”</span>';
+  const rec=root.querySelector('.ps1-recover');
+  if(rec) rec.innerHTML='signature recovers <span class="ps1-addr" style="color:'+(ok?'var(--teal)':'var(--danger)')+'">'+(recovered||'—')+'</span> '+(ok?'= the pinned attestor <span class="ps1-ok">✓</span>':'(unexpected)');
+  forgeTimers.push(setTimeout(()=>{ root.classList.remove('ps1-gen'); root.classList.add('ps1-resolved'); if(forgeStatus)forgeStatus.textContent='Proven'; }, 380));
+  rungDone(4); unlock(5);
+}
+function forgeError(msg){
+  const root=$('proofForge'); if(root){ const s=root.querySelector('[data-statustext]'); if(s)s.textContent='failed'; }
+  $('proveOk').className='ok-row show err'; $('proveOk').textContent=msg;
+}
+
+// ---- 5a. AI judge (Qwen3-1.7B) reads YOUR proven report, live ----
+function setVerdict(v){ verdict=v; const cls=v==='YES'?'yes':v==='NO'?'no':'unknown';
+  $('verdictWrap').innerHTML='<span class="verdict '+cls+'">Verdict · '+v+'</span>';
+  if((v==='YES'||v==='NO') && !proofAdmitted) $('commitBtn').disabled=false; }
+function runJudge(){
+  if(judging || verdict || !preparedProof) return; judging=true;
+  const q=QUESTION, e="A space-industry news report: "+clean(preparedProof.value);
+  $('judgeBtn').disabled=true; $('judgeState').style.display='inline-flex'; $('judgeState').className='phasechip evidence'; $('judgeState').textContent='reading…';
+  const out=$('judgeOut'); out.style.display='block';
+  out.innerHTML='<span style="color:var(--fg-faint)">Qwen3-1.7B is reading your proven report on CPU — a real verdict takes ~30s…</span><span class="cursor"></span>';
+  const stats=$('judgeStats'), jst=$('jsText'); stats.style.display='flex'; stats.classList.remove('done'); jst.textContent='reading the report…';
+  let buf='', got=false, tok=0, t0=0;
+  const showStats=(extra)=>{ const s=t0?((performance.now()-t0)/1000):0; const rate=s>0?(tok/s).toFixed(1):'0.0'; jst.textContent=tok+' tokens · '+rate+' tok/s'+(extra||''); };
+  try{ jes=new EventSource(RESOLVER+'/judge?q='+encodeURIComponent(q)+'&e='+encodeURIComponent(e)); }
+  catch(err){ out.textContent='resolver not reachable'; $('judgeState').textContent='offline'; stats.style.display='none'; $('judgeBtn').disabled=false; judging=false; return; }
+  const g=setTimeout(function(){ if(!got){ try{jes.close();}catch(e){} out.textContent='resolver not reachable — is the AI judge up?'; $('judgeState').textContent='offline'; stats.style.display='none'; $('judgeBtn').disabled=false; judging=false; } }, 8000);
+  jes.onmessage=function(ev){ try{ const d=JSON.parse(ev.data);
+    if(d.prompt){ got=true; clearTimeout(g); if(!t0)t0=performance.now(); $('judgeState').textContent='writing…'; jst.textContent='writing the verdict…'; return; }
+    if(d.t){ got=true; clearTimeout(g); if(!t0)t0=performance.now(); tok++; buf+=d.t; out.innerHTML=buf+'<span class="cursor"></span>'; out.scrollTop=out.scrollHeight; $('judgeState').textContent='writing…'; showStats(); }
+    if(d.done){ jes.close(); out.textContent=buf.trim(); setVerdict(d.verdict||'UNKNOWN'); $('judgeState').className='phasechip closed'; $('judgeState').textContent='done'; stats.classList.add('done'); showStats(' · done'); judging=false; }
+  }catch(e){} };
+  jes.onerror=function(){ clearTimeout(g); try{jes.close();}catch(e){} if(!got){ out.textContent='resolver not reachable'; $('judgeState').textContent='offline'; stats.style.display='none'; } $('judgeBtn').disabled=false; judging=false; };
+}
+$('judgeBtn').onclick=runJudge;
+
+// ---- 5b. commit the judge's verdict on-chain as the claim (must be inside the evidence window) ----
+$('commitBtn').onclick = async function(){
+  if(!market || !preparedProof || !verdict) return;
+  const claim = verdict==='YES' ? 1 : 2;
+  const p=preparedProof;
+  this.disabled=true; this.textContent='Commit — sign in wallet…';
+  const tx = new Transaction();
+  tx.moveCall({ target:`${PKG}::market::submit_web_proof`, arguments:[
+    tx.object(market), tx.pure.u64(0), tx.pure.u8(claim),
+    tx.pure.vector('u8', enc(p.provider)), tx.pure.vector('u8', enc(p.parameters)),
+    tx.pure.vector('u8', enc(p.context)), tx.pure.vector('u8', enc(String(p.owner).toLowerCase())),
+    tx.pure.u64(Number(p.timestampS)), tx.pure.u64(Number(p.epoch)),
+    tx.pure.vector('u8', Array.from(hexToBytes(p.signature))), tx.object(CLOCK) ]});
+  const r = await sign(tx, $('commitOk'), 'Verdict '+verdict+' committed on-chain (claim admitted)');
+  if(r){ proofAdmitted=true; this.textContent='Committed ✓'; }
+  else { this.textContent='Commit the verdict on-chain'; this.disabled=false; }
+};
+
+// ---- 5c. resolve + redeem ----
+$('resolveBtn').onclick = async function(){
+  if(!market) return; this.disabled=true; this.textContent='Sign in your wallet…';
+  const tx = new Transaction();
+  tx.moveCall({ target:`${PKG}::market::resolve`, arguments:[tx.object(market), tx.object(CLOCK)] });
+  const r = await sign(tx, $('resolveOk'), 'Resolved by the rule');
+  if(r){
+    let st=null; try{ st=await loadMarket(market); }catch(e){}
+    const oc = st ? st.outcome : 0, ocName = ['—','YES','NO','VOID'][oc] || '—';
+    $('resolveOk').innerHTML += ' &nbsp;·&nbsp; outcome <b>'+ocName+'</b> (decided by the judge\'s claim)';
+    this.textContent='Resolved ✓';
+    // only a WINNING (or VOID) position has anything to redeem — otherwise redeem aborts (E_NOTHING_TO_REDEEM)
+    const won = oc===3 || (oc===1 && boughtSide==='yes') || (oc===2 && boughtSide==='no');
+    if(won){ $('redeemBtn').disabled=false; }
+    else {
+      $('redeemBtn').disabled=true; $('redeemBtn').textContent='Nothing to redeem';
+      $('redeemOk').className='ok-row show'; $('redeemOk').style.color='var(--fg-dim)';
+      $('redeemOk').innerHTML='You took <b>'+String(boughtSide||'—').toUpperCase()+'</b>, the market resolved <b>'+ocName+'</b> — your side didn\'t win, so there\'s nothing to redeem. <span style="color:var(--fg-faint)">Settled by proof, not by your bet.</span>';
+    }
+  }
+  else { this.disabled=false; this.textContent='Resolve by the rule'; }
+};
+$('redeemBtn').onclick = async function(){
+  if(!market) return; this.disabled=true; this.textContent='Sign…';
+  const tx = new Transaction();
+  tx.moveCall({ target:`${PKG}::market::redeem_to_sender`, arguments:[tx.object(market)] });
+  const r = await sign(tx, $('redeemOk'), 'Redeemed — winnings paid out');
+  this.textContent = r ? 'Redeemed ✓' : 'Redeem'; if(!r) this.disabled=false; else rungDone(5);
+};
+
+// ---- countdown chip (depleting border + iridescent sheen) driven smoothly on the real clock ----
+const RT_P = 397.115; // rounded-rect stroke perimeter (W166 H42 R11)
+const RT_STATE = {
+  teal:   ['var(--teal)','var(--teal-glow)','var(--cyan)','#eafffb'],
+  gold:   ['var(--gold)','rgba(233,201,122,.5)','#fff1cf','#fffaf0'],
+  danger: ['var(--danger)','rgba(255,91,110,.55)','#ffd0d6','#fff0f2'],
+};
+function rtAccent(root, k){ if(root.dataset.acc===k) return; root.dataset.acc=k; const v=RT_STATE[k];
+  root.style.setProperty('--rt5-accent',v[0]); root.style.setProperty('--rt5-glow',v[1]); root.style.setProperty('--rt5-sheen',v[2]); root.style.setProperty('--rt5-hi',v[3]); }
+function rtUpdate(root, remMs, totalMs){
+  const num=root.querySelector('.rt5-num'), prog=root.querySelector('.rt5-progress');
+  const rem=Math.max(0,remMs), t=Math.ceil(rem/1000);
+  num.textContent=Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
+  const frac=totalMs>0?Math.min(1,Math.max(0,1-rem/totalMs)):1;
+  prog.style.strokeDashoffset=(RT_P*frac).toFixed(2);
+  const r=totalMs>0?rem/totalMs:0;
+  rtAccent(root, r<=0.12?'danger':r<=0.33?'gold':'teal');
+}
+function rtLoop(){ if(rtActive){ rtUpdate(rtActive, rtEnd-Date.now(), rtTotal); } requestAnimationFrame(rtLoop); }
+requestAnimationFrame(rtLoop);
+
+// ---- phase poller: prices, countdowns, enable steps, auto-prove, judge safety-net ----
+function fmt(ms){ var s=Math.max(0,Math.round(ms/1000)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+function startPoll(){
+  if(poller) clearInterval(poller);
+  const tick = async ()=>{
+    if(!market) return;
+    let st; try{ st = await loadMarket(market); }catch(e){ return; }
+    $('mktQ').textContent=QUESTION;
+    $('pyY').textContent=st.priceYes+'¢'; $('pyN').textContent=(100-st.priceYes)+'¢';
+    $('barY').style.width=st.priceYes+'%'; $('barN').style.width=(100-st.priceYes)+'%';
+    const now=Date.now();
+    // step 3 trading — live countdown chip (rt5a), driven smoothly on the real clock
+    if(st.phase===0){ $('rt5a').style.display='inline-flex'; rtActive=$('rt5a'); rtEnd=st.ra; rtTotal=TRADE_MS;
+      $('buyBtn').disabled = $('buyBtn').textContent.indexOf('✓')>-1; }
+    else { $('rt5a').style.display='none'; if(rtActive===$('rt5a')) rtActive=null;
+      if($('buyBtn').textContent.indexOf('✓')<0) $('buyBtn').disabled=true; }
+    // step 4 evidence — auto-prove + evidence countdown chip (rt5b)
+    if(st.phase===1){
+      unlock(4); prepareProof();
+      $('rt5b').style.display='inline-flex'; rtActive=$('rt5b'); rtEnd=st.ra+st.win; rtTotal=WINDOW_MS;
+      // step 5: the judge reads the admitted evidence automatically the moment the proof is
+      // ready, so the verdict + commit never race the window deadline. (The button mirrors
+      // the action and can re-trigger if the resolver was momentarily down.)
+      if(proofReady){ unlock(5); if(!judging && !verdict) runJudge(); }
+    }
+    else if(st.phase>1){ $('rt5b').style.display='none'; if(rtActive===$('rt5b')) rtActive=null;
+      if(proofReady){ unlock(5); if(!judging && !verdict) $('judgeBtn').disabled=false; } }
+    // step 5 settle
+    if(st.phase===3){ if(proofAdmitted && $('resolveOk').className.indexOf('show')<0) $('resolveBtn').disabled = $('resolveBtn').textContent.indexOf('✓')>-1;
+      $('resolvePhase').style.display='inline-flex'; $('resolvePhase').className='phasechip closed';
+      $('resolvePhase').textContent = proofAdmitted ? 'ready to resolve' : 'commit the verdict first'; }
+    if(st.phase===2 || st.stored===2){ rtActive=null; $('rt5a').style.display='none'; $('rt5b').style.display='none'; $('resolvePhase').className='phasechip resolved'; $('resolvePhase').textContent='resolved · '+['—','YES','NO','VOID'][st.outcome]; clearInterval(poller); }
+  };
+  tick(); poller = setInterval(tick, 3000);
+}
+</script>
+</body>
+</html>
