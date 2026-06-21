@@ -533,3 +533,40 @@ fun resolve_is_permissionless() {
     clk.destroy_for_testing();
     ts::end(s);
 }
+
+// -- decode_verdict (Fact.output `[n][token×n]` → claim) -------------------
+fun u32le(x: u64): vector<u8> {
+    let mut v = vector<u8>[];
+    v.push_back((x & 0xff) as u8);
+    v.push_back(((x >> 8) & 0xff) as u8);
+    v.push_back(((x >> 16) & 0xff) as u8);
+    v.push_back(((x >> 24) & 0xff) as u8);
+    v
+}
+
+fun build_output(tokens: vector<u64>): vector<u8> {
+    let n = tokens.length();
+    let mut o = u32le(n);
+    let mut i = 0;
+    while (i < n) { o.append(u32le(tokens[i])); i = i + 1; };
+    o
+}
+
+#[test]
+fun decode_verdict_cases() {
+    let yes: u32 = 9001;
+    let no: u32 = 9002;
+    // single YES / NO verdict token
+    assert!(market::test_decode_verdict(build_output(vector[9001]), yes, no) == 1, 0);
+    assert!(market::test_decode_verdict(build_output(vector[9002]), yes, no) == 2, 1);
+    // YES after an unrelated token still wins
+    assert!(market::test_decode_verdict(build_output(vector[5, 9001]), yes, no) == 1, 2);
+    // NO appears before YES ⇒ NO wins (earliest standalone)
+    assert!(market::test_decode_verdict(build_output(vector[9002, 9001]), yes, no) == 2, 3);
+    // neither token present ⇒ ABSTAIN (3)
+    assert!(market::test_decode_verdict(build_output(vector[5, 6, 7]), yes, no) == 3, 4);
+    // empty token list ⇒ ABSTAIN
+    assert!(market::test_decode_verdict(build_output(vector[]), yes, no) == 3, 5);
+    // too short to hold even the length prefix ⇒ ABSTAIN
+    assert!(market::test_decode_verdict(vector[0u8, 1u8], yes, no) == 3, 6);
+}

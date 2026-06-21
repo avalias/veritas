@@ -59,6 +59,10 @@ const PHASE_RESOLVED: u8 = 2;
 // -- claim tags an evidence item can assert --------------------------------
 const CLAIM_YES: u8 = 1;
 const CLAIM_NO: u8 = 2;
+// The judge read the item as neither YES nor NO (its UNKNOWN). Returned by
+// decode_verdict; an item whose proven extraction is ABSTAIN supports neither
+// side, so it disagrees with any CLAIM_YES/CLAIM_NO assertion (drop_misextracted).
+const CLAIM_ABSTAIN: u8 = 3;
 
 // zkTLS (Reclaim) evidence class: the issuer "key" is a 20-byte pinned
 // attestor address, admitted via submit_web_proof (veritas::reclaim).
@@ -594,6 +598,42 @@ fun push_unique(v: &mut vector<u64>, x: u64) {
 /// floor(a * b / c) in u128 to avoid overflow on the CPMM product / fees.
 fun mul_div(a: u64, b: u64, c: u64): u64 {
     (((a as u128) * (b as u128)) / (c as u128)) as u64
+}
+
+/// Little-endian u32 at byte offset `off` (the output region encoding, §7.3).
+fun read_u32_le(b: &vector<u8>, off: u64): u32 {
+    (b[off] as u32)
+        | ((b[off + 1] as u32) << 8)
+        | ((b[off + 2] as u32) << 16)
+        | ((b[off + 3] as u32) << 24)
+}
+
+/// Decode the judge's verdict from a Fact's output region. Per SPEC §7.3 the
+/// output is `[n: u32][token_id: u32 × n]`. The verdict is whichever of the
+/// committed `yes_token` / `no_token` appears FIRST in the token stream — the
+/// on-chain twin of the off-chain resolver's "earliest standalone YES/NO wins"
+/// (resolver.rs::extract_verdict). Neither present ⇒ CLAIM_ABSTAIN (the judge's
+/// UNKNOWN). The (yes_token, no_token) pair is part of the market's committed
+/// judge identity, so the reading is fixed before any money is at stake.
+fun decode_verdict(output: &vector<u8>, yes_token: u32, no_token: u32): u8 {
+    let len = output.length();
+    if (len < 4) return CLAIM_ABSTAIN;
+    let n = read_u32_le(output, 0);
+    let mut i = 0u64;
+    while (i < (n as u64)) {
+        let off = 4 + i * 4;
+        if (off + 4 > len) break; // truncated/malformed → no further tokens
+        let tok = read_u32_le(output, off);
+        if (tok == yes_token) return CLAIM_YES;
+        if (tok == no_token) return CLAIM_NO;
+        i = i + 1;
+    };
+    CLAIM_ABSTAIN
+}
+
+#[test_only]
+public fun test_decode_verdict(output: vector<u8>, yes_token: u32, no_token: u32): u8 {
+    decode_verdict(&output, yes_token, no_token)
 }
 
 // -- read-only accessors (clients / UI / tests) ---------------------------
