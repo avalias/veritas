@@ -1,11 +1,11 @@
-//! Emits dispute/tests/generated_vectors.move — the Rust↔Move equivalence
+//! Emits opml/move/tests/generated_vectors.move — the Rust↔Move equivalence
 //! suite (brief Phase 2.3, "the most important test in the project").
 //!
 //! Two layers:
 //!  1. Signed-arithmetic vectors: random + boundary inputs with expected
 //!     outputs computed by THE RUST IMPLEMENTATION (vm::exec), emitted as
 //!     u64 two's-complement bit patterns. `sui move test` then holds
-//!     dispute::signed to the same answers.
+//!     opml::signed to the same answers.
 //!  2. Full verify_step vectors: real StepProofs built by vm::onestep
 //!     against real machines, with the honest post-root (and tampered
 //!     variants) — exercising V1–V9 end to end inside the Move VM.
@@ -461,8 +461,8 @@ fn emit_softfloat_vectors() {
          /// FW-6 softfloat cross-vectors: expected bits computed by the Rust twin\n\
          /// (vm::softfloat), which is fuzz-proven bit-identical to IEEE hardware.\n\
          #[test_only]\n\
-         module dispute::softfloat_vectors;\n\n\
-         use dispute::softfloat as sf;\n",
+         module opml::softfloat_vectors;\n\n\
+         use opml::softfloat as sf;\n",
     );
     // Pairwise ops.
     let n = 400usize;
@@ -620,7 +620,7 @@ fun committed_block_dot_{case}() {{
         )
         .unwrap();
     }
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../dispute/tests/softfloat_vectors.move");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../move/tests/softfloat_vectors.move");
     std::fs::write(path, &out).expect("write softfloat vectors");
     println!("wrote {path} ({} KiB)", out.len() / 1024);
 }
@@ -634,9 +634,9 @@ fn main() {
          /// vm::onestep (the Rust twins). A failure here is a semantic gap between\n\
          /// the off-chain and on-chain interpreters — a critical soundness bug.\n\
          #[test_only]\n\
-         module dispute::generated_vectors;\n\n\
-         use dispute::interp;\n\
-         use dispute::signed as sg;\n",
+         module opml::generated_vectors;\n\n\
+         use opml::interp;\n\
+         use opml::signed as sg;\n",
     );
     let mut rng = XorShift64::new(0x6E2A_70E5);
     emit_signed_vectors(&mut out, &mut rng);
@@ -656,10 +656,10 @@ fn main() {
         });
     }
     t.name = "vs_tampered_opening_aborts";
-    out.push_str("\n#[expected_failure(abort_code = 4, location = dispute::interp)]");
+    out.push_str("\n#[expected_failure(abort_code = 4, location = opml::interp)]");
     emit_case(&mut out, &t);
 
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../dispute/tests/generated_vectors.move");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../move/tests/generated_vectors.move");
     std::fs::write(path, &out).expect("write generated vectors");
     println!("wrote {path} ({} KiB)", out.len() / 1024);
 }

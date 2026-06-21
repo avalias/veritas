@@ -29,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: install sui CLI
         run: |
           url=$(curl -s https://api.github.com/repos/MystenLabs/sui/releases/latest \
@@ -37,6 +39,20 @@ jobs:
           mkdir -p "$HOME/.local/bin"
           tar -xzf sui.tgz -C "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: sui move test
-        working-directory: dispute
+      # The opml verifier package (opml::*) — the on-chain half of the trust model.
+      - name: opml verifier package — sui move test
+        working-directory: opml/move
         run: sui move test
+      # The prediction-market package (veritas::*) — CPMM + evidence admission.
+      - name: prediction-market package — sui move test
+        working-directory: demos/prediction-market/move
+        run: sui move test
+      # Drift gate: regenerate the Rust↔Move equivalence vectors and fail if the
+      # committed Move vectors no longer match the Rust twins. This is what makes
+      # the equivalence suite a CI guarantee rather than a sampled snapshot.
+      - name: regenerate Rust↔Move equivalence vectors and assert NO drift
+        run: |
+          cargo run -p client --bin gen_move_vectors
+          git diff --exit-code \
+            opml/move/tests/generated_vectors.move \
+            opml/move/tests/softfloat_vectors.move

@@ -115,8 +115,8 @@ fn emit_move_vector(judge: &JudgeParams, pre_root: &Hash, claimed: &Hash, proof:
          /// a 32.3M-float-op judgment, convicted by the on-chain one-step verifier\n\
          /// executing the disputed float micro-op in pure-integer Move softfloat.\n\
          #[test_only]\n\
-         module dispute::fqwen_conviction;\n\n\
-         use dispute::interp;\n\n\
+         module opml::fqwen_conviction;\n\n\
+         use opml::interp;\n\n\
          #[test]\n\
          fun committed_float_qwen_fault_convicted() {\n\
          \x20   let v = interp::verify_step(\n",
@@ -133,9 +133,9 @@ fn emit_move_vector(judge: &JudgeParams, pre_root: &Hash, claimed: &Hash, proof:
     s.push_str(&opening(&proof.open_b));
     s.push_str(&opening(&proof.open_w));
     s.push_str("    );\n    assert!(v == 1, 0); // ChallengerWins — float fraud convicted\n}\n");
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../dispute/tests/fqwen_conviction.move");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../move/tests/fqwen_conviction.move");
     std::fs::write(path, &s).expect("write fqwen conviction vector");
-    println!("· wrote on-chain conviction vector → dispute/tests/fqwen_conviction.move ({} B)", s.len());
+    println!("· wrote on-chain conviction vector → opml/move/tests/fqwen_conviction.move ({} B)", s.len());
 }
 
 fn main() {
