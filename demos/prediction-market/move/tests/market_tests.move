@@ -632,8 +632,11 @@ fun drop_misextracted_flips_resolution() {
     // a FINALIZED counter-extraction Fact: same program, genesis BUILT from the
     // item's input, output = the NO token ⇒ true reading NO ≠ asserted YES.
     ts::next_tx(&mut s, ADMIN);
+    // a Fact carries the STATE root (state_root(mem, regs=0)), not the bare
+    // memory root — wrap genesis_f exactly as drop_misextracted will recompute it.
+    let fact_genesis = opml::genesis::genesis_state_root(genesis_f);
     opml::dispute::share_finalized_fact_for_testing(
-        2, 0, pr, genesis_f, 0, build_output(vector[200]), ts::ctx(&mut s),
+        2, 0, pr, fact_genesis, 0, build_output(vector[200]), ts::ctx(&mut s),
     );
 
     // drop the mis-extracted item

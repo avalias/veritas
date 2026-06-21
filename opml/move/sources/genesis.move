@@ -60,3 +60,21 @@ public fun genesis_for_item(
     };
     cur
 }
+
+/// Genesis registers are all zero (SPEC §7.2) — the canonical 45-byte encoding.
+fun zero_regs(): vector<u8> {
+    let mut r = vector<u8>[];
+    let mut i = 0;
+    while (i < 45) { r.push_back(0u8); i = i + 1; };
+    r
+}
+
+/// The genesis STATE root a Fact actually carries (SPEC §3.3/§7.2): the
+/// bisection interval starts at (0, state_root(mem_root, regs=0)), NOT the bare
+/// memory root. genesis_for_item returns the memory root; a market wraps it with
+/// this before comparing against a Fact's genesis_root. (Pinned against the real
+/// Machine::state_root convention by game/tests/genesis_differential.rs.)
+public fun genesis_state_root(mem_root: vector<u8>): vector<u8> {
+    merkle::state_root(&mem_root, &zero_regs())
+}
+

@@ -534,9 +534,12 @@ public fun drop_misextracted(
     assert!(opml::dispute::program_root(fact) == m.judge_program_root, E_WRONG_JUDGE_PROGRAM);
     // 3. Its genesis must be CONSTRUCTED on-chain from THIS item's input bytes,
     //    not trusted — so the Fact cannot be one over a different input.
-    let g = opml::genesis::genesis_for_item(
+    let g_mem = opml::genesis::genesis_for_item(
         m.judge_static_genesis_root, &input_pages, &input_indices, &input_siblings,
     );
+    // a Fact's genesis_root is the STATE root state_root(mem_root, regs=0), not
+    // the bare memory root (SPEC §3.3/§7.2; pinned by genesis_differential.rs).
+    let g = opml::genesis::genesis_state_root(g_mem);
     assert!(opml::dispute::genesis_root(fact) == g, E_GENESIS_MISMATCH);
     // 4. The proven verdict must DISAGREE with the item's asserted claim.
     let out = opml::dispute::output(fact);
