@@ -8,6 +8,16 @@ post-mortems, then specifies a principled testing protocol. Companions:
 [DEMO.md](DEMO.md) §3.1 (provenance gating), [VISION.md](VISION.md) (Web
 Credentials), [WEBPROOFS.md](WEBPROOFS.md) (the zkTLS trust floor), [PROVENANCE.md](PROVENANCE.md) (the credential layer as built).*
 
+> **STATUS — BUILT vs DESIGN.** This document is the *design* of the evidence layer.
+> **BUILT on-chain today** (`market.move`): provenance-gated admission (native
+> ed25519/ES256 + Reclaim zkTLS), content-hash dedup, trust-GROUP-level counting,
+> the committed burden-of-proof rule, and full-stake void refunds.
+> **DESIGN-ONLY (not yet implemented):** the SourcePolicy machinery in §2–§8 —
+> per-trust-group quotas, per-class tiers, the zkTLS k−1 tier cap, datamarking,
+> R committed permutations + majority vote, augmentation-slash, the creation-time
+> lint, the extract/aggregate split, and the `eval/` resolver-benchmark crate.
+> Treat those sections as a roadmap, not shipped behavior.
+
 ## 0. The case study that defines the failure mode
 
 **Polymarket "Ukraine mineral deal," March 2025.** Market: would Ukraine

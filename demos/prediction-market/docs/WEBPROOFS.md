@@ -7,6 +7,14 @@ proxy/notary is irreducibly trusted, and the decomposition that splits a
 fetch into a zero-trust (server-signed) half and an irreducibly
 observer-trusted (symmetric-content) half — NOT a free lunch.*
 
+> **STATUS — BUILT vs DESIGN.** The cryptographic analysis below (the §1
+> obstruction theorem and the §3 decomposition, incl. the §3.1 self-correction)
+> is true-as-stated and is the honest trust model. **BUILT on-chain:** native
+> Reclaim attestor verification (`reclaim.move`, `secp256k1_ecrecover`).
+> **DESIGN-ONLY:** the §4 defense-in-depth knobs — the zkTLS k−1 tier cap and
+> multi-attestor independence quotas are described as safety properties but are
+> NOT yet enforced in `market.move::resolve`.
+
 ## 1. The obstruction (a theorem, not an engineering gap)
 
 TLS 1.3 has two halves with opposite cryptographic properties:

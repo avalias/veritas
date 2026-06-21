@@ -8,6 +8,13 @@ first instance), [ANALYSIS.md](ANALYSIS.md) (what is built+measured),
 [PRIOR_ART.md](PRIOR_ART.md) (the landscape + novelty check),
 [SPEC.md](SPEC.md) (normative), [PROVENANCE.md](PROVENANCE.md) (the credential layer as built).*
 
+> **STATUS — BUILT vs DESIGN.** This is the general vision; for what is actually
+> built and measured see [ANALYSIS.md](ANALYSIS.md) and [PROVENANCE.md](PROVENANCE.md).
+> **BUILT credential schemes today:** native ed25519, ES256/C2PA, and Reclaim
+> zkTLS. **DESIGN-ONLY:** the DKIM-email / RS256-JWT "text-evidence workhorse" —
+> `credential.move` currently aborts `E_BAD_SCHEME` on RSA2048/DKIM (the
+> zkEmail/Groth16 path is future work). Read DKIM/RS256 claims as roadmap.
+
 ## 1. The thesis: the impossibility, and the maximal escape
 
 A blockchain has no senses; it cannot perceive an election, a launch, a
