@@ -1,10 +1,18 @@
 # veritas — the prediction-market demo built on the opml engine.
 # A solvent CPMM whose outcome is decided only by provenance-gated evidence
 # (zkTLS web proofs verified by native ecrecover) read by the AI judge — never
-# by a vote. Independent of the opml package; it consumes the engine off-chain.
+# by a vote. Depends on the opml package for the on-chain engine<->market
+# binding: a finalized fraud-proof Fact gates resolution (SPEC §7.2, WIP).
 [package]
 name = "veritas"
 edition = "2024.beta"
 
+[dependencies]
+opml = { local = "../../../opml/move" }
+
 [addresses]
 veritas = "0x0"
+
+# localnet (ephemeral --force-regenesis chain id); added for `sui client publish` on local
+[environments]
+local = "c290212c"
