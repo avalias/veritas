@@ -149,7 +149,7 @@
     <div class="why" style="grid-template-columns:repeat(4,1fr)">
       <div class="c"><div class="h" style="color:var(--teal)"><i class="ti ti-cpu"></i> Real AI judge</div><div class="d">Qwen3-1.7B in a deterministic VM · committed-float, <b style="color:var(--tx)">bit-identical</b> on any CPU or GPU. The model as published, not dumbed down.</div></div>
       <div class="c"><div class="h" style="color:var(--blue)"><i class="ti ti-copy-check"></i> Bit-identical</div><div class="d">Same output on any CPU or GPU, to the last bit. "Run it yourself" is real, not a slogan.</div></div>
-      <div class="c"><div class="h" style="color:var(--purple)"><i class="ti ti-shield-lock"></i> zkTLS on-chain</div><div class="d">A real attestor signature verified by Sui-native <span class="mono">ecrecover</span>. <a href="https://suiscan.xyz/testnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1" target="_blank">see the tx</a></div></div>
+      <div class="c"><div class="h" style="color:var(--purple)"><i class="ti ti-shield-lock"></i> zkTLS on-chain</div><div class="d">A real attestor signature verified by Sui-native <span class="mono">ecrecover</span>.</div></div>
       <div class="c"><div class="h" style="color:var(--red)"><i class="ti ti-gavel"></i> Fraud-provable</div><div class="d">A real judge fault was bisected to one micro-op and <b style="color:var(--tx)">convicted on-chain</b>. Lying is slashable.</div></div>
     </div>
     <div class="note" style="margin-top:12px">Could you run the Qwen judge yourself in a TEE? Yes — on <b>Sui Nautilus</b> (AWS Nitro), with its attestation verified on-chain as a second layer behind the fraud proof. The whole package — markets, zkTLS, the judge, the dispute game — is <b>70 passing Move tests</b>, deployed here on testnet.</div>
@@ -374,7 +374,7 @@ async function openMarket(id,kind){
     evHtml=`<h3>Prove it yourself — zkTLS via Reclaim</h3>
       <div class="dim" style="font-size:13px;line-height:1.6">This market pins <b style="color:var(--tx)">Reclaim's real attestor</b> (<span class="mono">${(CFG.reclaim&&CFG.reclaim.attestor||'').slice(0,12)}…</span>). Generate your OWN zkTLS proof of a real website with the Reclaim app, and submit it — verified on-chain by native <span class="mono">ecrecover</span>, exactly like every other proof here. Nobody mediates; you bring the receipt.</div>
       ${rc.app_id?`<button class="btn primary" id="reclaimBtn" style="margin-top:10px"><i class="ti ti-world-share"></i> Generate a real zkTLS proof</button>`
-        :`<div class="note">The on-chain wiring (<span class="mono">reclaim::verify → submit_web_proof</span>) is done and this market pins Reclaim's real attestor — proven on testnet (<a href="https://suiscan.xyz/testnet/tx/F3DtJMvfMG2QJQPu4JUKtZDH3C6uh6NKzrNKb2RyQPv1" target="_blank">see the tx</a>). To generate a fresh proof in-app, add your free <a href="https://dev.reclaimprotocol.org" target="_blank">Reclaim</a> <span class="mono">app_id / app_secret / provider_id</span> to <span class="mono">config.json</span>.</div>`}`;
+        :`<div class="note">The on-chain wiring (<span class="mono">reclaim::verify → submit_web_proof</span>) is done and this market pins Reclaim's real attestor. To generate a fresh proof in-app, add your free <a href="https://dev.reclaimprotocol.org" target="_blank">Reclaim</a> <span class="mono">app_id / app_secret / provider_id</span> to <span class="mono">config.json</span>.</div>`}`;
   }
   modal.innerHTML=`<span class="x" id="closeX">✕</span>
     <div class="cat mono dim">${m.category}</div>

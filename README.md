@@ -9,9 +9,9 @@ down to a single arithmetic operation that a ~330-line Sui Move contract
 re-executes and slashes. We tested everything extensively to match bit to bit.
 
 No trusted hardware, no
-committee, just a contract anyone can read. This is a big inovation, read more in
-[opml/README.md](opml/README.md), we explain what made this opML breakthorugh on Sui finally feasible, and compare to older solutions. This is our gift to Sui community,
-we think that opML LLM inference will drive the next wave of innovations on Sui. There are countless applications, once you can verify LLM execution on Sui, with no proving ovehead, and almost instant verification. Feel free to use it in your projects. A new wave of LLM using blochain apps will come to Sui. Because, we solved this theoretical quetion!
+committee, just a contract anyone can read. This is a big innovation, read more in
+[opml/README.md](opml/README.md), we explain what made this opML breakthrough on Sui finally feasible, and compare to older solutions. This is our gift to Sui community,
+we think that opML LLM inference will drive the next wave of innovations on Sui. There are countless applications, once you can verify LLM execution on Sui, with no proving overhead, and almost instant verification. Feel free to use it in your projects. A new wave of LLM using blockchain apps will come to Sui. Because, we solved this theoretical question!
 
 **`demos/prediction-market/` is a market that resolves on proof, not on votes.**
 Its outcome is decided only by zkTLS web proofs, verified on-chain by native
@@ -73,8 +73,8 @@ Then open <http://127.0.0.1:8777/> and pick a demo:
 
 ```bash
 cargo test                                         # Rust: VM, compiler, kernels, fraud game
-cd opml/move && sui move test                       # the on-chain verifier (54 tests)
-cd demos/prediction-market/move && sui move test    # the market contract (16 tests)
+cd opml/move && sui move test                       # the on-chain verifier (56 tests)
+cd demos/prediction-market/move && sui move test    # the market contract (24 tests)
 ```
 
 ## Continue development
@@ -86,9 +86,12 @@ dims from config, needs tied embeddings) and **0.6B is the bundled reference** w
 quality we measured (committed-float perplexity 34.5974 = the published model).
 
 [HANDOFF.md](HANDOFF.md) is the full resume doc: the deployed testnet package IDs and
-operator address, the open threads (the deepest being on-chain evidence→Qwen genesis
-binding, which makes a *wrong verdict* slashable at the market level), and the
-operational gotchas. See [opml/README.md](opml/README.md) for the engine and
+operator address and the operational gotchas. The engine↔market binding that makes a
+*wrong verdict* slashable at the market level — once the deepest open thread — is now
+implemented and tested on-chain: `market::drop_misextracted` consumes a finalized
+counter-extraction `Fact` and drops the mis-extracted item, with `opml::genesis`
+constructing the per-question genesis on-chain (SPEC §7.2). Wiring the real judge
+identity into the live markets is the remaining step. See [opml/README.md](opml/README.md) for the engine and
 [demos/prediction-market/docs/DEVNET.md](demos/prediction-market/docs/DEVNET.md) for
 the running demo.
 
