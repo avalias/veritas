@@ -39,6 +39,7 @@ fun fresh_market(s: &mut ts::Scenario, clock: &clock::Clock, k: u64, burden: u8)
         b"Did event E happen by the deadline?",
         x"aabbccdd",
         12,
+        x"", 1, 2, // judge_static_genesis_root, yes_token, no_token (placeholder; unused here)
         mk_keys(),
         vector[0, 0, 0, 0], // all ed25519 (scheme 0)
         vector[0, 0, 1, 1], // issuers 0,1 share group 0; issuers 2,3 share group 1
@@ -308,7 +309,7 @@ fun create_rejects_unsatisfiable_k() {
     ts::next_tx(&mut s, ADMIN);
     let seed = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut s));
     market::create_market(
-        b"q", x"aa", 12, mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 0, 0], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+        b"q", x"aa", 12, x"", 1, 2, mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 0, 0], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
     abort 99
 }
@@ -324,7 +325,7 @@ fun create_rejects_duplicate_keys() {
     *&mut keys[1] = keys[0]; // duplicate key in a different group
     let seed = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut s));
     market::create_market(
-        b"q", x"aa", 12, keys, vector[0, 0, 0, 0], vector[0, 1, 2, 3], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+        b"q", x"aa", 12, x"", 1, 2, keys, vector[0, 0, 0, 0], vector[0, 1, 2, 3], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
     abort 99
 }
@@ -569,4 +570,93 @@ fun decode_verdict_cases() {
     assert!(market::test_decode_verdict(build_output(vector[]), yes, no) == 3, 5);
     // too short to hold even the length prefix ⇒ ABSTAIN
     assert!(market::test_decode_verdict(vector[0u8, 1u8], yes, no) == 3, 6);
+}
+
+// -- drop_misextracted: the engine<->market binding (SPEC §7.2) ------------
+fun page(tag: u8): vector<u8> {
+    let mut p = vector<u8>[];
+    let mut i = 0;
+    while (i < 1024) { p.push_back(tag); i = i + 1; };
+    p
+}
+
+#[test]
+fun drop_misextracted_flips_resolution() {
+    // Synthetic depth-2 judge genesis: pages 0,1 static (weights); pages 2,3 are
+    // THIS item's input region. (Same construction as opml::genesis_tests.)
+    let p0 = page(11);
+    let p1 = page(22);
+    let g2 = page(33);
+    let g3 = page(44);
+    let l0 = opml::merkle::page_leaf(&p0);
+    let l1 = opml::merkle::page_leaf(&p1);
+    let z0 = opml::genesis::zero_page_leaf();
+    let left = opml::merkle::node(&l0, &l1);
+    let static_root = opml::merkle::node(&left, &opml::merkle::node(&z0, &z0));
+    let l2 = opml::merkle::page_leaf(&g2);
+    let l3 = opml::merkle::page_leaf(&g3);
+    let genesis_f = opml::merkle::node(&left, &opml::merkle::node(&l2, &l3));
+    let pages = vector[g2, g3];
+    let indices = vector[2u64, 3u64];
+    let siblings = vector[vector[copy z0, copy left], vector[copy l2, copy left]];
+
+    let pr = x"deadbeef"; // judge program root
+    let yes_tok: u32 = 100;
+    let no_tok: u32 = 200;
+
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    clk.set_for_testing(0);
+
+    // a market committing this judge identity; occurrence, k=1 (one YES group ⇒ YES)
+    ts::next_tx(&mut s, ADMIN);
+    let seed = coin::mint_for_testing<SUI>(1_000_000, ts::ctx(&mut s));
+    let mkt = market::create_market(
+        b"Did it happen?", pr, 2,
+        static_root, yes_tok, no_tok,
+        mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 1, 1],
+        1, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+    );
+
+    // admit a YES item — the judge will be PROVEN to actually read NO.
+    clk.set_for_testing(1200);
+    ts::next_tx(&mut s, ADMIN);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::test_admit(&mut m, 0, 1, hash32(1), 1100, &clk, ts::ctx(&mut s));
+        let (yg, _) = market::group_counts_live(&m);
+        assert!(yg == 1, 0); // counts as YES before the drop
+        ts::return_shared(m);
+    };
+
+    // a FINALIZED counter-extraction Fact: same program, genesis BUILT from the
+    // item's input, output = the NO token ⇒ true reading NO ≠ asserted YES.
+    ts::next_tx(&mut s, ADMIN);
+    opml::dispute::share_finalized_fact_for_testing(
+        2, 0, pr, genesis_f, 0, build_output(vector[200]), ts::ctx(&mut s),
+    );
+
+    // drop the mis-extracted item
+    ts::next_tx(&mut s, ADMIN);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        let fact = ts::take_shared<opml::dispute::Fact>(&s);
+        market::drop_misextracted(&mut m, 0, &fact, pages, indices, siblings);
+        let (yg2, _) = market::group_counts_live(&m);
+        assert!(yg2 == 0, 1); // dropped ⇒ no longer counts
+        ts::return_shared(fact);
+        ts::return_shared(m);
+    };
+
+    // resolve: occurrence, zero YES groups ⇒ NO — the wrong YES was slashed out.
+    clk.set_for_testing(2000);
+    ts::next_tx(&mut s, ADMIN);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::resolve(&mut m, &clk);
+        assert!(market::outcome(&m) == 2, 2); // NO (flipped from YES)
+        ts::return_shared(m);
+    };
+    clk.destroy_for_testing();
+    ts::end(s);
 }

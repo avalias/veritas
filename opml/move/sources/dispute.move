@@ -307,6 +307,10 @@ public fun program_root(f: &Fact): vector<u8> { f.program_root }
 
 public fun genesis_root(f: &Fact): vector<u8> { f.genesis_root }
 
+/// Base address of the output region (SPEC §7.3). `output` is self-describing
+/// (`[n][tokens]`); this is exposed for callers that re-derive the region.
+public fun out_base(f: &Fact): u64 { f.out_base }
+
 public fun depth(f: &Fact): u8 { f.d }
 
 public fun n_steps(f: &Fact): u64 { f.n }
@@ -316,3 +320,45 @@ public fun is_finalized(f: &Fact): bool { f.status == STATUS_FINALIZED }
 
 /// True once a challenger has proven the claim fraudulent.
 public fun is_rejected(f: &Fact): bool { f.status == STATUS_REJECTED }
+
+/// TEST-ONLY: build and share a FINALIZED Fact directly, bypassing the
+/// assert→challenge→bisection flow, so a market's drop_misextracted binding
+/// can be tested. Real Facts only reach FINALIZED via finalize()/settle().
+#[test_only]
+public fun share_finalized_fact_for_testing(
+    d: u8,
+    p: u8,
+    program_root: vector<u8>,
+    genesis_root: vector<u8>,
+    out_base: u64,
+    output: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    transfer::share_object(Fact {
+        id: object::new(ctx),
+        d,
+        p,
+        program_root,
+        genesis_root,
+        out_base,
+        n: 1,
+        root_n: vector[],
+        output,
+        resolver: ctx.sender(),
+        challenger: @0x0,
+        pot: sui::balance::zero<SUI>(),
+        bond_value: 0,
+        created_ms: 0,
+        window_ms: 0,
+        timeout_ms: 0,
+        status: STATUS_FINALIZED,
+        lo: 0,
+        hi: 0,
+        root_lo: vector[],
+        root_hi: vector[],
+        has_pending: false,
+        pending_mid: vector[],
+        challenger_turn: false,
+        deadline_ms: 0,
+    });
+}

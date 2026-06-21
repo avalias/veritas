@@ -91,6 +91,13 @@ const E_BAD_TIME: u64 = 18;
 const E_TOO_MANY_EVIDENCE: u64 = 19;
 const E_NOT_LP: u64 = 20;
 const E_BAD_SCHEME: u64 = 21;
+// -- drop_misextracted (engine<->market binding, SPEC §7.2) ----------------
+const E_NO_JUDGE_IDENTITY: u64 = 22; // market committed no static genesis root
+const E_FACT_NOT_FINALIZED: u64 = 23; // a REJECTED Fact's output is attacker-chosen
+const E_WRONG_JUDGE_PROGRAM: u64 = 24; // Fact ran a different judge program
+const E_GENESIS_MISMATCH: u64 = 25; // Fact's input != this item's input
+const E_NO_MISEXTRACTION: u64 = 26; // proven verdict agrees with the claim
+const E_ALREADY_DROPPED: u64 = 27;
 
 /// An admitted piece of evidence: a signed claim by a pinned issuer. Stored
 /// so resolution is a transparent, recomputable function of on-chain bytes.
@@ -129,6 +136,14 @@ public struct Market has key {
     question: vector<u8>,
     judge_program_root: vector<u8>, // which model+prompt extracts claims
     judge_depth: u8,
+    // Judge IDENTITY for the on-chain extraction backstop (drop_misextracted):
+    // the audited static image root (SPEC §7.2; genesis_for_item folds the
+    // item's input into it), and the verdict-token encoding decode_verdict reads
+    // from a Fact's output (SPEC §7.3). All fixed at creation — no post-creation
+    // discretion. (Zero static root = binding disabled for this market.)
+    judge_static_genesis_root: vector<u8>,
+    judge_yes_token: u32,
+    judge_no_token: u32,
     // -- source policy (EVIDENCE.md §2): who may be heard, and how counted -
     issuer_keys: vector<vector<u8>>, // pinned pubkeys (distinct)
     issuer_schemes: vector<u8>, // issuer_idx → credential scheme (ed25519 | ES256/C2PA)
@@ -168,6 +183,9 @@ public struct EvidenceAdmitted has copy, drop {
 public struct Resolved has copy, drop { market: address, outcome: u8, yes_groups: u64, no_groups: u64 }
 public struct Redeemed has copy, drop { market: address, who: address, payout: u64 }
 public struct ResidualWithdrawn has copy, drop { market: address, amount: u64 }
+public struct ItemDropped has copy, drop {
+    market: address, item_idx: u64, asserted_claim: u8, true_claim: u8,
+}
 
 // =========================================================================
 // CREATION — every resolution parameter is fixed here, before any trade.
@@ -177,6 +195,9 @@ public fun create_market(
     question: vector<u8>,
     judge_program_root: vector<u8>,
     judge_depth: u8,
+    judge_static_genesis_root: vector<u8>,
+    judge_yes_token: u32,
+    judge_no_token: u32,
     issuer_keys: vector<vector<u8>>,
     issuer_schemes: vector<u8>,
     issuer_groups: vector<u64>,
@@ -226,6 +247,9 @@ public fun create_market(
         question,
         judge_program_root,
         judge_depth,
+        judge_static_genesis_root,
+        judge_yes_token,
+        judge_no_token,
         issuer_keys,
         issuer_schemes,
         issuer_groups,
@@ -262,6 +286,9 @@ public fun create_market_entry(
     question: vector<u8>,
     judge_program_root: vector<u8>,
     judge_depth: u8,
+    judge_static_genesis_root: vector<u8>,
+    judge_yes_token: u32,
+    judge_no_token: u32,
     issuer_keys: vector<vector<u8>>,
     issuer_schemes: vector<u8>,
     issuer_groups: vector<u64>,
@@ -275,7 +302,9 @@ public fun create_market_entry(
     ctx: &mut TxContext,
 ) {
     let _ = create_market(
-        question, judge_program_root, judge_depth, issuer_keys, issuer_schemes, issuer_groups,
+        question, judge_program_root, judge_depth,
+        judge_static_genesis_root, judge_yes_token, judge_no_token,
+        issuer_keys, issuer_schemes, issuer_groups,
         k, burden, resolve_after_ms, evidence_window_ms, fee_bps, seed, clock, ctx,
     );
 }
@@ -474,6 +503,50 @@ public fun resolve(m: &mut Market, clock: &Clock) {
     m.outcome = outcome;
     m.phase = PHASE_RESOLVED;
     event::emit(Resolved { market: m.id.to_address(), outcome, yes_groups: ny, no_groups: nn });
+}
+
+// =========================================================================
+// EXTRACTION BACKSTOP — the engine<->market binding (SPEC §7.2).
+//
+// Drop an evidence item whose judge reading is PROVABLY wrong, by consuming a
+// FINALIZED counter-extraction Fact. resolve() then skips it. This is what makes
+// a captured/lazy judge's verdict slashable at the market level — without it the
+// AI judge is decorative and `claim` is trusted.
+// =========================================================================
+public fun drop_misextracted(
+    m: &mut Market,
+    item_idx: u64,
+    fact: &opml::dispute::Fact,
+    input_pages: vector<vector<u8>>,        // the item's input region pages
+    input_indices: vector<u64>,             // their memory-tree leaf indices (ascending)
+    input_siblings: vector<vector<vector<u8>>>, // per-page Merkle update proofs
+) {
+    assert!(m.phase != PHASE_RESOLVED, E_WRONG_PHASE);
+    assert!(item_idx < m.evidence.length(), E_BAD_PARAMS);
+    // a judge identity must be committed (zero static root ⇒ binding disabled)
+    assert!(m.judge_static_genesis_root.length() > 0, E_NO_JUDGE_IDENTITY);
+    let mkt_addr = m.id.to_address();
+    // 1. Only a FINALIZED claim is positive proof of the true extraction. A
+    //    REJECTED Fact only proves the asserter lied about the final root — its
+    //    `output` is attacker-chosen and must NOT gate the count.
+    assert!(opml::dispute::is_finalized(fact), E_FACT_NOT_FINALIZED);
+    // 2. It must have run THIS market's committed judge program.
+    assert!(opml::dispute::program_root(fact) == m.judge_program_root, E_WRONG_JUDGE_PROGRAM);
+    // 3. Its genesis must be CONSTRUCTED on-chain from THIS item's input bytes,
+    //    not trusted — so the Fact cannot be one over a different input.
+    let g = opml::genesis::genesis_for_item(
+        m.judge_static_genesis_root, &input_pages, &input_indices, &input_siblings,
+    );
+    assert!(opml::dispute::genesis_root(fact) == g, E_GENESIS_MISMATCH);
+    // 4. The proven verdict must DISAGREE with the item's asserted claim.
+    let out = opml::dispute::output(fact);
+    let true_claim = decode_verdict(&out, m.judge_yes_token, m.judge_no_token);
+    let it = &mut m.evidence[item_idx];
+    assert!(!it.dropped, E_ALREADY_DROPPED);
+    let asserted = it.claim;
+    assert!(true_claim != asserted, E_NO_MISEXTRACTION);
+    it.dropped = true;
+    event::emit(ItemDropped { market: mkt_addr, item_idx, asserted_claim: asserted, true_claim });
 }
 
 // =========================================================================
