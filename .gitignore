@@ -10,3 +10,5 @@ opml/models/qwen/artifacts-1.7b/model.safetensors
 # self-hosted zkTLS attestor: a third-party clone plus its downloaded zk files
 tools/zktls/attestor-core/
 .DS_Store
+
+.claude/

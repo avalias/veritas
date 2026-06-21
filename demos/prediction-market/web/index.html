@@ -1,57 +1,17 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Veritas: verifiable AI on Sui</title>
-<link rel="stylesheet" href="style.css">
-
-<div class="wrap">
-  <h1>Veritas</h1>
-  <p class="lede">Verifiable AI on Sui. A language model runs off-chain at near-native
-    speed, and anyone can prove on-chain that it ran wrong, down to a single arithmetic
-    operation a small contract re-executes. Below are four demos. Each shows one thing.
-    They are all real and running on Sui testnet.</p>
-
-  <div class="demos">
-    <a class="demo" href="slashing.html">
-      <div class="k">the engine · the point</div>
-      <h3>Slash a lying LLM</h3>
-      <p>A resolver bonded a wrong AI judgment. Re-run the one disputed micro-op on-chain
-        and take its money. This is what the others can't do cheaply.</p>
-    </a>
-    <a class="demo" href="judge.html">
-      <div class="k">the engine</div>
-      <h3>Watch the AI judge</h3>
-      <p>The real Qwen3-1.7B reads a proven fact and types its verdict, deterministically.
-        Same bits on any CPU or GPU. That is what makes it disputable.</p>
-    </a>
-    <a class="demo" href="zktls.html">
-      <div class="k">the product · live</div>
-      <h3>Prove live web data</h3>
-      <p>Pick a real API — Bitcoin price, exchange rate, live weather, GitHub stars, a
-        headline, a match result. Generate a real zkTLS proof on the spot, watch it recover
-        the pinned attestor, and let the judge read the proven value.</p>
-    </a>
-    <a class="demo" href="market.html">
-      <div class="k">the product</div>
-      <h3>A market that resolves on proof</h3>
-      <p>An outcome decided by counting independent zkTLS proofs against a committed rule,
-        then paying out. No vote. No token holder can change a signature check.</p>
-    </a>
-  </div>
-
-  <p class="dim" style="margin-top:26px;font-size:14px">Want everything in one place? The
-    <a href="app.html">full prediction-market app</a> combines all of it with a guided
-    tour. The engine itself is written up in
-    <a href="../../../opml/README.md">opml/README.md</a>.</p>
-
-  <footer style="margin-top:30px;border-top:1px solid var(--border);padding-top:16px" class="dim">
-    <span class="mono" id="pkgs">…</span>
-  </footer>
-</div>
-
-<script type="module">
-  import { PKG, OPML, NET, scanObj } from './veritas.js';
-  document.getElementById('pkgs').innerHTML =
-    `on Sui ${NET} · market <a href="${scanObj(PKG)}" target="_blank">${PKG.slice(0,8)}…${PKG.slice(-4)}</a>` +
-    ` · opml verifier <a href="${scanObj(OPML)}" target="_blank">${OPML.slice(0,8)}…${OPML.slice(-4)}</a>`;
-</script>
+<meta http-equiv="refresh" content="0; url=demo/index.html">
+<link rel="canonical" href="demo/index.html">
+<title>Veritas — opML on Sui</title>
+<style>html,body{margin:0;height:100%;background:#04070a;color:#9fb3b0;font-family:system-ui,sans-serif}
+.c{height:100%;display:flex;align-items:center;justify-content:center}
+a{color:#33e6d0}</style>
+<script>location.replace('demo/index.html');</script>
+</head>
+<body>
+<div class="c"><p>Opening Veritas… if nothing happens, <a href="demo/index.html">continue&nbsp;&rarr;</a></p></div>
+</body>
+</html>
