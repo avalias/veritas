@@ -16,6 +16,7 @@ use sui::test_scenario as ts;
 const ADMIN: address = @0xA;
 const ALICE: address = @0xA11CE;
 const BOB: address = @0xB0B;
+const CAROL: address = @0xCA401;
 
 // 4 issuers, two trust groups {0,0,1,1}, k=2, occurrence; trading until
 // t=1000, evidence window [1000, 2000).
@@ -342,4 +343,193 @@ fun ed25519_admission_matches_offchain_signer() {
     // a tampered claim must NOT verify
     let bad = market::test_canonical_message(market_addr, 2, content_hash, 1500);
     assert!(!sui::ed25519::ed25519_verify(&signature, &pubkey, &bad), 1);
+}
+
+#[test]
+fun lp_cannot_drain_collateral_owed_to_unredeemed_winners() {
+    // Solvency under INTERLEAVED settlement: the LP withdraws the residual
+    // while a winning buyer has NOT yet redeemed. withdraw_residual must pay
+    // only collateral − outstanding winner liability (never the un-redeemed
+    // winner's funds), the late winner must still redeem in full, and total
+    // payouts must conserve total stake-in. (Existing tests only cover the
+    // all-winners-redeemed-first ordering.)
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    clk.set_for_testing(0);
+    let mkt = fresh_market(&mut s, &clk, 2, 0); // occurrence, k=2
+
+    // Alice + Bob bet YES (winners); Carol bets NO (loser).
+    ts::next_tx(&mut s, ALICE);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::buy_yes(&mut m, coin::mint_for_testing<SUI>(300_000, ts::ctx(&mut s)), &clk, ts::ctx(&mut s));
+        ts::return_shared(m);
+    };
+    ts::next_tx(&mut s, BOB);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::buy_yes(&mut m, coin::mint_for_testing<SUI>(250_000, ts::ctx(&mut s)), &clk, ts::ctx(&mut s));
+        ts::return_shared(m);
+    };
+    ts::next_tx(&mut s, CAROL);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::buy_no(&mut m, coin::mint_for_testing<SUI>(180_000, ts::ctx(&mut s)), &clk, ts::ctx(&mut s));
+        ts::return_shared(m);
+    };
+
+    // two DISTINCT groups confirm YES → resolve YES
+    clk.set_for_testing(1200);
+    ts::next_tx(&mut s, ADMIN);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::test_admit(&mut m, 0, 1, hash32(1), 1100, &clk, ts::ctx(&mut s));
+        market::test_admit(&mut m, 2, 1, hash32(2), 1150, &clk, ts::ctx(&mut s));
+        ts::return_shared(m);
+    };
+    clk.set_for_testing(2000);
+    ts::next_tx(&mut s, ADMIN);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::resolve(&mut m, &clk);
+        assert!(market::outcome(&m) == 1, 0); // YES
+        ts::return_shared(m);
+    };
+
+    let mut alice_payout = 0;
+    let mut bob_yes = 0;
+    let mut lp_residual = 0;
+    let mut bob_payout = 0;
+
+    // Alice redeems first; Bob has NOT redeemed yet.
+    ts::next_tx(&mut s, ALICE);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        let c = market::redeem(&mut m, ts::ctx(&mut s));
+        alice_payout = coin::value(&c);
+        coin::burn_for_testing(c);
+        ts::return_shared(m);
+    };
+
+    // LP withdraws the residual WHILE Bob still holds un-redeemed YES.
+    ts::next_tx(&mut s, ADMIN);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        let (by, _, _) = market::position_of(&m, BOB);
+        bob_yes = by;
+        let cap = ts::take_from_sender<market::LPCap>(&s);
+        let r = market::withdraw_residual(&mut m, &cap, ts::ctx(&mut s));
+        lp_residual = coin::value(&r);
+        // CRITICAL: collateral left must still cover Bob's un-redeemed winning
+        // shares 1:1 — the LP cannot touch funds owed to a winner.
+        assert!(market::collateral_value(&m) == bob_yes, 1);
+        coin::burn_for_testing(r);
+        ts::return_to_sender(&s, cap);
+        ts::return_shared(m);
+    };
+
+    // Bob now redeems in FULL despite the LP having already withdrawn.
+    ts::next_tx(&mut s, BOB);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        let c = market::redeem(&mut m, ts::ctx(&mut s));
+        bob_payout = coin::value(&c);
+        assert!(bob_payout == bob_yes, 2); // full, untouched by the LP withdraw
+        coin::burn_for_testing(c);
+        assert!(market::collateral_value(&m) == 0, 3); // nothing stranded
+        ts::return_shared(m);
+    };
+
+    // CONSERVATION: everything paid out equals everything staked in
+    // (seed 1_000_000 + Alice 300k + Bob 250k + Carol 180k).
+    assert!(alice_payout + bob_payout + lp_residual == 1_730_000, 4);
+
+    clk.destroy_for_testing();
+    ts::end(s);
+}
+
+// Deterministic LCG (glibc constants, modulus 2^31 keeps every product < 2^62
+// so u64 never overflows). Test-only randomness for the property test below.
+fun lcg(seed: &mut u64): u64 {
+    *seed = (*seed * 1103515245 + 12345) % 2147483648;
+    *seed
+}
+
+#[test]
+fun cpmm_solvency_holds_under_random_trades() {
+    // Property: after EVERY trade the complete-set invariant holds —
+    // reserve_yes + user_yes == reserve_no + user_no — and collateral always
+    // covers the outstanding shares (the surplus is accrued LP fees). A single
+    // trader is used so per-user totals equal market totals without a new
+    // accessor; the CPMM arithmetic (mul_div, reserve depletion, flooring) is
+    // identical regardless of who trades.
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    clk.set_for_testing(0); // stay in TRADING (resolve_after_ms = 1000)
+    let mkt = fresh_market(&mut s, &clk, 2, 0);
+
+    let mut seed = 0xC0FFEE;
+    let mut i = 0;
+    while (i < 120) {
+        ts::next_tx(&mut s, ALICE);
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        let amt = 1 + lcg(&mut seed) % 50_000;
+        if (lcg(&mut seed) % 2 == 0) {
+            market::buy_yes(&mut m, coin::mint_for_testing<SUI>(amt, ts::ctx(&mut s)), &clk, ts::ctx(&mut s));
+        } else {
+            market::buy_no(&mut m, coin::mint_for_testing<SUI>(amt, ts::ctx(&mut s)), &clk, ts::ctx(&mut s));
+        };
+        let (ry, rn) = market::reserves(&m);
+        let (ay, an, _) = market::position_of(&m, ALICE);
+        assert!(ry + ay == rn + an, 0);                          // complete-set invariant
+        assert!(market::collateral_value(&m) >= ry + ay, 1);     // solvent
+        ts::return_shared(m);
+        i = i + 1;
+    };
+    clk.destroy_for_testing();
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = 19, location = veritas::market)]
+fun evidence_cap_enforced() {
+    // The MAX_EVIDENCE (256) cap bounds resolve()'s gas and stops a captured
+    // issuer from flooding. The 257th admit must abort E_TOO_MANY_EVIDENCE (19),
+    // which is checked BEFORE dedup so a reused hash still trips the cap.
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    clk.set_for_testing(0);
+    let mkt = fresh_market(&mut s, &clk, 2, 0);
+    clk.set_for_testing(1200);
+    ts::next_tx(&mut s, BOB);
+    let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+    let mut i = 0u64;
+    while (i < 256) {
+        market::test_admit(&mut m, 0, 1, hash32((i as u8)), 1100, &clk, ts::ctx(&mut s));
+        i = i + 1;
+    };
+    market::test_admit(&mut m, 0, 1, hash32(0), 1100, &clk, ts::ctx(&mut s)); // 257th → abort 19
+    abort 99
+}
+
+#[test]
+fun resolve_is_permissionless() {
+    // resolve() takes no capability: anyone can finalize once the window
+    // closes (it is a pure function of admitted evidence). A stranger settles
+    // it. This documents+pins the permissionless property so a reviewer doesn't
+    // read it as a missing auth check.
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    clk.set_for_testing(0);
+    let mkt = fresh_market(&mut s, &clk, 2, 0); // creator/LP = ADMIN
+    clk.set_for_testing(2000); // evidence window closed
+    ts::next_tx(&mut s, BOB); // a stranger, neither creator nor LP
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::resolve(&mut m, &clk);
+        assert!(market::outcome(&m) == 2, 0); // NO (occurrence, no evidence ⇒ NO)
+        ts::return_shared(m);
+    };
+    clk.destroy_for_testing();
+    ts::end(s);
 }
