@@ -399,7 +399,14 @@ public fun submit_web_proof(
         m.issuer_keys[attestor_idx],
     );
 
-    // dedup id = the proof's claim identity (provider+params+context)
+    // Dedup id = the proof's claim identity (provider+params+context).
+    // NOTE (by design, not a replay bug): a zkTLS proof attests a
+    // MARKET-AGNOSTIC fact ("site X served value V at time T") — the attestor
+    // signs the fact, never "for market M". So, unlike a signed Web Credential
+    // (whose `canonical_message` binds THIS market's address — see
+    // `submit_evidence`), the same attested fact is legitimately admissible into
+    // any market asking about it. The per-market `seen` set below still makes
+    // the SAME proof count at most once within ONE market.
     let content_hash = sui::hash::keccak256(&claim_bytes(&proof));
     assert!(!m.seen.contains(content_hash), E_DUPLICATE_EVIDENCE);
     admit_core(m, attestor_idx, claim, content_hash, signed_ms, ctx.sender());

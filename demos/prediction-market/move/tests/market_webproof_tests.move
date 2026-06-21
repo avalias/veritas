@@ -63,3 +63,65 @@ fun admits_real_zktls_web_proof() {
     clk.destroy_for_testing();
     ts::end(s);
 }
+
+/// Helper: a market pinning the Reclaim attestor with a window over the proof.
+fun reclaim_market(s: &mut ts::Scenario, clk: &clock::Clock, q: vector<u8>): address {
+    ts::next_tx(s, ADMIN);
+    market::create_market(
+        q, x"aabbccdd", 12,
+        vector[ATTESTOR], vector[3], vector[0], // attestor, SCHEME_RECLAIM, group 0
+        1, 0,                                   // k=1, occurrence
+        1734199999000, 4000, 0,                 // window covers timestamp_s
+        coin::mint_for_testing<SUI>(1_000_000, ts::ctx(s)), clk, ts::ctx(s),
+    )
+}
+
+/// By design, the SAME attested zkTLS fact is admissible into a SECOND market
+/// that asks about it — a Reclaim proof witnesses a market-agnostic fact, so
+/// reuse across markets is intended (contrast a signed Web Credential, whose
+/// signature binds the market address and cannot be replayed elsewhere).
+#[test]
+fun web_proof_reusable_across_markets() {
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    clk.set_for_testing(0);
+    let mkt_a = reclaim_market(&mut s, &clk, b"Market A: did the BBC report it?");
+    let mkt_b = reclaim_market(&mut s, &clk, b"Market B: a different question, same event");
+
+    clk.set_for_testing(1734200000 * 1000);
+    ts::next_tx(&mut s, ADMIN);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt_a));
+        market::submit_web_proof(&mut m, 0, 1, PROVIDER, PARAMETERS, CONTEXT, OWNER, 1734200000, 1, SIG, &clk, ts::ctx(&mut s));
+        assert!(market::evidence_count(&m) == 1, 0);
+        ts::return_shared(m);
+    };
+    ts::next_tx(&mut s, ADMIN);
+    {
+        // the SAME proof is also admissible into market B
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt_b));
+        market::submit_web_proof(&mut m, 0, 1, PROVIDER, PARAMETERS, CONTEXT, OWNER, 1734200000, 1, SIG, &clk, ts::ctx(&mut s));
+        assert!(market::evidence_count(&m) == 1, 1);
+        ts::return_shared(m);
+    };
+    clk.destroy_for_testing();
+    ts::end(s);
+}
+
+/// Within ONE market the same proof counts at most once: the second submission
+/// of the identical proof aborts E_DUPLICATE_EVIDENCE (7).
+#[test]
+#[expected_failure(abort_code = 7, location = veritas::market)]
+fun web_proof_deduped_within_market() {
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    clk.set_for_testing(0);
+    let mkt = reclaim_market(&mut s, &clk, b"Did the BBC report the event?");
+    clk.set_for_testing(1734200000 * 1000);
+    ts::next_tx(&mut s, ADMIN);
+    let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+    market::submit_web_proof(&mut m, 0, 1, PROVIDER, PARAMETERS, CONTEXT, OWNER, 1734200000, 1, SIG, &clk, ts::ctx(&mut s));
+    // identical proof again → E_DUPLICATE_EVIDENCE
+    market::submit_web_proof(&mut m, 0, 1, PROVIDER, PARAMETERS, CONTEXT, OWNER, 1734200000, 1, SIG, &clk, ts::ctx(&mut s));
+    abort 99
+}
