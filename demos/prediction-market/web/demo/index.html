@@ -193,13 +193,13 @@ footer{border-top:1px solid var(--line-soft);padding:34px 0;margin-top:20px}
 
 <section class="sec"><div class="wrap"><div class="ins">
 <div class="reveal"><span class="kick">The research &middot; the breakthrough</span><div class="sec-head"><h2>The VM <em>is</em> the math.</h2></div>
-<p>You don&rsquo;t need a CPU emulator to run a neural net. A transformer&rsquo;s forward pass is just <span class="em">~21 tensor micro-ops</span> &mdash; a block dot product <span class="op">FDOT</span>, scalar float ops <span class="op">FOP</span>, and a few layout shuffles.</p>
+<p>You don&rsquo;t need a CPU emulator to run a neural net. A transformer&rsquo;s forward pass is just <span class="em">~27 tensor micro-ops</span> &mdash; a block dot product <span class="op">FDOT</span>, scalar float ops <span class="op">FOP</span>, and a few layout shuffles.</p>
 <p>So the referee doesn&rsquo;t interpret an instruction set &mdash; it replays <span class="em">one micro-op</span>. A dispute over one judgment (&asymp; 30M float micro-ops) bisects in <span class="em">~25 rounds</span> down to a single on-chain <span class="op">verify_step</span> at chain-minimum gas.</p>
 <p><span class="op">opml/compiler</span> turns any quantized LLM with float activations into a VM program plus genesis pages &mdash; a compiler and a Move package.</p></div>
 <div class="reveal"><div class="card"><div class="ch">dispute::verify_step &middot; move</div><div class="mv">
 <div class="cm">// the whole referee, one micro-op at a time</div>
 <div><span class="kw">public fun</span> <span class="fn">verify_step</span>(op, page, claim): Root {</div>
-<div class="id"><span class="kw">if</span> (op == <span class="ox">FDOT</span>) <span class="fn">block_dot</span>(page) <span class="cm">// 1 of ~21</span></div>
+<div class="id"><span class="kw">if</span> (op == <span class="ox">FDOT</span>) <span class="fn">block_dot</span>(page) <span class="cm">// 1 of ~27</span></div>
 <div class="id"><span class="kw">else if</span> (op == <span class="ox">FOP</span>) <span class="fn">scalar_op</span>(page)</div>
 <div class="id"><span class="kw">else</span> <span class="fn">shuffle</span>(page)</div>
 <div>}</div>
