@@ -44,7 +44,7 @@ These are deliberate design changes from the prompt, called out for review:
    for **artifact identity** (weights/tokenizer/template/input files), which
    is never recomputed on-chain. Alternative: `blake2b256` (also Sui-native,
    ~3–5× faster off-chain) — one-line switch, flagged as Open Question Q1.
-2. **ISA is larger than the rough list** (21 ops vs ~10). Additions and why:
+2. **ISA is larger than the rough list** (27 ops vs ~10). Additions and why:
    `DIV32` (softmax normalization needs one integer division per attention
    row — the I-BERT approach; a reciprocal LUT would need range reduction and
    *more* on-chain code), `MAC16`/`CLAMP16` (Q/K activations are kept in i16
@@ -119,7 +119,7 @@ execution is a pure function of the initial state.
 
 The Move verifier consists of: SHA3-256 calls (native), Merkle fold (~40
 lines), signed-integer helpers over u64 two's-complement (~80 lines, §9.3),
-the 21-op interpreter (~330 lines), and the dispute state machine (~300
+the 27-op interpreter (~330 lines), and the dispute state machine (~300
 lines). Target: **≤ 800 lines total, ≤ 450 for the one-step core.** Any spec
 change that grows the on-chain core beyond "hashing + integer arithmetic +
 Merkle paths" MUST be rejected or redesigned.

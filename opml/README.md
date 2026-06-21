@@ -66,7 +66,7 @@ know how to redo one of them.
 
 Three properties make it work, and each is tested, not asserted:
 
-**The VM speaks tensors, not assembly.** Twenty-one micro-ops: a block dot
+**The VM speaks tensors, not assembly.** Twenty-seven micro-ops: a block dot
 product (`FDOT`), scalar float ops (`FOP`), the usual layout shuffles. The
 on-chain interpreter for them is a few hundred lines of Move, not a CPU. One
 disputed micro-op costs the minimum gas bucket to verify.
@@ -141,7 +141,7 @@ Where we are genuinely better, and why:
 
 - **Versus opML and Cartesi.** Same trust model (public referee, anyone
   challenges), but they emulate a CPU. Their referee is a whole ISA in Solidity;
-  ours is 21 tensor ops in Move. They bridge two state representations across a
+  ours is 27 tensor ops in Move. They bridge two state representations across a
   two-phase game; we have one representation and no seam. Their model loading is
   capped by the emulator's address space; our weights never move, because they
   are genesis pages of the Merkle tree.
