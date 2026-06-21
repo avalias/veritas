@@ -97,6 +97,10 @@ public struct EvidenceItem has store {
     content_hash: vector<u8>, // 32-byte id of the signed content
     signed_ms: u64, // issuer-asserted timestamp (must fall in the window)
     submitter: address,
+    // Set true by drop_misextracted when a FINALIZED counter-extraction Fact
+    // proves the judge's true reading of this item disagrees with `claim`
+    // (SPEC §7.2). resolve() skips dropped items. Always false at admission.
+    dropped: bool,
 }
 
 /// A user's position. `paid` is the gross SUI they put in, so a VOID can
@@ -423,7 +427,7 @@ fun claim_bytes(p: &veritas::reclaim::WebProof): vector<u8> {
 fun admit_core(m: &mut Market, issuer_idx: u64, claim: u8, content_hash: vector<u8>, signed_ms: u64, who: address) {
     let group = m.issuer_groups[issuer_idx];
     m.seen.add(content_hash, true);
-    m.evidence.push_back(EvidenceItem { issuer_idx, group, claim, content_hash, signed_ms, submitter: who });
+    m.evidence.push_back(EvidenceItem { issuer_idx, group, claim, content_hash, signed_ms, submitter: who, dropped: false });
     event::emit(EvidenceAdmitted { market: m.id.to_address(), issuer_idx, group, claim, content_hash });
 }
 
@@ -442,8 +446,12 @@ public fun resolve(m: &mut Market, clock: &Clock) {
     let n = m.evidence.length();
     while (i < n) {
         let it = &m.evidence[i];
-        if (it.claim == CLAIM_YES) { push_unique(&mut yes_groups, it.group); }
-        else { push_unique(&mut no_groups, it.group); };
+        // Skip items dropped by drop_misextracted (a finalized counter-extraction
+        // Fact proved the judge's true reading disagrees with the asserted claim).
+        if (!it.dropped) {
+            if (it.claim == CLAIM_YES) { push_unique(&mut yes_groups, it.group); }
+            else { push_unique(&mut no_groups, it.group); };
+        };
         i = i + 1;
     };
     let ny = yes_groups.length();
@@ -632,8 +640,10 @@ public fun group_counts_live(m: &Market): (u64, u64) {
     let n = m.evidence.length();
     while (i < n) {
         let it = &m.evidence[i];
-        if (it.claim == CLAIM_YES) { push_unique(&mut yg, it.group); }
-        else { push_unique(&mut ng, it.group); };
+        if (!it.dropped) {
+            if (it.claim == CLAIM_YES) { push_unique(&mut yg, it.group); }
+            else { push_unique(&mut ng, it.group); };
+        };
         i = i + 1;
     };
     (yg.length(), ng.length())
