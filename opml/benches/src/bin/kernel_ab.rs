@@ -6,9 +6,7 @@
 //!
 //!   cargo run -p benches --release --bin kernel_ab
 
-use kernels::{
-    gemv_blocked_bytes, gemv_blocked_dot_bytes, gemv_blocked_legacy_bytes, gemv_i8_blocked, Pool,
-};
+use kernels::{gemv_blocked_bytes, gemv_blocked_dot_bytes, gemv_blocked_legacy_bytes, Pool};
 use std::time::Instant;
 
 fn main() {
@@ -87,20 +85,26 @@ fn main() {
 
     // The CEILING: single-sdot i8×i8 (what a dynamic-i8 activation redesign
     // would run). Not bit-comparable to the i16 paths — different activation
-    // width — so it is the speed reference, not a drop-in.
-    let xi8: Vec<i8> = (0..cols).map(|_| rng() as i8).collect();
-    let mut out_d = vec![0i64; rows];
-    let mut td = Vec::with_capacity(iters);
-    for _ in 0..iters {
-        td.push(time(&mut || {
-            gemv_i8_blocked(&pool, kernels::bytes_as_i8(&w), &xi8, rows, cols, &m, 20, &mut out_d)
-        }));
+    // width — so it is the speed reference, not a drop-in. The kernel
+    // (`kernels::gemv_i8_blocked`) is NEON-only (`#[cfg(target_arch = "aarch64")]`),
+    // so this ceiling section only builds on aarch64; on x86 the bench reports
+    // the portable legacy/fused/sdot comparison above.
+    #[cfg(target_arch = "aarch64")]
+    {
+        let xi8: Vec<i8> = (0..cols).map(|_| rng() as i8).collect();
+        let mut out_d = vec![0i64; rows];
+        let mut td = Vec::with_capacity(iters);
+        for _ in 0..iters {
+            td.push(time(&mut || {
+                kernels::gemv_i8_blocked(&pool, kernels::bytes_as_i8(&w), &xi8, rows, cols, &m, 20, &mut out_d)
+            }));
+        }
+        td.sort_unstable();
+        let md = td[iters / 2];
+        println!(
+            "  single-sdot i8 (CEIL):  {md:>6} ns/GEMV  ({}.{:02}× vs legacy — the i8-activation ceiling)",
+            ml / md.max(1),
+            (ml * 100 / md.max(1)) % 100
+        );
     }
-    td.sort_unstable();
-    let md = td[iters / 2];
-    println!(
-        "  single-sdot i8 (CEIL):  {md:>6} ns/GEMV  ({}.{:02}× vs legacy — the i8-activation ceiling)",
-        ml / md.max(1),
-        (ml * 100 / md.max(1)) % 100
-    );
 }

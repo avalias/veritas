@@ -58,6 +58,8 @@ fn main() {
     let mut cpu_out = vec![0f32; rows];
     let t0 = Instant::now();
     fgemv(&pool, &w, &x, rows, cols, &mut cpu_out);
+    // Only read in the macos GPU-vs-CPU timing print below; unused on other targets.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     let cpu_us = t0.elapsed().as_micros();
 
     // Path 1: wgpu/WGSL (fast-math not controllable) — document.
