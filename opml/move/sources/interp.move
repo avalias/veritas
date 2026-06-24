@@ -17,8 +17,15 @@ const E_PRE_ROOT: u64 = 1;
 const E_BAD_INSTR_PROOF: u64 = 2;
 const E_MISSING_OPENING: u64 = 3;
 const E_BAD_OPENING: u64 = 4;
+// Caller-supplied judge dimensions (d, p) out of range — would overflow the
+// `1<<d`/`1<<p` shifts or the mem_bytes multiply. Clean abort, not a raw
+// arithmetic error (twin of Rust ProofError::BadDepth).
+const E_BAD_DEPTH: u64 = 5;
 
 const PAGE: u64 = 1024;
+// Max accepted judge depth: mem_bytes=(1<<d)*PAGE overflows u64 at d>=54 and
+// 1<<d aborts at d>=64; a real judge is d≈20 / p≤20, so 48 is generous yet safe.
+const MAX_DEPTH: u8 = 48;
 const U32M: u64 = 0xFFFF_FFFF;
 const RESOLVER_WINS: u8 = 0;
 const CHALLENGER_WINS: u8 = 1;
@@ -187,6 +194,10 @@ public fun verify_step(
     page_w: vector<u8>,
     sibs_w: vector<vector<u8>>,
 ): u8 {
+    // Bound caller-supplied (d, p) BEFORE any shift/multiply: a malicious Fact
+    // could set d=p=255, aborting raw-arithmetically on `1<<d`/`1<<p` or the
+    // mem_bytes multiply. Clean abort instead (twin of Rust ProofError::BadDepth).
+    assert!(d <= MAX_DEPTH && p <= MAX_DEPTH, E_BAD_DEPTH);
     let mem_bytes = (1u64 << d) * PAGE;
 
     // V1: revealed (mem_root, regs) must BE the agreed pre-state.

@@ -60,7 +60,16 @@ pub enum ProofError {
     BadInstrProof,
     MissingOpening,
     BadOpening,
+    /// Caller-supplied judge dimensions (d, p) out of range — would overflow
+    /// the `1<<d`/`1<<p` shifts or the mem_bytes multiply. Rejected, not panicked.
+    BadDepth,
 }
+
+/// Max judge memory/program depth the verifier accepts. `mem_bytes =
+/// (1<<d)*PAGE_SIZE` overflows u64 at d>=54 and `1<<d` panics at d>=64; a real
+/// judge is d≈20 (1 GiB) / p≤20, so 48 is astronomically generous yet keeps
+/// every shift and the multiply safe. Bounds a malicious Fact's d=p=255.
+pub const MAX_DEPTH: u8 = 48;
 
 /// Effective address (SPEC §4.2) — pure twin of `Machine::ea`.
 fn ea(regs: &Registers, o: &Operand) -> u64 {
@@ -139,6 +148,12 @@ pub fn verify_step(
     judge: &JudgeParams,
     proof: &StepProof,
 ) -> Result<Verdict, ProofError> {
+    // Bound the caller-supplied judge dimensions BEFORE any shift/multiply: a
+    // malicious Fact can set d=p=255, which would overflow `1<<d`/`1<<p` or the
+    // mem_bytes multiply (panic in debug). Reject cleanly — totality (SPEC §8.2).
+    if judge.d > MAX_DEPTH || judge.p > MAX_DEPTH {
+        return Err(ProofError::BadDepth);
+    }
     let mem_bytes = (1u64 << judge.d) * PAGE_SIZE as u64;
 
     // V1: the revealed (mem_root, regs) must BE the agreed pre-state.

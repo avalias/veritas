@@ -247,3 +247,39 @@ fn step_proof_size_is_bounded() {
         assert!(bytes <= 3 * (1024 + 32 * D as usize) + 96 + 32 * P as usize + 77 + 64);
     }
 }
+
+/// A Fact's (d, p) are caller-supplied u8 (up to 255). verify_step must reject
+/// oversized dimensions with a clean ProofError::BadDepth, never panic on the
+/// `1<<d` / `1<<p` shifts or the `(1<<d)*PAGE_SIZE` multiply (SPEC §8.2: garbage
+/// neither wins nor crashes the prover).
+#[test]
+fn verify_step_rejects_oversized_dimensions_without_panic() {
+    use vm::onestep::ProofError;
+    let proof = StepProof {
+        regs: [0u8; vm::state::REG_ENC_LEN],
+        mem_root: [0u8; 32],
+        instr: [0u8; vm::isa::INSTR_ENC_LEN],
+        instr_siblings: vec![],
+        open_a: None,
+        open_b: None,
+        open_w: None,
+    };
+    let pr = [0u8; 32];
+    // oversized d or p (incl. the shift/multiply overflow thresholds and the
+    // max u8) must all return BadDepth without panicking.
+    for (d, p) in [(64u8, 8u8), (8, 64), (54, 8), (49, 0), (0, 49), (255, 255)] {
+        let judge = JudgeParams { d, p, program_root: pr };
+        assert_eq!(
+            verify_step(&pr, &pr, &judge, &proof),
+            Err(ProofError::BadDepth),
+            "d={d} p={p} must be rejected cleanly, not panic"
+        );
+    }
+    // an in-range judge is NOT rejected for depth (it fails later on the proof
+    // itself, but never with BadDepth).
+    let judge_ok = JudgeParams { d: 20, p: 20, program_root: pr };
+    assert_ne!(
+        verify_step(&pr, &pr, &judge_ok, &proof),
+        Err(ProofError::BadDepth)
+    );
+}
