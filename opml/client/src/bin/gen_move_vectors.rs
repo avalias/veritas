@@ -474,18 +474,27 @@ fn emit_softfloat_vectors() {
     let mut fma_w = Vec::new();
     // Edge pins first.
     let edges = [
-        0x0000_0000u32,
-        0x8000_0000,
-        0x7F80_0000,
-        0xFF80_0000,
-        0x7FC0_0000,
-        0x0000_0001,
-        0x8000_0001,
-        0x007F_FFFF,
-        0x0080_0000,
-        0x7F7F_FFFF,
-        0x3F80_0000,
-        0xBF80_0000,
+        0x0000_0000u32, // +0
+        0x8000_0000,    // -0
+        0x7F80_0000,    // +inf
+        0xFF80_0000,    // -inf
+        0x7FC0_0000,    // qNaN
+        0x7F80_0001,    // +sNaN (must canonicalize to qNaN, not propagate)
+        0xFF80_0001,    // -sNaN
+        0x7FC0_0001,    // qNaN with payload
+        0x0000_0001,    // +min subnormal
+        0x8000_0001,    // -min subnormal
+        0x007F_FFFF,    // max subnormal
+        0x0080_0000,    // min normal
+        0x7F7F_FFFF,    // max finite
+        0x3F80_0000,    // +1.0
+        0xBF80_0000,    // -1.0
+        0x3F00_0000,    // +0.5  (floor / round tie)
+        0xBF00_0000,    // -0.5
+        0x3FC0_0000,    // 1.5
+        0x4020_0000,    // 2.5   (round-half-to-even → 2)
+        0x4B00_0000,    // 2^23  (ULP = 1; round-to-even tie region)
+        0x4B00_0001,    // 2^23 + 1
     ];
     for &a in &edges {
         for &b in &edges {
@@ -493,6 +502,21 @@ fn emit_softfloat_vectors() {
             b_v.push(b);
             c_v.push(edges[(a ^ b) as usize % edges.len()]);
         }
+    }
+    // ffma catastrophic-cancellation triples (a*b ≈ -c): the FUSED product+add
+    // rounds exactly once, so a non-fused or wrong-order softfloat diverges here.
+    let cancel = [
+        (0x3F80_0000u32, 0x3F80_0000u32, 0xBF80_0000u32), // 1*1 + (-1) = +0
+        (0x4000_0000, 0x4000_0000, 0xC080_0000),          // 2*2 + (-4) = +0
+        (0x4B00_0001, 0x3F80_0000, 0xCB00_0001),          // (2^23+1)*1 + -(2^23+1) = 0
+        (0x4B00_0000, 0x3F80_0001, 0xCB00_0000),          // 2^23 * (1+ulp) + -2^23 (tiny resid)
+        (0x7F7F_FFFF, 0x4000_0000, 0xFF80_0000),          // maxfinite*2 + -inf
+        (0x0080_0000, 0x3F00_0000, 0x8000_0001),          // minnormal*0.5 + -minsub (underflow)
+    ];
+    for &(a, b, c) in &cancel {
+        a_v.push(a);
+        b_v.push(b);
+        c_v.push(c);
     }
     for _ in 0..n {
         a_v.push(rand_bits());
