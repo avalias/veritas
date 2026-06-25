@@ -124,14 +124,27 @@ windowed, observable, and small.
 
 ### 3.3 Verdict format: how text becomes a settlement
 
-The judge spec commits a **decision protocol**: the prompt template ends
-with an instruction to answer with exactly one token; the committed
-output rule is "the FIRST generated token id" mapped through a committed
-table `{yes_id → YES, no_id → NO, anything else → INVALID}`. INVALID
-refunds collateral pro-rata (markets must price ambiguity). The output
-region binding already exists on-chain (final-state output challenge,
-SPEC §8.5) — the contract reads the token id from the proven final state,
-not from the resolver's prose.
+The judge runs the committed model on a forced reply format — `VERDICT:
+<YES|NO|UNKNOWN>` then a one-line REASON — and its **output token stream**
+is what the dispute binds (SPEC §7.3 / final-state output challenge §8.5).
+The judge identity commits three verdict-token ids `(yes, no, unknown)`, and
+the on-chain reading (`market::decode_verdict`) is **earliest of the three
+wins**: the first committed token to appear in the proven stream decides —
+`yes → YES`, `no → NO`, `unknown → ABSTAIN` — and none-present is also
+ABSTAIN. The contract reads the token ids from the **proven final state**,
+never from the resolver's prose.
+
+ABSTAIN means the judge supports neither side: an evidence item asserted as
+YES or NO over a judge that actually abstained is a mis-extraction, droppable
+by anyone (`drop_misextracted`), so ambiguity can't be laundered into a
+confident settlement.
+
+This token rule is the on-chain twin of the off-chain resolver's
+`extract_verdict`, which scans the **decoded text** for the earliest
+standalone word among {YES, NO, UNKNOWN}. Committing the UNKNOWN id (not just
+yes/no) is what keeps the two faithful: without it, an `UNKNOWN` verdict whose
+REASON sentence contained a stray "no"/"yes" token would settle on-chain as
+NO/YES while the resolver and the dApp showed ABSTAIN.
 
 ### 3.4 Binding the input on-chain (already designed, SPEC §7.2)
 

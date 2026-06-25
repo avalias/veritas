@@ -138,12 +138,14 @@ public struct Market has key {
     judge_depth: u8,
     // Judge IDENTITY for the on-chain extraction backstop (drop_misextracted):
     // the audited static image root (SPEC §7.2; genesis_for_item folds the
-    // item's input into it), and the verdict-token encoding decode_verdict reads
-    // from a Fact's output (SPEC §7.3). All fixed at creation — no post-creation
-    // discretion. (Zero static root = binding disabled for this market.)
+    // item's input into it), and the three verdict-token ids (yes/no/unknown)
+    // decode_verdict reads from a Fact's output (SPEC §7.3). All fixed at
+    // creation — no post-creation discretion. (Zero static root = binding
+    // disabled for this market.)
     judge_static_genesis_root: vector<u8>,
     judge_yes_token: u32,
     judge_no_token: u32,
+    judge_unknown_token: u32,
     // -- source policy (EVIDENCE.md §2): who may be heard, and how counted -
     issuer_keys: vector<vector<u8>>, // pinned pubkeys (distinct)
     issuer_schemes: vector<u8>, // issuer_idx → credential scheme (ed25519 | ES256/C2PA)
@@ -198,6 +200,7 @@ public fun create_market(
     judge_static_genesis_root: vector<u8>,
     judge_yes_token: u32,
     judge_no_token: u32,
+    judge_unknown_token: u32,
     issuer_keys: vector<vector<u8>>,
     issuer_schemes: vector<u8>,
     issuer_groups: vector<u64>,
@@ -250,6 +253,7 @@ public fun create_market(
         judge_static_genesis_root,
         judge_yes_token,
         judge_no_token,
+        judge_unknown_token,
         issuer_keys,
         issuer_schemes,
         issuer_groups,
@@ -289,6 +293,7 @@ public fun create_market_entry(
     judge_static_genesis_root: vector<u8>,
     judge_yes_token: u32,
     judge_no_token: u32,
+    judge_unknown_token: u32,
     issuer_keys: vector<vector<u8>>,
     issuer_schemes: vector<u8>,
     issuer_groups: vector<u64>,
@@ -303,7 +308,7 @@ public fun create_market_entry(
 ) {
     let _ = create_market(
         question, judge_program_root, judge_depth,
-        judge_static_genesis_root, judge_yes_token, judge_no_token,
+        judge_static_genesis_root, judge_yes_token, judge_no_token, judge_unknown_token,
         issuer_keys, issuer_schemes, issuer_groups,
         k, burden, resolve_after_ms, evidence_window_ms, fee_bps, seed, clock, ctx,
     );
@@ -543,7 +548,7 @@ public fun drop_misextracted(
     assert!(opml::dispute::genesis_root(fact) == g, E_GENESIS_MISMATCH);
     // 4. The proven verdict must DISAGREE with the item's asserted claim.
     let out = opml::dispute::output(fact);
-    let true_claim = decode_verdict(&out, m.judge_yes_token, m.judge_no_token);
+    let true_claim = decode_verdict(&out, m.judge_yes_token, m.judge_no_token, m.judge_unknown_token);
     let it = &mut m.evidence[item_idx];
     assert!(!it.dropped, E_ALREADY_DROPPED);
     let asserted = it.claim;
@@ -685,13 +690,23 @@ fun read_u32_le(b: &vector<u8>, off: u64): u32 {
 }
 
 /// Decode the judge's verdict from a Fact's output region. Per SPEC §7.3 the
-/// output is `[n: u32][token_id: u32 × n]`. The verdict is whichever of the
-/// committed `yes_token` / `no_token` appears FIRST in the token stream — the
-/// on-chain twin of the off-chain resolver's "earliest standalone YES/NO wins"
-/// (resolver.rs::extract_verdict). Neither present ⇒ CLAIM_ABSTAIN (the judge's
-/// UNKNOWN). The (yes_token, no_token) pair is part of the market's committed
-/// judge identity, so the reading is fixed before any money is at stake.
-fun decode_verdict(output: &vector<u8>, yes_token: u32, no_token: u32): u8 {
+/// output is `[n: u32][token_id: u32 × n]` — the committed-argmax token stream
+/// the judge actually emitted. The verdict is whichever of the three committed
+/// verdict tokens appears FIRST: `yes_token` ⇒ YES, `no_token` ⇒ NO,
+/// `unknown_token` ⇒ ABSTAIN. None present ⇒ ABSTAIN.
+///
+/// On-chain twin of the off-chain resolver's `extract_verdict`, which scans the
+/// DECODED text for the earliest standalone word among {YES, NO, UNKNOWN}. Both
+/// are "earliest of the three wins". Committing the UNKNOWN token (not just
+/// yes/no) is what makes the token rule faithful to the 3-way text rule: without
+/// it, an UNKNOWN verdict whose REASON sentence contains a "no"/"yes" token would
+/// decode here as NO/YES while the resolver and the dApp reported ABSTAIN —
+/// desyncing the slashing backstop from the displayed outcome. Correspondence
+/// assumes the model emits the canonical verdict token first, per the forced
+/// reply format ("VERDICT: …"); the committed (yes, no, unknown) ids are the
+/// exact tokens for that line, pinning casing/whitespace tokenization at
+/// creation, before any money is at stake.
+fun decode_verdict(output: &vector<u8>, yes_token: u32, no_token: u32, unknown_token: u32): u8 {
     let len = output.length();
     if (len < 4) return CLAIM_ABSTAIN;
     let n = read_u32_le(output, 0);
@@ -702,14 +717,15 @@ fun decode_verdict(output: &vector<u8>, yes_token: u32, no_token: u32): u8 {
         let tok = read_u32_le(output, off);
         if (tok == yes_token) return CLAIM_YES;
         if (tok == no_token) return CLAIM_NO;
+        if (tok == unknown_token) return CLAIM_ABSTAIN; // explicit UNKNOWN, if earliest
         i = i + 1;
     };
     CLAIM_ABSTAIN
 }
 
 #[test_only]
-public fun test_decode_verdict(output: vector<u8>, yes_token: u32, no_token: u32): u8 {
-    decode_verdict(&output, yes_token, no_token)
+public fun test_decode_verdict(output: vector<u8>, yes_token: u32, no_token: u32, unknown_token: u32): u8 {
+    decode_verdict(&output, yes_token, no_token, unknown_token)
 }
 
 // -- read-only accessors (clients / UI / tests) ---------------------------

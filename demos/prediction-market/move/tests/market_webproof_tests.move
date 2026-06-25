@@ -31,7 +31,7 @@ fun admits_real_zktls_web_proof() {
     let mkt = market::create_market(
         b"Did the BBC report the event before the deadline?",
         x"aabbccdd", 12,
-        x"", 1, 2,             // judge_static_genesis_root, yes_token, no_token (placeholder)
+        x"", 1, 2, 3,          // judge_static_genesis_root, yes/no/unknown tokens (placeholder)
         vector[ATTESTOR],      // issuer_keys: the 20-byte attestor address
         vector[3],             // issuer_schemes: SCHEME_RECLAIM
         vector[0],             // issuer_groups
@@ -70,7 +70,7 @@ fun reclaim_market(s: &mut ts::Scenario, clk: &clock::Clock, q: vector<u8>): add
     ts::next_tx(s, ADMIN);
     market::create_market(
         q, x"aabbccdd", 12,
-        x"", 1, 2,                              // judge_static_genesis_root, yes_token, no_token (placeholder)
+        x"", 1, 2, 3,                           // judge_static_genesis_root, yes/no/unknown tokens (placeholder)
         vector[ATTESTOR], vector[3], vector[0], // attestor, SCHEME_RECLAIM, group 0
         1, 0,                                   // k=1, occurrence
         1734199999000, 4000, 0,                 // window covers timestamp_s

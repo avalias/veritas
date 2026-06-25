@@ -39,7 +39,7 @@ fun fresh_market(s: &mut ts::Scenario, clock: &clock::Clock, k: u64, burden: u8)
         b"Did event E happen by the deadline?",
         x"aabbccdd",
         12,
-        x"", 1, 2, // judge_static_genesis_root, yes_token, no_token (placeholder; unused here)
+        x"", 1, 2, 3, // judge_static_genesis_root, yes/no/unknown tokens (placeholder; unused here)
         mk_keys(),
         vector[0, 0, 0, 0], // all ed25519 (scheme 0)
         vector[0, 0, 1, 1], // issuers 0,1 share group 0; issuers 2,3 share group 1
@@ -309,7 +309,7 @@ fun create_rejects_unsatisfiable_k() {
     ts::next_tx(&mut s, ADMIN);
     let seed = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut s));
     market::create_market(
-        b"q", x"aa", 12, x"", 1, 2, mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 0, 0], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+        b"q", x"aa", 12, x"", 1, 2, 3, mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 0, 0], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
     abort 99
 }
@@ -325,7 +325,7 @@ fun create_rejects_duplicate_keys() {
     *&mut keys[1] = keys[0]; // duplicate key in a different group
     let seed = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut s));
     market::create_market(
-        b"q", x"aa", 12, x"", 1, 2, keys, vector[0, 0, 0, 0], vector[0, 1, 2, 3], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+        b"q", x"aa", 12, x"", 1, 2, 3, keys, vector[0, 0, 0, 0], vector[0, 1, 2, 3], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
     abort 99
 }
@@ -557,19 +557,29 @@ fun build_output(tokens: vector<u64>): vector<u8> {
 fun decode_verdict_cases() {
     let yes: u32 = 9001;
     let no: u32 = 9002;
-    // single YES / NO verdict token
-    assert!(market::test_decode_verdict(build_output(vector[9001]), yes, no) == 1, 0);
-    assert!(market::test_decode_verdict(build_output(vector[9002]), yes, no) == 2, 1);
-    // YES after an unrelated token still wins
-    assert!(market::test_decode_verdict(build_output(vector[5, 9001]), yes, no) == 1, 2);
-    // NO appears before YES ⇒ NO wins (earliest standalone)
-    assert!(market::test_decode_verdict(build_output(vector[9002, 9001]), yes, no) == 2, 3);
-    // neither token present ⇒ ABSTAIN (3)
-    assert!(market::test_decode_verdict(build_output(vector[5, 6, 7]), yes, no) == 3, 4);
+    let unk: u32 = 9003;
+    // single YES / NO / UNKNOWN verdict token
+    assert!(market::test_decode_verdict(build_output(vector[9001]), yes, no, unk) == 1, 0);
+    assert!(market::test_decode_verdict(build_output(vector[9002]), yes, no, unk) == 2, 1);
+    assert!(market::test_decode_verdict(build_output(vector[9003]), yes, no, unk) == 3, 2); // UNKNOWN ⇒ ABSTAIN
+    // a verdict token after an unrelated token still wins
+    assert!(market::test_decode_verdict(build_output(vector[5, 9001]), yes, no, unk) == 1, 3);
+    // earliest of the three wins, in every order
+    assert!(market::test_decode_verdict(build_output(vector[9002, 9001]), yes, no, unk) == 2, 4); // NO before YES
+    assert!(market::test_decode_verdict(build_output(vector[9001, 9003]), yes, no, unk) == 1, 5); // YES before UNKNOWN
+    assert!(market::test_decode_verdict(build_output(vector[9003, 9001]), yes, no, unk) == 3, 6); // UNKNOWN before YES
+    // THE BUG THIS FIX CLOSES: "VERDICT: UNKNOWN … no clear statement" — an UNKNOWN
+    // verdict whose REASON contains a later NO token. 3-way decode returns ABSTAIN…
+    assert!(market::test_decode_verdict(build_output(vector[9003, 5, 9002]), yes, no, unk) == 3, 7);
+    // …whereas the legacy 2-way reading (no committed UNKNOWN token) mis-decodes
+    // the SAME stream as NO — the silent desync from the resolver/dApp outcome.
+    assert!(market::test_decode_verdict(build_output(vector[9003, 5, 9002]), yes, no, 0) == 2, 8);
+    // none of the three present ⇒ ABSTAIN
+    assert!(market::test_decode_verdict(build_output(vector[5, 6, 7]), yes, no, unk) == 3, 9);
     // empty token list ⇒ ABSTAIN
-    assert!(market::test_decode_verdict(build_output(vector[]), yes, no) == 3, 5);
+    assert!(market::test_decode_verdict(build_output(vector[]), yes, no, unk) == 3, 10);
     // too short to hold even the length prefix ⇒ ABSTAIN
-    assert!(market::test_decode_verdict(vector[0u8, 1u8], yes, no) == 3, 6);
+    assert!(market::test_decode_verdict(vector[0u8, 1u8], yes, no, unk) == 3, 11);
 }
 
 // -- drop_misextracted: the engine<->market binding (SPEC §7.2) ------------
@@ -603,6 +613,7 @@ fun drop_misextracted_flips_resolution() {
     let pr = x"deadbeef"; // judge program root
     let yes_tok: u32 = 100;
     let no_tok: u32 = 200;
+    let unk_tok: u32 = 300;
 
     let mut s = ts::begin(ADMIN);
     let mut clk = clock::create_for_testing(ts::ctx(&mut s));
@@ -613,7 +624,7 @@ fun drop_misextracted_flips_resolution() {
     let seed = coin::mint_for_testing<SUI>(1_000_000, ts::ctx(&mut s));
     let mkt = market::create_market(
         b"Did it happen?", pr, 2,
-        static_root, yes_tok, no_tok,
+        static_root, yes_tok, no_tok, unk_tok,
         mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 1, 1],
         1, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
