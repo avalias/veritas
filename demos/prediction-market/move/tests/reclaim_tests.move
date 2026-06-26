@@ -37,3 +37,57 @@ fun tampered_claim_rejected() {
     *(&mut ctx[10]) = ctx[10] ^ 1;
     let _ = reclaim::verify(PROVIDER, PARAMETERS, ctx, OWNER, 1734200000, 1, SIG, ATTESTOR);
 }
+
+// A 64-byte signature (recovery byte dropped) is rejected by the length
+// precondition BEFORE any recovery — covers E_BAD_SIG_LEN, the second of the
+// module's two error codes (previously untested).
+#[test]
+#[expected_failure(abort_code = 2, location = veritas::reclaim)]
+fun bad_signature_length_rejected() {
+    let mut short = SIG;
+    short.pop_back(); // 65 -> 64
+    let _ = reclaim::verify(PROVIDER, PARAMETERS, CONTEXT, OWNER, 1734200000, 1, short, ATTESTOR);
+}
+
+// The attestor's signature binds EVERY field of the canonical claim. The next
+// five tests tamper one field each and require the recovered signer to no
+// longer match the pinned attestor — i.e. no field can be swapped post-hoc.
+#[test]
+#[expected_failure(abort_code = 1, location = veritas::reclaim)]
+fun tampered_provider_rejected() {
+    let mut p = PROVIDER;
+    *(&mut p[0]) = p[0] ^ 1;
+    let _ = reclaim::verify(p, PARAMETERS, CONTEXT, OWNER, 1734200000, 1, SIG, ATTESTOR);
+}
+
+#[test]
+#[expected_failure(abort_code = 1, location = veritas::reclaim)]
+fun tampered_parameters_rejected() {
+    let mut pa = PARAMETERS;
+    *(&mut pa[5]) = pa[5] ^ 1;
+    let _ = reclaim::verify(PROVIDER, pa, CONTEXT, OWNER, 1734200000, 1, SIG, ATTESTOR);
+}
+
+// owner is in the signed message: a proof cannot be replayed under a different
+// owner address.
+#[test]
+#[expected_failure(abort_code = 1, location = veritas::reclaim)]
+fun tampered_owner_rejected() {
+    let mut o = OWNER;
+    *(&mut o[8]) = o[8] ^ 1;
+    let _ = reclaim::verify(PROVIDER, PARAMETERS, CONTEXT, o, 1734200000, 1, SIG, ATTESTOR);
+}
+
+// timestamp_s is signed: a proof cannot be back- or forward-dated to slip into
+// a different market's evidence window.
+#[test]
+#[expected_failure(abort_code = 1, location = veritas::reclaim)]
+fun tampered_timestamp_rejected() {
+    let _ = reclaim::verify(PROVIDER, PARAMETERS, CONTEXT, OWNER, 1734200001, 1, SIG, ATTESTOR);
+}
+
+#[test]
+#[expected_failure(abort_code = 1, location = veritas::reclaim)]
+fun tampered_epoch_rejected() {
+    let _ = reclaim::verify(PROVIDER, PARAMETERS, CONTEXT, OWNER, 1734200000, 2, SIG, ATTESTOR);
+}

@@ -37,3 +37,38 @@ fun rsa_scheme_aborts_on_chain() {
     let k = x"00";
     credential::verify(credential::scheme_rsa2048(), &k, &k, &k);
 }
+
+// The ED25519 dispatch arm of credential::verify — previously only the ES256
+// arm was exercised here, and market_tests calls sui::ed25519 DIRECTLY,
+// bypassing the dispatcher. Reuses the real ed25519 admission vector
+// (signs market::test_canonical_message, as submit_evidence would).
+#[test]
+fun ed25519_through_credential_verifies() {
+    let pubkey = x"03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8";
+    let signature = x"86ef24ad7738dc35f54c7437d0c60d4eb7b71378160ba8385380b0adab42a33722bcf19840cc249896aae332c144c1428764bfb3b4ff8ce6183313256f4f8f0f";
+    let content_hash = x"1111111111111111111111111111111111111111111111111111111111111111";
+    let msg = veritas::market::test_canonical_message(@0xCAFE, 1, content_hash, 1500);
+    assert!(credential::verify(credential::scheme_ed25519(), &pubkey, &msg, &signature), 0);
+    // one tampered message byte -> the dispatcher's ed25519 verify rejects
+    let mut bad = msg;
+    *&mut bad[0] = bad[0] ^ 1;
+    assert!(!credential::verify(credential::scheme_ed25519(), &pubkey, &bad, &signature), 1);
+}
+
+// Both arms enforce a key-length precondition (E_BAD_KEY_LEN) so a market can
+// never admit on a malformed key — previously untested on the failure side.
+#[test]
+#[expected_failure(abort_code = 2, location = veritas::credential)]
+fun ed25519_wrong_key_len_aborts() {
+    let k = x"00112233445566778899aabbccddeeff00112233445566778899aabbccddee"; // 31 bytes
+    let z = x"00";
+    credential::verify(credential::scheme_ed25519(), &k, &z, &z);
+}
+
+#[test]
+#[expected_failure(abort_code = 2, location = veritas::credential)]
+fun es256_wrong_key_len_aborts() {
+    let k = x"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"; // 32 bytes (ES256 wants 33)
+    let z = x"00";
+    credential::verify(credential::scheme_es256(), &k, &z, &z);
+}
