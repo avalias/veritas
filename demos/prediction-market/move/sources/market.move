@@ -95,12 +95,13 @@ const E_BAD_SCHEME: u64 = 21;
 const E_NO_JUDGE_IDENTITY: u64 = 22; // market committed no static genesis root
 const E_FACT_NOT_FINALIZED: u64 = 23; // a REJECTED Fact's output is attacker-chosen
 const E_WRONG_JUDGE_PROGRAM: u64 = 24; // Fact ran a different judge program
-const E_GENESIS_MISMATCH: u64 = 25; // Fact's input != this item's input
+const E_GENESIS_MISMATCH: u64 = 25; // Fact's genesis != genesis reconstructed from the supplied input pages
 const E_NO_MISEXTRACTION: u64 = 26; // proven verdict agrees with the claim
 const E_ALREADY_DROPPED: u64 = 27;
 const E_FACT_WINDOW_TOO_SHORT: u64 = 28; // Fact's challenge window < committed minimum (unchallengeable)
 const E_FACT_TIMEOUT_TOO_SHORT: u64 = 29; // Fact's bisection timeout < committed minimum (self-finalizable)
 const E_OUTPUT_NOT_BOUND: u64 = 30; // Fact's output not proven to be root_n's terminal output region
+const E_INPUT_MISMATCH: u64 = 31; // the supplied input's genesis != THIS item's committed content_hash
 
 /// An admitted piece of evidence: a signed claim by a pinned issuer. Stored
 /// so resolution is a transparent, recomputable function of on-chain bytes.
@@ -108,7 +109,10 @@ public struct EvidenceItem has store {
     issuer_idx: u64, // index into issuer_keys
     group: u64, // trust group of the issuer (independence accounting)
     claim: u8, // CLAIM_YES | CLAIM_NO (the judge's extraction)
-    content_hash: vector<u8>, // 32-byte id of the signed content
+    content_hash: vector<u8>, // 32-byte id of the signed content; in a backstop-enabled
+    // market a DROPPABLE (signed-feed) item's content_hash IS its judge-input genesis,
+    // so drop_misextracted (3b) can bind the item to the Fact's input. zkTLS items hash
+    // the web claim instead → not droppable (corroborating-only).
     signed_ms: u64, // issuer-asserted timestamp (must fall in the window)
     submitter: address,
     // Set true by drop_misextracted when a FINALIZED counter-extraction Fact
@@ -597,8 +601,8 @@ public fun drop_misextracted(
     );
     // 2. It must have run THIS market's committed judge program.
     assert!(opml::dispute::program_root(fact) == m.judge_program_root, E_WRONG_JUDGE_PROGRAM);
-    // 3. Its genesis must be CONSTRUCTED on-chain from THIS item's input bytes,
-    //    not trusted — so the Fact cannot be one over a different input.
+    // 3. The Fact's genesis must be CONSTRUCTED on-chain from the SUPPLIED input
+    //    pages (not trusted) — so the Fact provably ran on exactly those bytes.
     let g_mem = opml::genesis::genesis_for_item(
         m.judge_static_genesis_root, &input_pages, &input_indices, &input_siblings,
     );
@@ -606,6 +610,15 @@ public fun drop_misextracted(
     // the bare memory root (SPEC §3.3/§7.2; pinned by genesis_differential.rs).
     let g = opml::genesis::genesis_state_root(g_mem);
     assert!(opml::dispute::genesis_root(fact) == g, E_GENESIS_MISMATCH);
+    // 3b. ...and those supplied pages must be THIS item's input. The item's
+    //     committed content_hash IS the genesis of its judge input (the signed-feed
+    //     convention: an issuer signs content_hash = genesis_state_root of the
+    //     tokenized input). Without this, check 3 binds the Fact to the CALLER's
+    //     pages but never to the evidence item — so a Fact over a FABRICATED input
+    //     that honestly reads NO could drop ANY honest YES item. (zkTLS/Reclaim
+    //     items commit content_hash to the web claim, NOT the judge input, so they
+    //     can't be dropped — corroborating-only by design, EVIDENCE.md §3.)
+    assert!(m.evidence[item_idx].content_hash == g, E_INPUT_MISMATCH);
     // 4. The proven, root-bound verdict must DISAGREE with the item's asserted claim.
     let out = opml::dispute::output(fact);
     let true_claim = decode_verdict(&out, m.judge_yes_token, m.judge_no_token, m.judge_unknown_token);

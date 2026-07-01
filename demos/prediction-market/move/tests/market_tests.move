@@ -626,6 +626,10 @@ fun drop_misextracted_flips_resolution() {
     let l2 = opml::merkle::page_leaf(&g2);
     let l3 = opml::merkle::page_leaf(&g3);
     let genesis_f = opml::merkle::node(&left, &opml::merkle::node(&l2, &l3));
+    // Vuln B binding: the item's committed content_hash IS the genesis of its judge
+    // input. Compute it once and use it as BOTH the admitted content_hash and the
+    // Fact's genesis_root, so drop_misextracted check 3b (content_hash == g) holds.
+    let fact_genesis = opml::genesis::genesis_state_root(genesis_f);
     let pages = vector[g2, g3];
     let indices = vector[2u64, 3u64];
     let siblings = vector[vector[copy z0, copy left], vector[copy l2, copy left]];
@@ -654,7 +658,7 @@ fun drop_misextracted_flips_resolution() {
     ts::next_tx(&mut s, ADMIN);
     {
         let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
-        market::test_admit(&mut m, 0, 1, hash32(1), 1100, &clk, ts::ctx(&mut s));
+        market::test_admit(&mut m, 0, 1, copy fact_genesis, 1100, &clk, ts::ctx(&mut s)); // content_hash = input genesis (Vuln B)
         let (yg, _) = market::group_counts_live(&m);
         assert!(yg == 1, 0); // counts as YES before the drop
         ts::return_shared(m);
@@ -663,10 +667,8 @@ fun drop_misextracted_flips_resolution() {
     // a FINALIZED counter-extraction Fact: same program, genesis BUILT from the
     // item's input, output = the NO token ⇒ true reading NO ≠ asserted YES.
     ts::next_tx(&mut s, ADMIN);
-    // a Fact carries the STATE root (state_root(mem, regs=0)), not the bare
-    // memory root — wrap genesis_f exactly as drop_misextracted will recompute it.
-    let fact_genesis = opml::genesis::genesis_state_root(genesis_f);
-    // the Fact's final-state (root_n) output opening: terminal output = the NO token
+    // the Fact commits the SAME input genesis (fact_genesis) that the item committed
+    // as content_hash; and its final-state (root_n) output opening = the NO token
     let (out_page, out_sibs, out_mem, out_regs, root_n) = terminal_opening(vector[200]);
     opml::dispute::share_finalized_fact_for_testing(
         2, 0, pr, fact_genesis, 0, build_output(vector[200]), root_n, 1000, 1000, ts::ctx(&mut s), // root_n + window/timeout ≥ minima
@@ -693,6 +695,74 @@ fun drop_misextracted_flips_resolution() {
         assert!(market::outcome(&m) == 2, 2); // NO (flipped from YES)
         ts::return_shared(m);
     };
+    clk.destroy_for_testing();
+    ts::end(s);
+}
+
+// ---------------------------------------------------------------------------
+// SECURITY — Vuln B: check 3 binds the Fact to the CALLER-supplied input pages, but
+// nothing tied those pages to THIS evidence item. So a Fact over a FABRICATED input
+// that honestly reads NO could drop ANY honest YES item. Check 3b closes it: the
+// item's content_hash must equal the genesis of the supplied input; here the item
+// committed a content_hash that is NOT that genesis, so the drop is rejected.
+// ---------------------------------------------------------------------------
+#[test]
+#[expected_failure(abort_code = 31, location = veritas::market)]
+fun drop_rejects_fact_over_foreign_input() {
+    let p0 = page(11);
+    let p1 = page(22);
+    let g2 = page(33);
+    let g3 = page(44);
+    let l0 = opml::merkle::page_leaf(&p0);
+    let l1 = opml::merkle::page_leaf(&p1);
+    let z0 = opml::genesis::zero_page_leaf();
+    let left = opml::merkle::node(&l0, &l1);
+    let static_root = opml::merkle::node(&left, &opml::merkle::node(&z0, &z0));
+    let l2 = opml::merkle::page_leaf(&g2);
+    let l3 = opml::merkle::page_leaf(&g3);
+    let genesis_f = opml::merkle::node(&left, &opml::merkle::node(&l2, &l3));
+    let fact_genesis = opml::genesis::genesis_state_root(genesis_f);
+    let pages = vector[g2, g3];
+    let indices = vector[2u64, 3u64];
+    let siblings = vector[vector[copy z0, copy left], vector[copy l2, copy left]];
+    let pr = x"deadbeef";
+
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    clk.set_for_testing(0);
+    ts::next_tx(&mut s, ADMIN);
+    let seed = coin::mint_for_testing<SUI>(1_000_000, ts::ctx(&mut s));
+    let mkt = market::create_market(
+        b"Did it happen?", pr, 2,
+        static_root, 100, 200, 300, 1000, 1000,
+        mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 1, 1],
+        1, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+    );
+    // admit a YES item whose content_hash is NOT its input's genesis — i.e. it is
+    // about DIFFERENT content than the Fact's fabricated input
+    clk.set_for_testing(1200);
+    ts::next_tx(&mut s, ADMIN);
+    {
+        let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+        market::test_admit(&mut m, 0, 1, hash32(99), 1100, &clk, ts::ctx(&mut s));
+        ts::return_shared(m);
+    };
+    // the attacker's Fact runs the judge honestly on a FABRICATED input (genesis
+    // fact_genesis, reads NO) with a VALID output opening — but that input is not
+    // this item's
+    ts::next_tx(&mut s, ADMIN);
+    let (out_page, out_sibs, out_mem, out_regs, root_n) = terminal_opening(vector[200]);
+    opml::dispute::share_finalized_fact_for_testing(
+        2, 0, pr, fact_genesis, 0, build_output(vector[200]), root_n, 1000, 1000, ts::ctx(&mut s),
+    );
+    ts::next_tx(&mut s, ADMIN);
+    let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+    let fact = ts::take_shared<opml::dispute::Fact>(&s);
+    // checks 1c (output bound) and 3 (genesis == g) PASS; but the item's content_hash
+    // (hash32(99)) != that input's genesis ⇒ abort 31 at check 3b
+    market::drop_misextracted(&mut m, 0, &fact, pages, indices, siblings, out_regs, out_mem, out_page, out_sibs);
+    ts::return_shared(fact);
+    ts::return_shared(m);
     clk.destroy_for_testing();
     ts::end(s);
 }
