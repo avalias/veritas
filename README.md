@@ -73,8 +73,8 @@ Then open <http://127.0.0.1:8777/> and pick a demo:
 
 ```bash
 cargo test                                         # Rust: VM, compiler, kernels, fraud game
-cd opml/move && sui move test                       # the on-chain verifier (56 tests)
-cd demos/prediction-market/move && sui move test    # the market contract (24 tests)
+cd opml/move && sui move test                       # the on-chain verifier (58 tests)
+cd demos/prediction-market/move && sui move test    # the market contract (38 tests)
 ```
 
 ## Continue development

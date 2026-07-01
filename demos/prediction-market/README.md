@@ -24,7 +24,7 @@ Open `web/index.html` (the four are deployed on Sui testnet):
 `web/app.html` is the same capabilities combined into one guided walkthrough.
 
 ```
-move/        the veritas Move package: market (CPMM) + credential + reclaim (16 tests)
+move/        the veritas Move package: market (CPMM) + credential + reclaim (38 tests)
 web/         the demos: index + the four pages + app.html, on a shared veritas.js
 *.py, go.sh  staging + auto-replenish scripts for a live demo
 docs/        DEVNET (run it), JUDGE (the 5-minute script), EVIDENCE/PROVENANCE (why it's not a vote)
@@ -33,7 +33,7 @@ docs/        DEVNET (run it), JUDGE (the 5-minute script), EVIDENCE/PROVENANCE (
 ## Run it
 
 ```bash
-cd move && sui move test          # 16 tests
+cd move && sui move test          # 38 tests
 ./go.sh                           # judge resolver + dApp server + staged markets
 ```
 

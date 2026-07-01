@@ -146,14 +146,40 @@ yes/no) is what keeps the two faithful: without it, an `UNKNOWN` verdict whose
 REASON sentence contained a stray "no"/"yes" token would settle on-chain as
 NO/YES while the resolver and the dApp showed ABSTAIN.
 
-### 3.4 Binding the input on-chain (already designed, SPEC §7.2)
+### 3.4 Binding a counter-extraction to the item, on-chain (implemented)
 
-`genesis_F = insert(static_genesis_root, input_pages)` happens **on the
-chain** at assertion time: the resolver supplies Merkle update proofs
-that transform the audited model genesis into the per-question genesis by
-writing exactly the committed evidence token ids into the input region.
-The disputable trace therefore starts from an on-chain-derived root: a
-resolver cannot run on different input than what the market committed.
+`drop_misextracted` is what makes a wrong verdict slashable. It acts on a
+counter-extraction Fact only when **every** link of the chain is bound
+on-chain — no field of the Fact is taken on faith:
+
+- **the Fact stood for real** — it is FINALIZED *and* committed a challenge
+  window and per-move timeout ≥ the market's committed minima, so it could not
+  be self-asserted and instantly finalized (a zero-window Fact proves nothing);
+- **its verdict is its own computation** — `output` is opened against the Fact's
+  final root `root_n` (state_root / halted / step / out_base fold), so lying
+  about the verdict requires lying about a `root_n` the bisection game adjudicates;
+- **it ran THIS market's judge** — `program_root` and memory depth `d` match the
+  committed judge identity;
+- **on exactly THIS item's input** — `genesis_F = insert(static_genesis_root,
+  input_pages)` is reconstructed on-chain by folding the caller-supplied input
+  pages into the audited static image root (so the resolver can't run on
+  different input than committed), *and* that reconstructed genesis equals the
+  item's committed `content_hash`. The signed-feed convention is that a droppable
+  item's `content_hash` **is** the genesis of its tokenized judge input — so the
+  item is welded to its own input, and a Fact over a fabricated input can't drop it;
+- **and the proven verdict disagrees** with the item's asserted claim.
+
+Only then is the item dropped (idempotently — the state mutation is the last
+step). zkTLS/Reclaim items commit `content_hash` to the web claim, not a
+judge-input genesis, so they are **corroborating-only**: they cannot be slashed
+by `drop_misextracted`, matching their capped-tier trust role (EVIDENCE.md §3).
+
+The one residual is inherent to any optimistic system: a Fact that **no honest
+watcher challenges within the committed window** stands on a `root_n` that was
+never adversarially re-executed. That trust is bounded by the real
+window/timeout, the slashable bond, and the on-chain genesis reconstruction
+above — a challenger who runs the public deterministic judge always wins — and
+is removed entirely only by the postponed validity-proof backstop (§FW-8).
 
 ### 3.5 Economics (sized from measured numbers)
 
