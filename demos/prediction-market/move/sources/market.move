@@ -98,6 +98,8 @@ const E_WRONG_JUDGE_PROGRAM: u64 = 24; // Fact ran a different judge program
 const E_GENESIS_MISMATCH: u64 = 25; // Fact's input != this item's input
 const E_NO_MISEXTRACTION: u64 = 26; // proven verdict agrees with the claim
 const E_ALREADY_DROPPED: u64 = 27;
+const E_FACT_WINDOW_TOO_SHORT: u64 = 28; // Fact's challenge window < committed minimum (unchallengeable)
+const E_FACT_TIMEOUT_TOO_SHORT: u64 = 29; // Fact's bisection timeout < committed minimum (self-finalizable)
 
 /// An admitted piece of evidence: a signed claim by a pinned issuer. Stored
 /// so resolution is a transparent, recomputable function of on-chain bytes.
@@ -146,6 +148,18 @@ public struct Market has key {
     judge_yes_token: u32,
     judge_no_token: u32,
     judge_unknown_token: u32,
+    // Minimum challenge-window / bisection-timeout (ms) a counter-extraction
+    // Fact must have committed to be usable by drop_misextracted. A Fact
+    // asserted with a near-zero window finalizes in the same block with an
+    // attacker-chosen output and proves nothing (SPEC §8.2); requiring a real
+    // committed window (and a real per-move timeout, for the claim_timeout
+    // self-finalize path) forces genuine wall-clock time to elapse before such
+    // a Fact can reach FINALIZED, so a self-asserted lie cannot be minted
+    // instantly. (This closes the instant-finalize path; it does NOT by itself
+    // bind the Fact's `output` to its proven computation — see drop_misextracted
+    // note 1b.) Enforced > 0 at creation whenever the backstop is enabled.
+    judge_min_fact_window_ms: u64,
+    judge_min_fact_timeout_ms: u64,
     // -- source policy (EVIDENCE.md §2): who may be heard, and how counted -
     issuer_keys: vector<vector<u8>>, // pinned pubkeys (distinct)
     issuer_schemes: vector<u8>, // issuer_idx → credential scheme (ed25519 | ES256/C2PA)
@@ -201,6 +215,8 @@ public fun create_market(
     judge_yes_token: u32,
     judge_no_token: u32,
     judge_unknown_token: u32,
+    judge_min_fact_window_ms: u64,
+    judge_min_fact_timeout_ms: u64,
     issuer_keys: vector<vector<u8>>,
     issuer_schemes: vector<u8>,
     issuer_groups: vector<u64>,
@@ -217,6 +233,15 @@ public fun create_market(
     assert!(n > 0 && issuer_groups.length() == n && issuer_schemes.length() == n, E_BAD_PARAMS);
     assert!(burden == BURDEN_OCCURRENCE || burden == BURDEN_STATE, E_BAD_PARAMS);
     assert!(evidence_window_ms > 0 && fee_bps < 10000, E_BAD_PARAMS);
+    // If the extraction backstop is enabled (a judge identity is committed), a
+    // Fact used to drop evidence MUST have committed to a real challenge window
+    // and bisection timeout — else a self-asserted, zero-window, instantly
+    // finalized Fact would prove nothing. Forbid the 0 sentinel here so a
+    // creator cannot silently re-open that hole (drop_misextracted enforces
+    // per-Fact that window/timeout meet these minima).
+    if (judge_static_genesis_root.length() > 0) {
+        assert!(judge_min_fact_window_ms > 0 && judge_min_fact_timeout_ms > 0, E_BAD_PARAMS);
+    };
     let now = clock.timestamp_ms();
     // there must be a real trading phase before evidence opens
     assert!(resolve_after_ms > now, E_BAD_TIME);
@@ -254,6 +279,8 @@ public fun create_market(
         judge_yes_token,
         judge_no_token,
         judge_unknown_token,
+        judge_min_fact_window_ms,
+        judge_min_fact_timeout_ms,
         issuer_keys,
         issuer_schemes,
         issuer_groups,
@@ -294,6 +321,8 @@ public fun create_market_entry(
     judge_yes_token: u32,
     judge_no_token: u32,
     judge_unknown_token: u32,
+    judge_min_fact_window_ms: u64,
+    judge_min_fact_timeout_ms: u64,
     issuer_keys: vector<vector<u8>>,
     issuer_schemes: vector<u8>,
     issuer_groups: vector<u64>,
@@ -309,6 +338,7 @@ public fun create_market_entry(
     let _ = create_market(
         question, judge_program_root, judge_depth,
         judge_static_genesis_root, judge_yes_token, judge_no_token, judge_unknown_token,
+        judge_min_fact_window_ms, judge_min_fact_timeout_ms,
         issuer_keys, issuer_schemes, issuer_groups,
         k, burden, resolve_after_ms, evidence_window_ms, fee_bps, seed, clock, ctx,
     );
@@ -535,6 +565,18 @@ public fun drop_misextracted(
     //    REJECTED Fact only proves the asserter lied about the final root — its
     //    `output` is attacker-chosen and must NOT gate the count.
     assert!(opml::dispute::is_finalized(fact), E_FACT_NOT_FINALIZED);
+    // 1b. FINALIZED only means "the claim stood" — worthless if it stood with
+    //     no real interval for anyone to challenge. assert_fact takes
+    //     window_ms/timeout_ms from the caller with NO floor, so a self-asserted
+    //     Fact with window_ms=0 finalizes in the same block, and a tiny
+    //     timeout_ms lets a self-challenger self-finalize via claim_timeout.
+    //     Require both to meet this market's committed minima, closing the
+    //     instant-finalize (finalize) and self-timeout (claim_timeout) paths.
+    //     NOTE: this forces real elapsed time; it does NOT bind `output` to the
+    //     proven final state — a Fact with an honest root_n but a lying `output`
+    //     that survives the window is a SEPARATE gap (output binding) tracked apart.
+    assert!(opml::dispute::window_ms(fact) >= m.judge_min_fact_window_ms, E_FACT_WINDOW_TOO_SHORT);
+    assert!(opml::dispute::timeout_ms(fact) >= m.judge_min_fact_timeout_ms, E_FACT_TIMEOUT_TOO_SHORT);
     // 2. It must have run THIS market's committed judge program.
     assert!(opml::dispute::program_root(fact) == m.judge_program_root, E_WRONG_JUDGE_PROGRAM);
     // 3. Its genesis must be CONSTRUCTED on-chain from THIS item's input bytes,

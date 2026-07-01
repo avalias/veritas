@@ -311,6 +311,18 @@ public fun genesis_root(f: &Fact): vector<u8> { f.genesis_root }
 /// (`[n][tokens]`); this is exposed for callers that re-derive the region.
 public fun out_base(f: &Fact): u64 { f.out_base }
 
+/// The challenge window (ms) the resolver committed at assertion. A consumer
+/// that trusts `is_finalized` as proof of the true extraction MUST also check
+/// this was long enough for a real challenge to occur — a Fact asserted with
+/// window_ms=0 finalizes in the same transaction and proves nothing (SPEC §8.2).
+public fun window_ms(f: &Fact): u64 { f.window_ms }
+
+/// The per-move timeout (ms) of the bisection game. Bounds the OTHER path to
+/// FINALIZED (settle via claim_timeout): a tiny self-chosen timeout lets a
+/// self-challenging resolver drive its own Fact to FINALIZED with no real
+/// independent challenger. Consumers gate on a committed minimum.
+public fun timeout_ms(f: &Fact): u64 { f.timeout_ms }
+
 public fun depth(f: &Fact): u8 { f.d }
 
 public fun n_steps(f: &Fact): u64 { f.n }
@@ -332,6 +344,8 @@ public fun share_finalized_fact_for_testing(
     genesis_root: vector<u8>,
     out_base: u64,
     output: vector<u8>,
+    window_ms: u64,  // committed challenge window — a consumer may require a minimum
+    timeout_ms: u64, // committed per-move timeout — likewise
     ctx: &mut TxContext,
 ) {
     transfer::share_object(Fact {
@@ -349,8 +363,8 @@ public fun share_finalized_fact_for_testing(
         pot: sui::balance::zero<SUI>(),
         bond_value: 0,
         created_ms: 0,
-        window_ms: 0,
-        timeout_ms: 0,
+        window_ms,
+        timeout_ms,
         status: STATUS_FINALIZED,
         lo: 0,
         hi: 0,

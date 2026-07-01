@@ -39,7 +39,7 @@ fun fresh_market(s: &mut ts::Scenario, clock: &clock::Clock, k: u64, burden: u8)
         b"Did event E happen by the deadline?",
         x"aabbccdd",
         12,
-        x"", 1, 2, 3, // judge_static_genesis_root, yes/no/unknown tokens (placeholder; unused here)
+        x"", 1, 2, 3, 0, 0, // judge_static_genesis_root, yes/no/unknown, min fact window/timeout (placeholder; unused here)
         mk_keys(),
         vector[0, 0, 0, 0], // all ed25519 (scheme 0)
         vector[0, 0, 1, 1], // issuers 0,1 share group 0; issuers 2,3 share group 1
@@ -309,7 +309,7 @@ fun create_rejects_unsatisfiable_k() {
     ts::next_tx(&mut s, ADMIN);
     let seed = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut s));
     market::create_market(
-        b"q", x"aa", 12, x"", 1, 2, 3, mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 0, 0], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+        b"q", x"aa", 12, x"", 1, 2, 3, 0, 0, mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 0, 0], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
     abort 99
 }
@@ -325,7 +325,7 @@ fun create_rejects_duplicate_keys() {
     *&mut keys[1] = keys[0]; // duplicate key in a different group
     let seed = coin::mint_for_testing<SUI>(1_000, ts::ctx(&mut s));
     market::create_market(
-        b"q", x"aa", 12, x"", 1, 2, 3, keys, vector[0, 0, 0, 0], vector[0, 1, 2, 3], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
+        b"q", x"aa", 12, x"", 1, 2, 3, 0, 0, keys, vector[0, 0, 0, 0], vector[0, 1, 2, 3], 2, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
     abort 99
 }
@@ -624,7 +624,7 @@ fun drop_misextracted_flips_resolution() {
     let seed = coin::mint_for_testing<SUI>(1_000_000, ts::ctx(&mut s));
     let mkt = market::create_market(
         b"Did it happen?", pr, 2,
-        static_root, yes_tok, no_tok, unk_tok,
+        static_root, yes_tok, no_tok, unk_tok, 1000, 1000, // + min fact window/timeout (backstop enabled ⇒ must be > 0)
         mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 1, 1],
         1, 0, 1000, 1000, 0, seed, &clk, ts::ctx(&mut s),
     );
@@ -647,7 +647,7 @@ fun drop_misextracted_flips_resolution() {
     // memory root — wrap genesis_f exactly as drop_misextracted will recompute it.
     let fact_genesis = opml::genesis::genesis_state_root(genesis_f);
     opml::dispute::share_finalized_fact_for_testing(
-        2, 0, pr, fact_genesis, 0, build_output(vector[200]), ts::ctx(&mut s),
+        2, 0, pr, fact_genesis, 0, build_output(vector[200]), 1000, 1000, ts::ctx(&mut s), // window/timeout ≥ committed minima
     );
 
     // drop the mis-extracted item
@@ -671,6 +671,78 @@ fun drop_misextracted_flips_resolution() {
         assert!(market::outcome(&m) == 2, 2); // NO (flipped from YES)
         ts::return_shared(m);
     };
+    clk.destroy_for_testing();
+    ts::end(s);
+}
+
+// ---------------------------------------------------------------------------
+// SECURITY — Vuln A: assert_fact takes window_ms/timeout_ms from the caller with
+// NO floor, so an attacker can self-assert a Fact with an attacker-chosen output
+// and window_ms=0, finalize it in the SAME block (finalize needs only
+// now >= created_ms + window_ms), and use that "FINALIZED" Fact to drop an
+// honest evidence item. drop_misextracted must reject a Fact whose committed
+// window/timeout is below the market's committed minima — is_finalized is only
+// proof of the true extraction if a real challenge opportunity actually existed.
+// ---------------------------------------------------------------------------
+fun armed_market(s: &mut ts::Scenario, clk: &mut clock::Clock): address {
+    clk.set_for_testing(0);
+    ts::next_tx(s, ADMIN);
+    let seed = coin::mint_for_testing<SUI>(1_000_000, ts::ctx(s));
+    // backstop enabled (non-empty static root) ⇒ committed minima = 1000ms each
+    let mkt = market::create_market(
+        b"q?", x"deadbeef", 2,
+        x"aa", 100, 200, 300, 1000, 1000,
+        mk_keys(), vector[0, 0, 0, 0], vector[0, 0, 1, 1],
+        1, 0, 1000, 1000, 0, seed, clk, ts::ctx(s),
+    );
+    clk.set_for_testing(1200);
+    ts::next_tx(s, ADMIN);
+    let mut m = ts::take_shared_by_id<market::Market>(s, object::id_from_address(mkt));
+    market::test_admit(&mut m, 0, 1, hash32(1), 1100, clk, ts::ctx(s)); // one YES item to target
+    ts::return_shared(m);
+    mkt
+}
+
+#[test]
+#[expected_failure(abort_code = 28, location = veritas::market)]
+fun drop_rejects_fact_with_short_window() {
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    let mkt = armed_market(&mut s, &mut clk);
+    // a FINALIZED Fact whose committed window_ms = 0 (attacker instant-finalize)
+    ts::next_tx(&mut s, ADMIN);
+    opml::dispute::share_finalized_fact_for_testing(
+        2, 0, x"deadbeef", x"00", 0, build_output(vector[200]), 0, 1000, ts::ctx(&mut s),
+    );
+    ts::next_tx(&mut s, ADMIN);
+    let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+    let fact = ts::take_shared<opml::dispute::Fact>(&s);
+    // aborts at the window guard, BEFORE the Fact's output can flip the count
+    market::drop_misextracted(&mut m, 0, &fact, vector[], vector[], vector[]);
+    ts::return_shared(fact);
+    ts::return_shared(m);
+    clk.destroy_for_testing();
+    ts::end(s);
+}
+
+#[test]
+#[expected_failure(abort_code = 29, location = veritas::market)]
+fun drop_rejects_fact_with_short_timeout() {
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    let mkt = armed_market(&mut s, &mut clk);
+    // window_ms ok (1000) but timeout_ms = 0: a self-challenger could drive its
+    // OWN Fact to FINALIZED via claim_timeout with no independent challenger.
+    ts::next_tx(&mut s, ADMIN);
+    opml::dispute::share_finalized_fact_for_testing(
+        2, 0, x"deadbeef", x"00", 0, build_output(vector[200]), 1000, 0, ts::ctx(&mut s),
+    );
+    ts::next_tx(&mut s, ADMIN);
+    let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+    let fact = ts::take_shared<opml::dispute::Fact>(&s);
+    market::drop_misextracted(&mut m, 0, &fact, vector[], vector[], vector[]);
+    ts::return_shared(fact);
+    ts::return_shared(m);
     clk.destroy_for_testing();
     ts::end(s);
 }
