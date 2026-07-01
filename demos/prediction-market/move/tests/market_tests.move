@@ -553,6 +553,26 @@ fun build_output(tokens: vector<u64>): vector<u8> {
     o
 }
 
+// Build a VALID final-state (root_n) output-region opening for `tokens` at
+// out_base=0, depth d=2: (out_page, out_sibs, mem_root, regs, root_n) that
+// satisfies dispute::output_is_bound for a Fact with output=build_output(tokens),
+// out_base=0, n=1, d=2 and the returned root_n. Mirrors reveal_final_state's
+// preimage shape (regs[4]=halted=1, u64 step at [5]=n, output folds at out_base).
+fun terminal_opening(tokens: vector<u64>): (vector<u8>, vector<vector<u8>>, vector<u8>, vector<u8>, vector<u8>) {
+    let mut out_page = build_output(tokens);
+    while (out_page.length() < 1024) { out_page.push_back(0u8); };
+    let z0 = opml::genesis::zero_page_leaf();
+    let out_sibs = vector[copy z0, opml::merkle::node(&z0, &z0)]; // 2 siblings (d = 2)
+    let mem_root = opml::merkle::fold(opml::merkle::page_leaf(&out_page), 0, &out_sibs);
+    let mut regs = vector<u8>[];
+    let mut i = 0;
+    while (i < 45) { regs.push_back(0u8); i = i + 1; };
+    *(&mut regs[4]) = 1; // halted == 1
+    *(&mut regs[5]) = 1; // step (u64 LE at offset 5) == 1 == n
+    let root_n = opml::merkle::state_root(&mem_root, &regs);
+    (out_page, out_sibs, mem_root, regs, root_n)
+}
+
 #[test]
 fun decode_verdict_cases() {
     let yes: u32 = 9001;
@@ -646,8 +666,10 @@ fun drop_misextracted_flips_resolution() {
     // a Fact carries the STATE root (state_root(mem, regs=0)), not the bare
     // memory root — wrap genesis_f exactly as drop_misextracted will recompute it.
     let fact_genesis = opml::genesis::genesis_state_root(genesis_f);
+    // the Fact's final-state (root_n) output opening: terminal output = the NO token
+    let (out_page, out_sibs, out_mem, out_regs, root_n) = terminal_opening(vector[200]);
     opml::dispute::share_finalized_fact_for_testing(
-        2, 0, pr, fact_genesis, 0, build_output(vector[200]), 1000, 1000, ts::ctx(&mut s), // window/timeout ≥ committed minima
+        2, 0, pr, fact_genesis, 0, build_output(vector[200]), root_n, 1000, 1000, ts::ctx(&mut s), // root_n + window/timeout ≥ minima
     );
 
     // drop the mis-extracted item
@@ -655,7 +677,7 @@ fun drop_misextracted_flips_resolution() {
     {
         let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
         let fact = ts::take_shared<opml::dispute::Fact>(&s);
-        market::drop_misextracted(&mut m, 0, &fact, pages, indices, siblings);
+        market::drop_misextracted(&mut m, 0, &fact, pages, indices, siblings, out_regs, out_mem, out_page, out_sibs);
         let (yg2, _) = market::group_counts_live(&m);
         assert!(yg2 == 0, 1); // dropped ⇒ no longer counts
         ts::return_shared(fact);
@@ -712,13 +734,13 @@ fun drop_rejects_fact_with_short_window() {
     // a FINALIZED Fact whose committed window_ms = 0 (attacker instant-finalize)
     ts::next_tx(&mut s, ADMIN);
     opml::dispute::share_finalized_fact_for_testing(
-        2, 0, x"deadbeef", x"00", 0, build_output(vector[200]), 0, 1000, ts::ctx(&mut s),
+        2, 0, x"deadbeef", x"00", 0, build_output(vector[200]), x"00", 0, 1000, ts::ctx(&mut s),
     );
     ts::next_tx(&mut s, ADMIN);
     let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
     let fact = ts::take_shared<opml::dispute::Fact>(&s);
     // aborts at the window guard, BEFORE the Fact's output can flip the count
-    market::drop_misextracted(&mut m, 0, &fact, vector[], vector[], vector[]);
+    market::drop_misextracted(&mut m, 0, &fact, vector[], vector[], vector[], vector[], vector[], vector[], vector[]);
     ts::return_shared(fact);
     ts::return_shared(m);
     clk.destroy_for_testing();
@@ -735,12 +757,44 @@ fun drop_rejects_fact_with_short_timeout() {
     // OWN Fact to FINALIZED via claim_timeout with no independent challenger.
     ts::next_tx(&mut s, ADMIN);
     opml::dispute::share_finalized_fact_for_testing(
-        2, 0, x"deadbeef", x"00", 0, build_output(vector[200]), 1000, 0, ts::ctx(&mut s),
+        2, 0, x"deadbeef", x"00", 0, build_output(vector[200]), x"00", 1000, 0, ts::ctx(&mut s),
     );
     ts::next_tx(&mut s, ADMIN);
     let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
     let fact = ts::take_shared<opml::dispute::Fact>(&s);
-    market::drop_misextracted(&mut m, 0, &fact, vector[], vector[], vector[]);
+    market::drop_misextracted(&mut m, 0, &fact, vector[], vector[], vector[], vector[], vector[], vector[], vector[]);
+    ts::return_shared(fact);
+    ts::return_shared(m);
+    clk.destroy_for_testing();
+    ts::end(s);
+}
+
+// ---------------------------------------------------------------------------
+// SECURITY — Vuln C: the bisection game binds root_n, NOT `output` (output enters
+// only via the optional, mutually-exclusive challenge_output path). So a Fact can
+// reach FINALIZED carrying an attacker-typed `output` decoding to the opposite
+// verdict. drop_misextracted now re-binds `output` to root_n (output_is_bound) and
+// rejects a Fact whose committed `output` is not root_n's terminal output region.
+// ---------------------------------------------------------------------------
+#[test]
+#[expected_failure(abort_code = 30, location = veritas::market)]
+fun drop_rejects_fact_with_unbound_output() {
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    let mkt = armed_market(&mut s, &mut clk);
+    // the HONEST terminal state's output region says YES (token 100) — its opening:
+    let (out_page, out_sibs, out_mem, out_regs, root_n) = terminal_opening(vector[100]);
+    // but the attacker commits a LYING `output` (NO, token 200) on that same root_n
+    ts::next_tx(&mut s, ADMIN);
+    opml::dispute::share_finalized_fact_for_testing(
+        2, 0, x"deadbeef", x"00", 0, build_output(vector[200]), root_n, 1000, 1000, ts::ctx(&mut s),
+    );
+    ts::next_tx(&mut s, ADMIN);
+    let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+    let fact = ts::take_shared<opml::dispute::Fact>(&s);
+    // the real opening proves root_n's output is YES, not the committed NO ⇒ abort 30,
+    // BEFORE the (empty) program/genesis args are ever consulted (check 1c precedes them)
+    market::drop_misextracted(&mut m, 0, &fact, vector[], vector[], vector[], out_regs, out_mem, out_page, out_sibs);
     ts::return_shared(fact);
     ts::return_shared(m);
     clk.destroy_for_testing();

@@ -271,6 +271,10 @@ fun output_matches(
         return false
     };
     let off = f.out_base % PAGE;
+    // The output region must fit inside the single opened page — a region that
+    // straddles a page boundary can't be proven by one opening. Return false
+    // (totality: never an out-of-bounds abort on a malformed/non-aligned base).
+    if (off + m > PAGE) { return false };
     let mut i = 0u64;
     while (i < m) {
         if (out_page[off + i] != want[i]) { return false };
@@ -297,9 +301,37 @@ public fun interval(f: &Fact): (u64, u64) { (f.lo, f.hi) }
 
 public fun pot_value(f: &Fact): u64 { f.pot.value() }
 
-/// The verdict bytes the resolver optimistically committed (and which the
-/// bisection game protects). The market reads this once the Fact stands.
+/// The verdict bytes the resolver optimistically committed. NOTE: the bisection
+/// game protects `root_n`, NOT this field — `output` enters the game only via the
+/// optional, mutually-exclusive challenge_output path (SPEC §8.5). A consumer
+/// that reads this for value MUST first bind it to root_n with `output_is_bound`.
 public fun output(f: &Fact): vector<u8> { f.output }
+
+/// TRUE iff (regs, mem_root, out_page, out_sibs) opens this Fact's committed
+/// final root_n and proves `output` really is the terminal output region:
+/// state_root(mem_root, regs) == root_n, halted == 1, step == n, and the
+/// `output` bytes fold into mem_root at out_base. These are exactly the
+/// reveal_final_state checks (SPEC §8.5), exposed as a pure predicate so the
+/// market can bind output to root_n AT THE POINT OF USE. This collapses an
+/// output-lie into a root_n-lie the bisection game already adjudicates —
+/// unifying output's protection with root_n's and retiring the separate,
+/// bypassable challenge_output surface as a required trust root. (It does not
+/// make root_n itself non-arbitrary on the unchallenged finalize path — that is
+/// the inherent optimistic-trust residual, mitigated by the committed window /
+/// timeout and the slashable bond.)
+public fun output_is_bound(
+    f: &Fact,
+    regs: vector<u8>,
+    mem_root: vector<u8>,
+    out_page: vector<u8>,
+    out_sibs: vector<vector<u8>>,
+): bool {
+    if (regs.length() != 45) { return false };
+    if (merkle::state_root(&mem_root, &regs) != f.root_n) { return false };
+    let halted = regs[4];
+    let step = opml::bytes_le::u64_at(&regs, 5);
+    halted == 1 && step == f.n && output_matches(f, &mem_root, &out_page, &out_sibs)
+}
 
 /// Judge identity: a market binds itself to (program_root, genesis_root)
 /// so a Fact can only resolve it if it ran THIS judge on THIS input.
@@ -344,6 +376,7 @@ public fun share_finalized_fact_for_testing(
     genesis_root: vector<u8>,
     out_base: u64,
     output: vector<u8>,
+    root_n: vector<u8>, // committed final-state root (for output_is_bound tests)
     window_ms: u64,  // committed challenge window — a consumer may require a minimum
     timeout_ms: u64, // committed per-move timeout — likewise
     ctx: &mut TxContext,
@@ -356,7 +389,7 @@ public fun share_finalized_fact_for_testing(
         genesis_root,
         out_base,
         n: 1,
-        root_n: vector[],
+        root_n,
         output,
         resolver: ctx.sender(),
         challenger: @0x0,

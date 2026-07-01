@@ -100,6 +100,7 @@ const E_NO_MISEXTRACTION: u64 = 26; // proven verdict agrees with the claim
 const E_ALREADY_DROPPED: u64 = 27;
 const E_FACT_WINDOW_TOO_SHORT: u64 = 28; // Fact's challenge window < committed minimum (unchallengeable)
 const E_FACT_TIMEOUT_TOO_SHORT: u64 = 29; // Fact's bisection timeout < committed minimum (self-finalizable)
+const E_OUTPUT_NOT_BOUND: u64 = 30; // Fact's output not proven to be root_n's terminal output region
 
 /// An admitted piece of evidence: a signed claim by a pinned issuer. Stored
 /// so resolution is a transparent, recomputable function of on-chain bytes.
@@ -555,6 +556,12 @@ public fun drop_misextracted(
     input_pages: vector<vector<u8>>,        // the item's input region pages
     input_indices: vector<u64>,             // their memory-tree leaf indices (ascending)
     input_siblings: vector<vector<vector<u8>>>, // per-page Merkle update proofs
+    // The Fact's final-state (root_n) output-region opening, which binds the
+    // trusted `output` to the proven computation (check 4 / output_is_bound).
+    out_regs: vector<u8>,
+    out_mem_root: vector<u8>,
+    out_page: vector<u8>,
+    out_sibs: vector<vector<u8>>,
 ) {
     assert!(m.phase != PHASE_RESOLVED, E_WRONG_PHASE);
     assert!(item_idx < m.evidence.length(), E_BAD_PARAMS);
@@ -572,11 +579,22 @@ public fun drop_misextracted(
     //     timeout_ms lets a self-challenger self-finalize via claim_timeout.
     //     Require both to meet this market's committed minima, closing the
     //     instant-finalize (finalize) and self-timeout (claim_timeout) paths.
-    //     NOTE: this forces real elapsed time; it does NOT bind `output` to the
-    //     proven final state — a Fact with an honest root_n but a lying `output`
-    //     that survives the window is a SEPARATE gap (output binding) tracked apart.
+    //     NOTE: this forces real elapsed time but does NOT by itself bind
+    //     `output` to the proven final state — check 4 (output_is_bound) does that.
     assert!(opml::dispute::window_ms(fact) >= m.judge_min_fact_window_ms, E_FACT_WINDOW_TOO_SHORT);
     assert!(opml::dispute::timeout_ms(fact) >= m.judge_min_fact_timeout_ms, E_FACT_TIMEOUT_TOO_SHORT);
+    // 1c. Bind `output` to the Fact's committed final root before trusting it: the
+    //     bisection game protects root_n, NOT `output` (output enters the game only
+    //     via the optional, mutually-exclusive challenge_output path, SPEC §8.5).
+    //     output_is_bound reproves `output` is the terminal output region at root_n
+    //     (state_root==root_n, halted==1, step==n, out_base fold), so lying about
+    //     the verdict requires lying about a root the bisection game adjudicates.
+    //     Without this, a Fact with an honest root_n but an attacker-typed `output`
+    //     drops honest evidence on a verdict the protocol never adjudicated.
+    assert!(
+        opml::dispute::output_is_bound(fact, out_regs, out_mem_root, out_page, out_sibs),
+        E_OUTPUT_NOT_BOUND,
+    );
     // 2. It must have run THIS market's committed judge program.
     assert!(opml::dispute::program_root(fact) == m.judge_program_root, E_WRONG_JUDGE_PROGRAM);
     // 3. Its genesis must be CONSTRUCTED on-chain from THIS item's input bytes,
@@ -588,7 +606,7 @@ public fun drop_misextracted(
     // the bare memory root (SPEC §3.3/§7.2; pinned by genesis_differential.rs).
     let g = opml::genesis::genesis_state_root(g_mem);
     assert!(opml::dispute::genesis_root(fact) == g, E_GENESIS_MISMATCH);
-    // 4. The proven verdict must DISAGREE with the item's asserted claim.
+    // 4. The proven, root-bound verdict must DISAGREE with the item's asserted claim.
     let out = opml::dispute::output(fact);
     let true_claim = decode_verdict(&out, m.judge_yes_token, m.judge_no_token, m.judge_unknown_token);
     let it = &mut m.evidence[item_idx];
