@@ -102,6 +102,7 @@ const E_FACT_WINDOW_TOO_SHORT: u64 = 28; // Fact's challenge window < committed 
 const E_FACT_TIMEOUT_TOO_SHORT: u64 = 29; // Fact's bisection timeout < committed minimum (self-finalizable)
 const E_OUTPUT_NOT_BOUND: u64 = 30; // Fact's output not proven to be root_n's terminal output region
 const E_INPUT_MISMATCH: u64 = 31; // the supplied input's genesis != THIS item's committed content_hash
+const E_WRONG_JUDGE_DEPTH: u64 = 32; // Fact's memory depth d != the committed judge depth (tree-arity mismatch)
 
 /// An admitted piece of evidence: a signed claim by a pinned issuer. Stored
 /// so resolution is a transparent, recomputable function of on-chain bytes.
@@ -587,6 +588,11 @@ public fun drop_misextracted(
     //     `output` to the proven final state — check 4 (output_is_bound) does that.
     assert!(opml::dispute::window_ms(fact) >= m.judge_min_fact_window_ms, E_FACT_WINDOW_TOO_SHORT);
     assert!(opml::dispute::timeout_ms(fact) >= m.judge_min_fact_timeout_ms, E_FACT_TIMEOUT_TOO_SHORT);
+    // 1b'. Bind the Fact's memory depth d to the committed judge. d drives the
+    //      output-opening arity (output_is_bound needs out_sibs.length == d) and the
+    //      genesis reconstruction shape, so a Fact at a different depth is a different
+    //      judge — check it before those depend on it (arity analog of program_root).
+    assert!(opml::dispute::depth(fact) == m.judge_depth, E_WRONG_JUDGE_DEPTH);
     // 1c. Bind `output` to the Fact's committed final root before trusting it: the
     //     bisection game protects root_n, NOT `output` (output enters the game only
     //     via the optional, mutually-exclusive challenge_output path, SPEC §8.5).

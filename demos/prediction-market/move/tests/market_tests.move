@@ -870,3 +870,30 @@ fun drop_rejects_fact_with_unbound_output() {
     clk.destroy_for_testing();
     ts::end(s);
 }
+
+// SECURITY — holistic review 4a: the Fact's memory depth `d` is a trusted-from-Fact
+// parameter that drives the output-opening arity (out_sibs.length == d) and the
+// genesis reconstruction shape. drop_misextracted binds it to the committed judge
+// depth (the arity analog of program_root / Vuln C), so a Fact at a different depth
+// is rejected before those checks depend on it.
+#[test]
+#[expected_failure(abort_code = 32, location = veritas::market)]
+fun drop_rejects_fact_with_wrong_depth() {
+    let mut s = ts::begin(ADMIN);
+    let mut clk = clock::create_for_testing(ts::ctx(&mut s));
+    let mkt = armed_market(&mut s, &mut clk); // commits judge_depth = 2
+    // a FINALIZED Fact at depth d = 3 (≠ committed 2); window/timeout ok
+    ts::next_tx(&mut s, ADMIN);
+    opml::dispute::share_finalized_fact_for_testing(
+        3, 0, x"deadbeef", x"00", 0, build_output(vector[200]), x"00", 1000, 1000, ts::ctx(&mut s),
+    );
+    ts::next_tx(&mut s, ADMIN);
+    let mut m = ts::take_shared_by_id<market::Market>(&s, object::id_from_address(mkt));
+    let fact = ts::take_shared<opml::dispute::Fact>(&s);
+    // aborts at the depth check (1b'), before output/program/genesis are consulted
+    market::drop_misextracted(&mut m, 0, &fact, vector[], vector[], vector[], vector[], vector[], vector[], vector[]);
+    ts::return_shared(fact);
+    ts::return_shared(m);
+    clk.destroy_for_testing();
+    ts::end(s);
+}
